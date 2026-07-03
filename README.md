@@ -11,28 +11,30 @@
 [![Dynamic JSON Badge](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fconnector.oomol.com%2Fv1%2Fcatalog&query=data.providerCount&label=Providers&color=%237d7fe9)](https://oomol.com/apps)
 [![Dynamic JSON Badge](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fconnector.oomol.com%2Fv1%2Fcatalog&query=data.actionCount&label=Actions&color=%237d7fe9)](https://oomol.com/apps)
 
-OpenConnector is an open-source auth gateway that connects 800+ providers, supports
-Cloudflare-compatible deployment, and provides 8,000+ prebuilt Actions that AI agents can call
-directly through the [Connector SDK](https://github.com/oomol-lab/connector-sdk),
-MCP, and HTTP.
+OpenConnector is an open-source auth gateway that currently provides 680+ providers and 7,000+
+prebuilt Actions in this repository. It supports Cloudflare-compatible deployment and lets AI
+agents call real SaaS products safely through the
+[Connector SDK](https://github.com/oomol-lab/connector-sdk), MCP, and HTTP.
 
 OpenConnector does more than store provider credentials. The gateway, provider catalog, and Action
 executors are open source, so developers can self-host the runtime, inspect every Action contract,
 and give agents a controlled way to work with real SaaS products without rebuilding each integration
 from scratch.
 
-This repository is the open-source migration of oomol's broader connector catalog. The commercial
-SaaS version already supports 1,000+ SaaS providers; the open-source catalog currently includes
-800+ providers and is expanding as we migrate more integrations into maintainable open-source
-provider definitions and executors.
+This repository contains the part of oomol's connector catalog that has already been migrated into
+open source. The commercial oomol version covers 1,000+ providers; the open-source catalog will keep
+growing as more integrations are turned into maintainable provider definitions and executors. The
+commercial and open-source versions use compatible connector interfaces and Action contracts, so
+teams can start on the commercial version for speed and later move to private or self-hosted
+runtime infrastructure.
 
-[oo CLI](https://github.com/oomol-lab/oo-cli) support for the open-source runtime is in the same
-migration path from the commercial version and is targeted for mid-July 2026. Until then, use the
-SDK, MCP, HTTP API, OpenAPI, and local Web Console paths below.
+[oo CLI](https://github.com/oomol-lab/oo-cli) support for the open-source runtime is being added and
+is targeted for mid-July 2026. Until then, use the SDK, MCP, HTTP API, OpenAPI, and local Web
+Console paths below.
 
 ## Why OpenConnector
 
-- [800+ providers and 8,000+ prebuilt Actions](docs/providers.md) across SaaS products such as
+- [680+ providers and 7,000+ prebuilt Actions](docs/providers.md) across SaaS products such as
   GitHub, Gmail, Notion, BigQuery, Google Analytics, Supabase, Airtable, Slack, and more.
 - Open-source auth gateway for API keys, OAuth2, custom credentials, and no-auth providers.
 - Open-source Action layer with prebuilt request/response schemas and lazy-loaded executors.
@@ -40,7 +42,7 @@ SDK, MCP, HTTP API, OpenAPI, and local Web Console paths below.
   Assets.
 - Agent-ready access through the [Connector SDK](https://github.com/oomol-lab/connector-sdk),
   MCP, HTTP API, OpenAPI, and a local Web Console, with
-  [oo CLI](https://github.com/oomol-lab/oo-cli) support in open-source adaptation.
+  [oo CLI](https://github.com/oomol-lab/oo-cli) support being adapted for the open-source runtime.
 - Runtime controls for connection identity, scopes, runtime tokens, action allow/block policies,
   temporary file transit, and redacted run logs.
 
@@ -48,31 +50,32 @@ SDK, MCP, HTTP API, OpenAPI, and local Web Console paths below.
 
 OpenConnector is designed for products where agents need to act inside the SaaS tools customers
 already use, while keeping credentials, scopes, schemas, and execution logs in a controlled runtime.
-The hosted, private, and self-hosted paths use compatible connector interfaces, so teams can move
-deployment boundaries over time without rewriting the app-facing integration layer.
+The commercial and open-source versions stay interface-compatible: teams can start with oomol's
+hosted service to avoid OAuth approval delays and ship faster, then move the same connector layer to
+private or self-hosted infrastructure when they need more deployment control.
 
 - Agent products that need a reusable connector layer across work apps, developer tools, data
   systems, communication platforms, and AI services.
 - SaaS products that want to add agent workflows without turning every external API into a custom
   integration project.
-- Teams that want to start hosted for speed while preserving a clear path to private or self-hosted
-  infrastructure later.
+- Teams that want to start hosted for speed and later move cleanly to private or self-hosted
+  infrastructure.
 
 ## Developer Tools
 
 | Tool                                                        | Use it for                                                                                                    |
 | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | [Connector SDK](https://github.com/oomol-lab/connector-sdk) | Call connector Actions, proxy upstream APIs, and inspect the catalog from TypeScript apps and agent runtimes. |
-| [oo CLI](https://github.com/oomol-lab/oo-cli)               | Open-source runtime support is being adapted from the commercial version and is targeted for mid-July 2026.   |
+| [oo CLI](https://github.com/oomol-lab/oo-cli)               | Open-source runtime support is being added and is targeted for mid-July 2026.                                 |
 | MCP                                                         | Expose app Actions to MCP-capable agent hosts through `http://localhost:3000/mcp`.                            |
 | HTTP / OpenAPI                                              | Call `/v1/actions/*` directly or inspect the generated `/openapi.json` document.                              |
 
 ## Connected SaaS Logo Wall
 
-OpenConnector currently supports 800+ providers and 8,000+ prebuilt Actions. This logo wall is only a
-partial preview, not the full catalog. It highlights recognizable SaaS, developer tools,
-productivity apps, analytics products, and AI services so readers can immediately see that
-OpenConnector reaches far more than the logos shown here.
+OpenConnector currently supports 680+ providers and 7,000+ prebuilt Actions in this repository.
+This logo wall is only a partial preview, not the full catalog. It highlights recognizable SaaS,
+developer tools, productivity apps, analytics products, and AI services to show the breadth of the
+catalog.
 
 ![Connected SaaS logo wall](assets/saas-logo-wall.png)
 
@@ -89,7 +92,7 @@ flowchart LR
   Gateway --> Actions["Open-source Action Executors"]
   Gateway --> Policy["Tokens, Scopes, Allow/Block Policy"]
   Gateway --> Logs["Run Logs"]
-  Actions --> SaaS["800+ Providers"]
+  Actions --> SaaS["680+ Providers"]
   Console["Web Console"] --> Gateway
   Cloudflare["Cloudflare Workers, D1, R2"] -. deploy .-> Gateway
 ```
@@ -100,11 +103,11 @@ safe account labels, and execution results they need.
 
 ## Usage Paths
 
-| Path                         | Best for                                            | What you get                                                                                                              |
-| ---------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Open-source self-host        | Developers and teams that want full control         | Local Docker or Node runtime, SQLite storage, MCP, HTTP, OpenAPI, and Web Console                                         |
-| Cloudflare-compatible deploy | Teams that want a lightweight hosted runtime        | Workers runtime, D1 state, R2 transit files, and Static Assets for the console                                            |
-| [oomol](https://oomol.com/)  | Teams blocked by OAuth approval or launch deadlines | Hosted auth, runtime, and 1,000+ provider catalog, with compatible interfaces for later private or self-hosted deployment |
+| Path                         | Best for                                            | What you get                                                                                                                             |
+| ---------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Open-source self-host        | Developers and teams that want full control         | Local Docker or Node runtime, SQLite storage, MCP, HTTP, OpenAPI, and Web Console                                                        |
+| Cloudflare-compatible deploy | Teams that want a lightweight hosted runtime        | Workers runtime, D1 state, R2 transit files, and Static Assets for the console                                                           |
+| [oomol](https://oomol.com/)  | Teams blocked by OAuth approval or launch deadlines | Hosted auth, runtime, and 1,000+ provider catalog; compatible with the open-source interface for later private or self-hosted deployment |
 
 ## Cloudflare Quick Start Video
 
@@ -183,11 +186,10 @@ preview, and remote deployment.
 ## oomol And Wanta
 
 OpenConnector is the open-source gateway for teams that want to self-host and control the runtime.
-
-If the business needs to go live immediately, [oomol](https://oomol.com/) provides the commercial
-SaaS version: hosted auth and runtime infrastructure, plus access to the broader 1,000+ provider
-catalog while the remaining integrations are migrated into this open-source codebase. Teams can
-start hosted and still keep a path toward private or self-hosted deployment later.
+[oomol](https://oomol.com/) is the compatible commercial SaaS version, with hosted auth, runtime
+infrastructure, and the broader 1,000+ provider catalog. Teams that need to go live immediately can
+start on oomol, then move to private or self-hosted runtime infrastructure when they need to control
+the deployment boundary.
 
 For small teams or individuals who want to use a desktop Agent directly, [Wanta](https://wanta.ai/)
 connects apps through a desktop product experience and adds team app sharing, permission control,
