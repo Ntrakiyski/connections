@@ -42,10 +42,10 @@ from scratch.
 
 ## Connected SaaS Logo Wall
 
-OpenConnector supports 643 providers and 6,680 prebuilt Actions. The logo wall below is only a
-partial preview of the catalog, not the full list. It highlights recognizable connections so you can
-quickly see the range of SaaS, developer tools, productivity apps, analytics products, and AI
-services that agents can reach through OpenConnector.
+OpenConnector currently supports 643 providers and 6,680 prebuilt Actions. This logo wall is only a
+partial preview, not the full catalog. It highlights recognizable SaaS, developer tools,
+productivity apps, analytics products, and AI services so readers can immediately see that
+OpenConnector reaches far more than the logos shown here.
 
 ![Connected SaaS logo wall](assets/saas-logo-wall.png)
 
@@ -73,11 +73,11 @@ safe account labels, and execution results they need.
 
 ## Usage Paths
 
-| Path                         | Best for                                            | What you get                                                                      |
-| ---------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------- |
-| OSS self-host                | Developers and teams that want full control         | Local Docker or Node runtime, SQLite storage, MCP, HTTP, OpenAPI, and Web Console |
-| Cloudflare-compatible deploy | Teams that want a lightweight hosted runtime        | Workers runtime, D1 state, R2 transit files, and Static Assets for the console    |
-| [oomol](https://oomol.com/)  | Teams blocked by OAuth approval or launch deadlines | Hosted auth and runtime path with migration back to self-hosted deployments       |
+| Path                         | Best for                                            | What you get                                                                                  |
+| ---------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| OSS self-host                | Developers and teams that want full control         | Local Docker or Node runtime, SQLite storage, MCP, HTTP, OpenAPI, and Web Console             |
+| Cloudflare-compatible deploy | Teams that want a lightweight hosted runtime        | Workers runtime, D1 state, R2 transit files, and Static Assets for the console                |
+| [oomol](https://oomol.com/)  | Teams blocked by OAuth approval or launch deadlines | Hosted auth and runtime path, with room to migrate later to private or self-hosted deployment |
 
 ## Cloudflare Quick Start Video
 
@@ -157,13 +157,13 @@ preview, and remote deployment.
 
 OpenConnector is the open-source gateway for teams that want to self-host and control the runtime.
 
-For businesses that need to launch immediately, [oomol](https://oomol.com/) provides the SaaS
-version with hosted auth and runtime infrastructure first, plus a migration path back to private or
-self-hosted deployment when the team is ready.
+If the business needs to go live immediately, [oomol](https://oomol.com/) provides the SaaS version:
+hosted auth and runtime infrastructure first, with room to migrate later to private or self-hosted
+deployment.
 
-For small teams or individuals who want a ready-to-use desktop Agent, [Wanta](https://wanta.ai/)
-connects apps through a desktop product experience and adds team features such as shared app access,
-permission control, multiple connected accounts, and workspace-specific connections.
+For small teams or individuals who want to use a desktop Agent directly, [Wanta](https://wanta.ai/)
+connects apps through a desktop product experience and adds team app sharing, permission control,
+multiple connected accounts, and workspace-specific connections.
 
 ## Documentation
 
