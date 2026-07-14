@@ -3,8 +3,6 @@
 services:
   connector:
     image: ghcr.io/oomol-lab/open-connector:latest
-    ports:
-      - "3000:3000"
     volumes:
       - connector-data:/app/data
     environment:
