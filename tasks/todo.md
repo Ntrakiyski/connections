@@ -23,7 +23,7 @@ Complete the missing multi-workspace security and lifecycle capabilities, verify
 - [x] Make named connection labels first-class in the console and require MCP callers to choose a connection deliberately.
 - [x] Add the workspace deletion/restore/purge lifecycle without duplicating Clerk's profile or membership UI.
 - [x] Add focused regression coverage and run full verification.
-- [ ] Commit and push `main`.
+- [x] Commit and push `main`.
 
 ## Verification
 
@@ -52,3 +52,5 @@ The implementation was committed and pushed to `origin/main` as `f57210b`. Durin
 The final audit identified two unimplemented locked requirements: first-class named connection labels (including deliberate MCP selection), and the restorable workspace lifecycle. Both are now implemented. The console can label, select, and rename multiple provider accounts; `/v1` and MCP runs require the label explicitly so an agent never silently picks an account. The workspace lifecycle archives Connections-owned encrypted data for 14 days, revokes runtime tokens immediately, permits admin restore, and purges scoped records after expiry while leaving Clerk's Organization profile and membership UI authoritative. Clerk organization names now synchronize back into the workspace record so the exact deletion confirmation remains accurate.
 
 InsForge verification was performed against the actual parent Connections project: migration `20260715221000_workspace-lifecycle` is applied; `workspaces` contains `deleted_at` and `purge_at` with the purge index; the aggregate state is 3 active / 0 archived workspaces, 1 owned connection, 1 owned OAuth config, 1 seeded provider control, zero missing owners, zero orphaned provider controls, and zero invalid archive states. A stale empty branch was initially linked locally; its safe additive migrations were not merged and no application data was changed there. The CLI context was returned to the parent before the production migration and inspection.
+
+Release evidence: implementation commit `fe97863` was pushed to `origin/main`. Final verification passed `npm run fix-check`, the full Vitest suite (54 files / 419 tests), `npm run build`, the web production build, `git diff --check`, and the targeted InsForge CLI schema/data checks above.
