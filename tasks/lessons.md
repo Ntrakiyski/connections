@@ -1,5 +1,12 @@
 # Lessons
 
+## 2026-07-15 - Keep approval in the agent conversation
+
+Mistake: Proposed a browser approval link when the requested product experience was an in-chat confirmation.
+Why it happened: I optimized for a server-verifiable authorization boundary before confirming whether the user wanted a security control or a conversational interaction pattern.
+Rule for next time: Distinguish an agent-mediated confirmation prompt from a server-enforced approval grant before designing the flow.
+Example check: Ask whether the desired outcome is "the agent asks me" or "the server must prove I approved."
+
 ## 2026-07-15 - Verify the deployed revision contains the deployment fix
 
 Mistake: Reported the local Compose correction before verifying it had reached the Git revision Coolify deploys.

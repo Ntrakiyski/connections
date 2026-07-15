@@ -104,6 +104,29 @@ describe("MCP server", () => {
     });
   });
 
+  it("tells agents to ask in chat before actions that require approval", async () => {
+    await withMcpClient(async (client) => {
+      const search = await client.callTool({
+        name: "search_actions",
+        arguments: { query: "echo", limit: 1 },
+      });
+
+      expect(client.getInstructions()).toContain("ask the user for explicit approval in the current conversation");
+      expect(search.structuredContent).toMatchObject({
+        ok: true,
+        data: [
+          {
+            capability: {
+              requireApproval: true,
+              approvalInstruction:
+                "Ask the user for explicit approval in the current conversation before executing this action.",
+            },
+          },
+        ],
+      });
+    });
+  });
+
   it("returns structured content for action search and execution", async () => {
     await withMcpClient(async (client) => {
       const search = await client.callTool({

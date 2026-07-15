@@ -169,3 +169,38 @@ Diagnose and fix why a Clerk Organization member receives “You are not a membe
 ## Review
 
 Clerk confirms that `ntrakiyski@gmail.com` is an `org:member` in the active Organization, but the production `workspace_memberships` table initially contained only the original `org:admin` user. The live `POST /api/webhooks/clerk` probe returned `404`, proving `CLERK_WEBHOOK_SIGNING_SECRET` was absent. After the user configured the secret and redeployed, the same probe returns `400 invalid signature`, proving the signed handler is live. The verified Clerk member was backfilled into the matching workspace as `member`, with a `membership.synced` audit event; the database now has both the member and admin rows. The refreshed console confirms access. The targeted webhook test passes (2 tests), and a live MCP `list_apps` call confirms the organization token discovers both labelled Gmail accounts.
+
+---
+
+# Task Plan
+
+## Goal
+
+Design a workspace action-policy control in the action detail UI and make the required-confirmation instruction clear to MCP agents.
+
+## Constraints
+
+- The user explicitly wants approval in the agent conversation, not a separate Connections approval page or link.
+- An in-chat confirmation is enforced by a cooperative MCP client/agent, not cryptographically verifiable by Connections when the host grants unrestricted tool access.
+- Provider credentials remain server-only.
+- Reuse the existing action-policy API and action-detail UI. Do not add a separate policy-management surface.
+
+## Steps
+
+- [x] Trace the existing action-policy API and MCP metadata flow.
+- [x] Identify the gap: host-side metadata cannot guarantee a pause for a permissive agent.
+- [x] Add the manager/admin `Require approval` control beside the action-detail controls.
+- [x] Make protected-action discovery and execution responses explicitly instruct the agent to ask the user for confirmation before execution.
+- [x] Verify a representative MCP client receives the policy and explicit in-chat confirmation instruction.
+
+## Verification
+
+- [x] Existing policy defaults and MCP metadata behavior reviewed.
+- [x] Action-detail UI is restricted to manager/admin configuration.
+- [x] Protected action metadata gives the agent an unambiguous in-chat confirmation instruction.
+- [x] The implementation documents that a host configured to ignore tool policy cannot be made safe without a separate server-verifiable approval mechanism.
+- [x] Relevant tests, `npm run fix-check`, and the web build pass.
+
+## Review
+
+Managers and admins can now toggle `Require approval` from an action's existing detail panel; the existing workspace policy API persists and audits the change. MCP initialization, action search, and action guides return the explicit instruction to ask the user in the current conversation before executing protected actions. Focused UI/MCP tests, `npm run fix-check`, the web production build, and the full Vitest suite pass (56 files / 422 tests). This is intentionally conversational guidance: a host configured to ignore MCP policy cannot be prevented from calling the tool without adding the separate server-verifiable approval mode the user declined.

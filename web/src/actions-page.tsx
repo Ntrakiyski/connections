@@ -3,11 +3,24 @@ import type { ReactNode } from "react";
 
 import { useTranslate } from "@embra/i18n/react";
 import { useClipboard } from "foxact/use-clipboard";
-import { Check, ChevronRight, Code2, Copy, ExternalLink, Loader2, Play, Search, TerminalSquare, X } from "lucide-react";
+import {
+  Check,
+  ChevronRight,
+  Code2,
+  Copy,
+  ExternalLink,
+  Loader2,
+  Play,
+  Search,
+  ShieldCheck,
+  TerminalSquare,
+  X,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
+import { apiGet, apiPut } from "./api";
 import { buildActionExamples, exampleInput, filterActions, parameterSummaries } from "./model";
-import { Badge, EmptyState, TagList } from "./shared-ui";
+import { Badge, EmptyState, InlineError, TagList } from "./shared-ui";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -15,6 +28,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { Toggle } from "@/components/ui/toggle";
 
 interface ActionsPageProps {
   data: AppData;
@@ -25,7 +39,12 @@ interface ActionDetailProps {
   action: ActionDefinition;
   providerName: string;
   connections: AppData["connections"];
+  canManagePolicy: boolean;
   onRefresh(): void;
+}
+
+interface WorkspaceActionPolicy {
+  requireApproval: boolean;
 }
 
 interface ExampleTabsProps {
@@ -180,6 +199,7 @@ export function ActionsPage(props: ActionsPageProps): ReactNode {
               action={selectedAction}
               providerName={providerNames.get(selectedAction.service) ?? selectedAction.service}
               connections={props.data.connections.filter((connection) => connection.service === selectedAction.service)}
+              canManagePolicy={props.data.role !== "member"}
               onRefresh={props.onRefresh}
             />
           ) : (
@@ -237,6 +257,7 @@ function ActionDetail(props: ActionDetailProps): ReactNode {
         <Button asChild variant="outline" size="sm">
           <Link to={`/providers/${props.action.service}`}>{t("actions.provider")}</Link>
         </Button>
+        <ActionApprovalControl actionId={props.action.id} canManage={props.canManagePolicy} />
       </div>
       <div className="panel-section">
         <h3>{t("actions.requiredScopes")}</h3>
@@ -253,6 +274,70 @@ function ActionDetail(props: ActionDetailProps): ReactNode {
         />
       ) : null}
     </>
+  );
+}
+
+function ActionApprovalControl(props: { actionId: string; canManage: boolean }): ReactNode {
+  const t = useTranslate();
+  const [requireApproval, setRequireApproval] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!props.canManage) return;
+    let disposed = false;
+    setRequireApproval(true);
+    setError(null);
+    void apiGet<WorkspaceActionPolicy>(`/api/workspace/action-policies/${encodeURIComponent(props.actionId)}`)
+      .then((policy) => {
+        if (!disposed) setRequireApproval(policy.requireApproval);
+      })
+      .catch(() => {
+        if (!disposed) setError(t("actions.approvalLoadFailed"));
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [props.actionId, props.canManage, t]);
+
+  async function update(nextRequireApproval: boolean): Promise<void> {
+    const previous = requireApproval;
+    setRequireApproval(nextRequireApproval);
+    setSaving(true);
+    setError(null);
+    try {
+      const policy = await apiPut<WorkspaceActionPolicy>(
+        `/api/workspace/action-policies/${encodeURIComponent(props.actionId)}`,
+        { requireApproval: nextRequireApproval },
+      );
+      setRequireApproval(policy.requireApproval);
+    } catch {
+      setRequireApproval(previous);
+      setError(t("actions.approvalUpdateFailed"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!props.canManage) return null;
+
+  return (
+    <div className="action-approval-control">
+      <Toggle
+        variant="outline"
+        size="sm"
+        pressed={requireApproval}
+        disabled={saving}
+        aria-label={`${t("actions.requireApproval")}: ${
+          requireApproval ? t("actions.approvalOn") : t("actions.approvalOff")
+        }`}
+        onPressedChange={(pressed) => void update(pressed)}
+      >
+        {saving ? <Loader2 className="spin" size={15} /> : <ShieldCheck size={15} />}
+        {t("actions.requireApproval")}: {requireApproval ? t("actions.approvalOn") : t("actions.approvalOff")}
+      </Toggle>
+      {error ? <InlineError message={error} /> : null}
+    </div>
   );
 }
 
@@ -499,10 +584,11 @@ export function shouldResetRunActionModal(currentActionId: string, nextActionId:
 }
 
 function buildAgentPrompt(action: ActionDefinition): { prompt: string } {
-  const markdownUrl = `${window.location.origin}/api/actions/${action.id}/agent.md`;
+  const origin = globalThis.location?.origin ?? "";
+  const markdownUrl = `${origin}/api/actions/${action.id}/agent.md`;
   const prompt = [
     `Read ${markdownUrl} to discover the local request contract for ${action.name}.`,
-    `Then call ${window.location.origin}/v1/actions/${action.id} with JSON shaped as { "connectionName": "YOUR_CONNECTION_LABEL", "input": ... }.`,
+    `Then call ${origin}/v1/actions/${action.id} with JSON shaped as { "connectionName": "YOUR_CONNECTION_LABEL", "input": ... }.`,
     "Use the localhost runtime endpoint. Do not call the provider API directly unless I explicitly ask.",
   ].join("\n");
 

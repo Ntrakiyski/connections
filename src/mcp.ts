@@ -66,6 +66,7 @@ const mcpServerInstructions = [
   "Start with list_apps or search_actions.",
   "Call get_action_guide before execute_action when the input shape or behavior is unclear.",
   "Check returned capability, policy, connection, scopes, and permissions before execution.",
+  "When capability.requireApproval is true, ask the user for explicit approval in the current conversation before calling execute_action. Do not execute until they approve.",
   "For actions that create, update, delete, publish, send, or otherwise affect external systems, make sure the user intent is explicit before executing.",
   "Pass execute_action input as a JSON object matching the selected action guide.",
   "For execute_action, always pass the exact connectionName returned for the selected provider; Connections never chooses an account for you.",
@@ -148,7 +149,7 @@ export function createMcpServer(options: IMcpServerOptions): McpServer {
     {
       title: "Execute Action",
       description:
-        "Execute one local provider action by id with a JSON input object and an explicit connection label. Call get_action_guide first if the input shape is unclear.",
+        "Execute one local provider action by id with a JSON input object and an explicit connection label. Check capability.requireApproval first and ask the user in the current conversation when it is true.",
       inputSchema: {
         actionId: z.string().describe("Full action id, for example hackernews.get_item."),
         connectionName: z
@@ -314,6 +315,7 @@ type ActionCapability = {
   policy: ReturnType<ActionPolicyService["evaluate"]> | { allowed: true };
   connections: ConnectionSummary[];
   requireApproval: boolean;
+  approvalInstruction: string | null;
 };
 
 async function describeActionCapability(
@@ -321,6 +323,7 @@ async function describeActionCapability(
   action: RuntimeActionDefinition,
 ): Promise<ActionCapability> {
   const provider = options.catalog.providers.find((candidate) => candidate.service === action.service);
+  const requireApproval = (await options.requireApproval?.(action)) ?? true;
   return {
     execution: action.execution,
     authTypes: provider?.authTypes ?? [],
@@ -328,7 +331,10 @@ async function describeActionCapability(
     providerPermissions: action.providerPermissions,
     policy: options.actionPolicy?.evaluate(action) ?? { allowed: true },
     connections: await options.connections.listConnectionsByService(action.service),
-    requireApproval: (await options.requireApproval?.(action)) ?? true,
+    requireApproval,
+    approvalInstruction: requireApproval
+      ? "Ask the user for explicit approval in the current conversation before executing this action."
+      : null,
   };
 }
 
