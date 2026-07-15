@@ -23,6 +23,7 @@ Diagnose and repair the deployed Connections console after Clerk organization se
 - [x] Verify the repaired local production flow, test suite, lint/typecheck, and deployment-ready diff.
 - [x] Accept Clerk's current compact organization claims in the server verifier while retaining legacy-claim compatibility.
 - [x] Add a regression check for both Clerk claim formats and redeploy the correction.
+- [x] Diagnose and repair the Connections Workspace settings page's `Not found` response.
 
 ## Verification
 
@@ -33,7 +34,10 @@ Diagnose and repair the deployed Connections console after Clerk organization se
 - [x] `npm test`, `npm run build:web`, and `npm run fix-check` pass.
 - [x] PostgreSQL TLS alias handling is explicit and verified during local startup.
 - [x] Active organization claim formats are verified at the server workspace claim resolver.
+- [x] The console no longer exposes workspace pages backed by nonexistent API routes.
 
 ## Review
 
 The original token-scoping fix deployed successfully, but the deployed screenshot showed that the API still rejected the active organization. Clerk v2 session tokens use compact `o.id` and `o.rol` fields; the server had only read v1 `org_id` and `org_role`. The single workspace-claim resolver now supports both formats, preserving the admin-only workspace-creation check and strict workspace isolation. Regression tests cover both claim versions; `npm run fix-check` and the full suite pass (51 files / 407 tests). The database and sidebar findings above remain valid.
+
+The later Workspace Settings and Members screens were not backed by any registered API routes; all requests to `/api/workspace/*` returned the static-route 404 shown in the screenshot. The unused pages, navigation entries, and models were removed so the console no longer advertises nonfunctional workspace administration. Clerk's Organization profile remains the supported workspace-management surface. Add Connections-specific workspace administration only alongside its server routes, lifecycle implementation, and tests.

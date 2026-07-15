@@ -23,10 +23,8 @@ import {
   Monitor,
   Moon,
   RefreshCw,
-  Settings,
   Sun,
   TerminalSquare,
-  Users,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router";
@@ -42,8 +40,6 @@ import { ResourcesPage } from "./resources-page";
 import { RunsPage } from "./runs-page";
 import { InlineError, StatusDot } from "./shared-ui";
 import { useThemeMode } from "./theme";
-import { WorkspaceMembersPage } from "./workspace-members-page";
-import { WorkspaceSettingsPage } from "./workspace-settings-page";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -61,8 +57,6 @@ const navItems: readonly NavItem[] = [
   { path: "/runs", labelKey: "nav.runs", icon: Activity },
   { path: "/access", labelKey: "nav.access", icon: KeyRound },
   { path: "/resources", labelKey: "nav.docs", icon: BookOpen },
-  { path: "/workspace/members", labelKey: "nav.members", icon: Users, roles: ["admin"] },
-  { path: "/workspace/settings", labelKey: "nav.settings", icon: Settings, roles: ["admin"] },
 ];
 
 const oauthCompletionChannelName = "oomol-connect-oauth";
@@ -410,26 +404,6 @@ function AppShell(props: {
               element={<AccessPage tokens={props.data.runtimeTokens} onRefresh={props.onRefresh} />}
             />
             <Route path="/resources" element={<ResourcesPage workspaceName={props.data.workspaceName} />} />
-            <Route
-              path="/workspace/members"
-              element={
-                props.data.role === "admin" ? (
-                  <WorkspaceMembersPage currentUserId={props.data.userId ?? ""} />
-                ) : (
-                  <Navigate to="/overview" replace />
-                )
-              }
-            />
-            <Route
-              path="/workspace/settings"
-              element={
-                props.data.role === "admin" ? (
-                  <WorkspaceSettingsPage onDeleted={props.onLogout} onRefresh={props.onRefresh} />
-                ) : (
-                  <Navigate to="/overview" replace />
-                )
-              }
-            />
             <Route path="*" element={<Navigate to="/overview" replace />} />
           </Routes>
         </main>

@@ -125,22 +125,6 @@ export interface RuntimeActionResponse {
 
 export type WorkspaceRole = "member" | "manager" | "admin";
 
-export interface WorkspaceSettings {
-  workspaceId: string;
-  name: string;
-  clerkOrgId: string;
-  createdAt: string;
-  memberCount: number;
-}
-
-export interface WorkspaceMember {
-  userId: string;
-  name?: string;
-  email?: string;
-  role: WorkspaceRole;
-  joinedAt: string;
-}
-
 export interface AppData {
   providers: ProviderDefinition[];
   connections: ConnectionRecord[];
