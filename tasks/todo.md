@@ -2,7 +2,7 @@
 
 ## Goal
 
-Complete the missing multi-workspace security and lifecycle capabilities, verify live InsForge persistence, and push the tested implementation to `main`.
+Prove that MCP runtime tokens cannot expose or execute data across Clerk Organization / Connections workspace boundaries, and fix any violation found.
 
 ## Constraints
 
@@ -11,31 +11,24 @@ Complete the missing multi-workspace security and lifecycle capabilities, verify
 - Use server-side authorization, workspace-scoped storage, and encrypted server-managed credentials.
 - Inspect production InsForge read-only before applying migrations; validate schema/data after the migration.
 - Do not reintroduce custom Clerk Organization member/settings screens.
+- Treat the token's stored workspace as authoritative; never trust client-supplied workspace selection.
+- Verify discovery, action execution, runs, files, tokens, and provider configuration—not only one MCP endpoint.
 
 ## Steps
 
-- [x] Review product decisions, current implementation, and prior deployment fixes.
-- [x] Inspect live InsForge project/schema/data read-only and reconcile it with the application migration.
-- [x] Add Clerk membership synchronization and immediate access revocation.
-- [x] Enforce role and ownership rules for connections, runtime tokens, runs, OAuth configuration, and transit files.
-- [x] Add workspace provider enablement and action approval policy persistence/enforcement.
-- [x] Add audit recording.
-- [x] Make named connection labels first-class in the console and require MCP callers to choose a connection deliberately.
-- [x] Add the workspace deletion/restore/purge lifecycle without duplicating Clerk's profile or membership UI.
-- [x] Add focused regression coverage and run full verification.
-- [x] Commit and push `main`.
+- [x] Trace runtime-token authentication through the MCP transport and scoped-service creation.
+- [x] Inspect every workspace-addressed storage adapter for cross-workspace reads/writes.
+- [x] Run or add an end-to-end two-workspace token isolation regression test.
+- [x] Verify the exact API-key behaviour and document the evidence.
+- [x] Refresh the repository README with the current Connections product model, architecture, roles, MCP token boundary, and deployment configuration.
 
 ## Verification
 
-- [x] Live InsForge project, tables, indexes, and row counts inspected without exposing secrets.
-- [x] Membership create/update/remove and runtime-token revocation verified.
-- [x] Member/manager/admin access boundaries verified through the Hono API.
-- [x] Cross-workspace and cross-member connection/file access rejected.
-- [x] Provider/action policy and audit behavior covered by tests.
-- [x] Named connection selection and lifecycle semantics tested at the service boundary.
-- [x] `npm run fix-check`, tests, and web build pass.
-- [x] Production lifecycle migration applied and re-inspected through InsForge CLI.
-- [ ] Commit is pushed to `origin/main`.
+- [x] MCP discovery returns only the token workspace's permitted connections.
+- [x] MCP execution cannot resolve a connection, token, run, file, or provider configuration from another workspace.
+- [x] Revoked, removed-member, and archived-workspace tokens are rejected.
+- [ ] Relevant regression tests pass; any code change is pushed to `main`.
+- [x] README accurately describes the deployed product and technical integration points.
 
 ## Review
 
@@ -54,3 +47,5 @@ The final audit identified two unimplemented locked requirements: first-class na
 InsForge verification was performed against the actual parent Connections project: migration `20260715221000_workspace-lifecycle` is applied; `workspaces` contains `deleted_at` and `purge_at` with the purge index; the aggregate state is 3 active / 0 archived workspaces, 1 owned connection, 1 owned OAuth config, 1 seeded provider control, zero missing owners, zero orphaned provider controls, and zero invalid archive states. A stale empty branch was initially linked locally; its safe additive migrations were not merged and no application data was changed there. The CLI context was returned to the parent before the production migration and inspection.
 
 Release evidence: implementation commit `fe97863` was pushed to `origin/main`. Final verification passed `npm run fix-check`, the full Vitest suite (54 files / 419 tests), `npm run build`, the web production build, `git diff --check`, and the targeted InsForge CLI schema/data checks above.
+
+MCP isolation audit: runtime-token authentication resolves only the token hash to its stored workspace and user, checks the current membership role and archived state, then constructs workspace-scoped connection, OAuth, token, run, and control stores before MCP is created. The MCP protocol accepts no workspace selector. A new end-to-end `/mcp` regression test creates two workspaces with different opaque runtime keys and connection labels: each key discovers only its own label, and using the other workspace's label returns structured `connection_not_found`. Existing storage, membership-removal, lifecycle, and transit-file tests cover the related revocation and scoped-data paths. The MCP boundary now normalizes this denied connection lookup into the structured tool error rather than returning raw transport text. The README was rewritten for the current Connections product, deployment, architecture, and security model. Verification passed `npm run fix-check`, all 55 test files / 420 tests, the web build, and `git diff --check`.

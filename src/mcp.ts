@@ -10,6 +10,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
+import { ConnectionError } from "./connection-service.ts";
 import { createActionSearchIndexProvider, searchActions as searchActionIndex } from "./core/action-search.ts";
 import { renderActionMarkdown } from "./server/api/action-markdown.ts";
 
@@ -261,12 +262,20 @@ async function executeAction(
     return errorPayload("unknown_action", `Unknown action: ${actionId}`);
   }
 
-  const run = await options.actions.run({
-    actionId,
-    input,
-    caller: "mcp",
-    connectionName,
-  });
+  let run;
+  try {
+    run = await options.actions.run({
+      actionId,
+      input,
+      caller: "mcp",
+      connectionName,
+    });
+  } catch (error) {
+    if (error instanceof ConnectionError) {
+      return errorPayload(error.code, error.message);
+    }
+    throw error;
+  }
   if (!run) {
     return errorPayload("unknown_action", `Unknown action: ${actionId}`);
   }
