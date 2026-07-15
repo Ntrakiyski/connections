@@ -11,7 +11,7 @@ import type {
 import type { ThemeMode } from "./theme";
 import type { ReactNode } from "react";
 
-import { useAuth, SignIn, SignOutButton } from "@clerk/clerk-react";
+import { OrganizationSwitcher, SignIn, SignOutButton, useAuth } from "@clerk/clerk-react";
 import { useI18n, useLang, useTranslate } from "@embra/i18n/react";
 import {
   Activity,
@@ -32,7 +32,7 @@ import { useEffect, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router";
 import { AccessPage } from "./access-page";
 import { ActionsPage } from "./actions-page";
-import { ApiError, apiGet, apiPost } from "./api";
+import { apiGet } from "./api";
 import oomolConnectLogoUrl from "./assets/oomol-connect-logo.png";
 import { persistLang, supportedLangs } from "./i18n";
 import { emptyData } from "./model";
@@ -43,7 +43,6 @@ import { RunsPage } from "./runs-page";
 import { InlineError, StatusDot } from "./shared-ui";
 import { useThemeMode } from "./theme";
 import { WorkspaceMembersPage } from "./workspace-members-page";
-import { WorkspaceSelector } from "./workspace-selector";
 import { WorkspaceSettingsPage } from "./workspace-settings-page";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -106,13 +105,6 @@ export function subscribeToOAuthCompletions(onComplete: (message: OAuthCompletio
   return () => channel.close();
 }
 
-/** Refreshes workspace-scoped console data after Clerk changes the active organization. */
-export function subscribeToWorkspaceChanges(onChange: () => void): () => void {
-  if (typeof window === "undefined") return () => {};
-  window.addEventListener("clerk:organization-change", onChange);
-  return () => window.removeEventListener("clerk:organization-change", onChange);
-}
-
 function isOAuthCompletionMessage(value: unknown): value is OAuthCompletionMessage {
   if (typeof value !== "object" || value === null) {
     return false;
@@ -124,7 +116,6 @@ function isOAuthCompletionMessage(value: unknown): value is OAuthCompletionMessa
 export interface RuntimeLoadResult {
   authSession: AuthSession;
   data: AppData;
-  workspaces: import("./model").WorkspaceSummary[];
 }
 
 export async function loadRuntimeData(clerkToken: string | null): Promise<RuntimeLoadResult> {
@@ -140,16 +131,15 @@ export async function loadRuntimeData(clerkToken: string | null): Promise<Runtim
     sessionClaims: rawSession.sessionClaims,
   };
   if (!authSession.authenticated) {
-    return { authSession, data: emptyData, workspaces: [] };
+    return { authSession, data: emptyData };
   }
 
-  const [providers, connections, oauthConfigs, runtimeTokens, runPage, workspaces] = await Promise.all([
+  const [providers, connections, oauthConfigs, runtimeTokens, runPage] = await Promise.all([
     apiGet<ProviderDefinition[]>("/api/providers", { bearerToken }),
     apiGet<ConnectionRecord[]>("/api/connections", { bearerToken }),
     apiGet<OAuthConfig[]>("/api/oauth/configs", { bearerToken }),
     apiGet<RuntimeTokenSummary[]>("/api/runtime-tokens", { bearerToken }),
     apiGet<RunLogPage>("/api/runs", { bearerToken }),
-    loadWorkspaceSummaries(authSession, bearerToken),
   ]);
 
   return {
@@ -166,16 +156,14 @@ export async function loadRuntimeData(clerkToken: string | null): Promise<Runtim
       role: authSession.role ?? "member",
       userId: authSession.userId,
     },
-    workspaces,
   };
 }
 
 export function App(): ReactNode {
   const t = useTranslate();
   const { theme, setTheme } = useThemeMode();
-  const { isSignedIn, getToken, signOut } = useAuth();
+  const { isSignedIn, getToken, orgId, signOut } = useAuth();
   const [data, setData] = useState<AppData>(emptyData);
-  const [workspaces, setWorkspaces] = useState<import("./model").WorkspaceSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [runtimeChecked, setRuntimeChecked] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -189,17 +177,22 @@ export function App(): ReactNode {
     [],
   );
 
-  useEffect(() => subscribeToWorkspaceChanges(() => setRefreshToken((value) => value + 1)), []);
-
   useEffect(() => {
+    if (!isSignedIn || !orgId) {
+      setData(emptyData);
+      setError(null);
+      setLoading(false);
+      setRuntimeChecked(true);
+      return;
+    }
+
     let cancelled = false;
     setLoading(true);
-    (isSignedIn ? getToken() : Promise.resolve(null))
+    getToken({ skipCache: true })
       .then((clerkToken) => loadRuntimeData(clerkToken))
-      .then(({ data: nextData, workspaces: nextWorkspaces }) => {
+      .then(({ data: nextData }) => {
         if (!cancelled) {
           setData(nextData);
-          setWorkspaces(nextWorkspaces);
           setError(null);
         }
       })
@@ -217,7 +210,7 @@ export function App(): ReactNode {
     return () => {
       cancelled = true;
     };
-  }, [refreshToken, isSignedIn, getToken, t]);
+  }, [refreshToken, isSignedIn, orgId, getToken, t]);
 
   function refresh(): void {
     setRefreshToken((value) => value + 1);
@@ -227,18 +220,16 @@ export function App(): ReactNode {
     void signOut().then(() => refresh());
   }
 
-  async function switchWorkspace(workspaceId: string): Promise<void> {
-    const token = await getToken();
-    await apiPost("/api/auth/workspace/switch", { workspaceId }, { bearerToken: token ?? undefined });
-    refresh();
-  }
-
   if (!isSignedIn) {
     return (
       <main className="unlock-screen">
-        <SignIn />
+        <SignIn forceRedirectUrl="/" signUpForceRedirectUrl="/" />
       </main>
     );
+  }
+
+  if (!orgId) {
+    return <OrganizationRequiredView />;
   }
 
   if (!runtimeChecked) {
@@ -251,9 +242,7 @@ export function App(): ReactNode {
       loading={loading}
       error={error}
       theme={theme}
-      workspaces={workspaces}
       onRefresh={refresh}
-      onWorkspaceSwitch={switchWorkspace}
       onThemeChange={setTheme}
       onLogout={logout}
     />
@@ -273,14 +262,24 @@ function InitialLoadingView(): ReactNode {
   );
 }
 
+function OrganizationRequiredView(): ReactNode {
+  return (
+    <main className="unlock-screen">
+      <div className="unlock-panel">
+        <h1>Choose a workspace</h1>
+        <p>Select an existing organization or create one to continue.</p>
+        <OrganizationSwitcher hidePersonal defaultOpen afterCreateOrganizationUrl="/" afterSelectOrganizationUrl="/" />
+      </div>
+    </main>
+  );
+}
+
 function AppShell(props: {
   data: AppData;
   loading: boolean;
   error: string | null;
   theme: ThemeMode;
-  workspaces: import("./model").WorkspaceSummary[];
   onRefresh(): void;
-  onWorkspaceSwitch(workspaceId: string): Promise<void>;
   onThemeChange(theme: ThemeMode): void;
   onLogout(): void;
 }): ReactNode {
@@ -311,12 +310,7 @@ function AppShell(props: {
           </div>
         </div>
 
-        <WorkspaceSelector
-          activeWorkspaceId={props.data.workspaceId ?? ""}
-          disabled={props.loading}
-          workspaces={props.workspaces}
-          onSwitch={props.onWorkspaceSwitch}
-        />
+        <OrganizationSwitcher hidePersonal afterCreateOrganizationUrl="/" afterSelectOrganizationUrl="/" />
 
         <nav className="sidebar-nav" aria-label={t("shell.primaryNav")}>
           {visibleNavItems.map((item) => {
@@ -493,27 +487,6 @@ function headingForPath(pathname: string): string {
   if (section === "resources") return "resources";
   if (section === "workspace") return pathname.endsWith("members") ? "members" : "settings";
   return "overview";
-}
-
-async function loadWorkspaceSummaries(
-  authSession: AuthSession,
-  bearerToken?: string,
-): Promise<import("./model").WorkspaceSummary[]> {
-  const fallback = authSession.workspaceId
-    ? [
-        {
-          workspaceId: authSession.workspaceId,
-          name: authSession.workspaceName ?? "Workspace",
-          role: authSession.role ?? "member",
-        },
-      ]
-    : [];
-  try {
-    return await apiGet<import("./model").WorkspaceSummary[]>("/api/auth/workspaces", { bearerToken });
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 404) return fallback;
-    throw error;
-  }
 }
 
 function sessionClaim(claims: Record<string, unknown> | undefined, name: string): string | undefined {

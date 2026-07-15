@@ -2,30 +2,31 @@
 
 ## Goal
 
-Ensure Coolify builds and runs this repository's Connections application rather than the upstream OpenConnector image, and make the deployed web console receive its required Clerk build-time configuration.
+Repair the authenticated Connections console so a signed-in user can select or create an active Clerk Organization, returns to the app after authentication, and can load workspace-scoped API data.
 
 ## Constraints
 
-- Preserve the existing Connections runtime and persistent `connector-data` volume.
-- Do not expose or commit deployment secrets.
-- Keep the Docker/Coolify change minimal and compatible with local Compose use.
+- Preserve the locked rule that one Clerk Organization maps to one Connections workspace.
+- Do not log, change, or commit secrets or Clerk tenant data.
+- Keep Clerk authentication and organization management in Clerk; Connections owns only its effective workspace roles and data.
 
 ## Steps
 
-- [x] Review the product constraints, current Git revision, deployment log, and Docker configuration.
-- [x] Trace server and web-console configuration from image build through runtime.
-- [x] Correct the Compose build configuration.
-- [x] Validate the rendered Compose configuration and production web build.
-- [x] Record evidence and required Coolify configuration.
-- [x] Reproduce the reported blank console locally and compare the deployed source with the local fix.
+- [x] Review the product decisions, current deployment behavior, and existing Clerk integration.
+- [x] Reproduce the authenticated client/server flow locally and capture the API error.
+- [x] Trace active-organization state from Clerk token claims through the server.
+- [x] Add the smallest UI/auth configuration needed to return to Connections and select/create an organization.
+- [x] Verify the corrected local build, signed-out browser flow, and API client behavior.
+- [ ] Push the reviewed fix to `main` for Coolify redeployment.
 
 ## Verification
 
-- [x] Compose configuration resolves to a local `docker/Dockerfile` build.
-- [x] Clerk publishable key is forwarded to the Vite build as a public build argument.
-- [x] Production web build includes the forwarded Clerk key.
-- [x] No secrets appear in tracked files or command output.
+- [x] Sign-in and sign-up are configured to return to the Connections console.
+- [x] The console exposes Clerk organization selection/creation and hides the unsupported personal context.
+- [ ] An active Clerk Organization lets the workspace API load successfully.
+- [x] No application browser errors remain in the tested signed-out flow.
+- [x] `npm run fix-check` passes.
 
 ## Review
 
-Coolify built local source at commit `37074b0`; the deployment log shows a local build context and a local image tagged with that commit, with no GHCR application-image pull. The blank console was caused by that deployed commit's missing Compose `build.args` mapping: Coolify received `CLERK_PUBLISHABLE_KEY`, but the Vite bundle needs `VITE_CLERK_PUBLISHABLE_KEY`. `docker-compose.yml` now maps the former to the latter, and local production build/browser validation showed the Clerk sign-in screen rather than a blank page. `npm run fix-check` passed. Redeploy after this change reaches `main`; keep server secrets runtime-only in Coolify.
+The API failure was a valid `workspace_required` response: the Clerk JWT had no active `org_id`, but the old console did not let the user select one. It also contained a dead, app-owned workspace selector that called nonexistent workspace API routes. The fix uses Clerk's `OrganizationSwitcher` for selecting/creating the active workspace, reloads data when the active org changes, removes the dead selector and its requests, and forces sign-in/sign-up back to `/`. Targeted and full tests passed (400 tests), as did `npm run fix-check` and a local production browser check with no application errors. The disposable local browser cannot complete the user's Google sign-in, so the active-organization request still needs one manual authenticated check before the change is pushed.

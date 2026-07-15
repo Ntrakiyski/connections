@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { subscribeToOAuthCompletions, subscribeToWorkspaceChanges, loadRuntimeData } from "./ui";
+import { subscribeToOAuthCompletions, loadRuntimeData } from "./ui";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -46,19 +46,6 @@ describe("subscribeToOAuthCompletions", () => {
   });
 });
 
-describe("subscribeToWorkspaceChanges", () => {
-  it("refreshes when Clerk changes the active organization", () => {
-    const refresh = vi.fn();
-    vi.stubGlobal("window", new EventTarget());
-    const unsubscribe = subscribeToWorkspaceChanges(refresh);
-
-    window.dispatchEvent(new Event("clerk:organization-change"));
-
-    expect(refresh).toHaveBeenCalledOnce();
-    unsubscribe();
-  });
-});
-
 describe("loadRuntimeData", () => {
   it("passes the Clerk token to all API calls", async () => {
     const calls: Array<{ path: string; headers: Headers }> = [];
@@ -85,7 +72,6 @@ describe("loadRuntimeData", () => {
       "/api/oauth/configs",
       "/api/runtime-tokens",
       "/api/runs",
-      "/api/auth/workspaces",
     ]);
     for (const call of calls) {
       expect(call.headers.get("authorization")).toBe("Bearer clerk-token");
@@ -106,29 +92,5 @@ describe("loadRuntimeData", () => {
 
     const result = await loadRuntimeData(null);
     expect(result.data.providers).toEqual([]);
-  });
-
-  it("keeps the active workspace usable when the optional workspace list route is unavailable", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (path: RequestInfo | URL) => {
-        if (path === "/api/auth/session") {
-          return Response.json({
-            workspaceId: "workspace-1",
-            userId: "user-1",
-            role: "admin",
-            sessionClaims: { org_name: "Platform" },
-          });
-        }
-        if (path === "/api/runs") return Response.json({ items: [] });
-        if (path === "/api/auth/workspaces") return Response.json({ code: "not_found" }, { status: 404 });
-        return Response.json([]);
-      }),
-    );
-
-    const result = await loadRuntimeData("");
-
-    expect(result.data.workspaceName).toBe("Platform");
-    expect(result.workspaces).toEqual([{ workspaceId: "workspace-1", name: "Platform", role: "admin" }]);
   });
 });

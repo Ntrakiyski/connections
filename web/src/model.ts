@@ -125,12 +125,6 @@ export interface RuntimeActionResponse {
 
 export type WorkspaceRole = "member" | "manager" | "admin";
 
-export interface WorkspaceSummary {
-  workspaceId: string;
-  name: string;
-  role: WorkspaceRole;
-}
-
 export interface WorkspaceSettings {
   workspaceId: string;
   name: string;
