@@ -138,3 +138,34 @@ Add a clear top-of-README value proposition for teams evaluating Connections.
 ## Review
 
 Added a short **Why Connections?** section directly below the product introduction. It explains the value in terms of shared, governed account access; bounded MCP tokens; and strict Organization isolation, then leads into the concrete feature list. Cold-read and `git diff --check` passed.
+
+---
+
+# Task Plan
+
+## Goal
+
+Diagnose and fix why a Clerk Organization member receives “You are not a member of the active workspace.”
+
+## Constraints
+
+- Treat Clerk membership and the Connections authorization row as separate facts and trace their synchronization end to end.
+- Do not change Clerk membership, production data, or secrets unless a targeted repair is proven necessary.
+- Preserve immediate access revocation when a user is removed.
+
+## Steps
+
+- [x] Inspect the deployed membership-sync route and its authentication requirements.
+- [x] Verify the Clerk instance, organization membership, webhook delivery/configuration, and corresponding application membership row.
+- [x] Configure the missing production webhook secret and backfill the existing membership.
+
+## Verification
+
+- [x] The invited Clerk member has a matching Connections membership row.
+- [x] The invited Clerk member reloads the console and can load the active workspace.
+- [x] Removed members still lose access immediately in the existing signed-webhook design.
+- [x] The code path and live production configuration were checked.
+
+## Review
+
+Clerk confirms that `ntrakiyski@gmail.com` is an `org:member` in the active Organization, but the production `workspace_memberships` table initially contained only the original `org:admin` user. The live `POST /api/webhooks/clerk` probe returned `404`, proving `CLERK_WEBHOOK_SIGNING_SECRET` was absent. After the user configured the secret and redeployed, the same probe returns `400 invalid signature`, proving the signed handler is live. The verified Clerk member was backfilled into the matching workspace as `member`, with a `membership.synced` audit event; the database now has both the member and admin rows. The refreshed console confirms access. The targeted webhook test passes (2 tests), and a live MCP `list_apps` call confirms the organization token discovers both labelled Gmail accounts.

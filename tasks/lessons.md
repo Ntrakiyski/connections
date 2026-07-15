@@ -34,3 +34,31 @@ Mistake: Applied safe pending migrations while the CLI was linked to an empty st
 Why it happened: The linked context was assumed to match `.env.local` without checking the project name and deployment host first.
 Rule for next time: Before any InsForge mutation, compare the CLI project name and host with the non-secret database host configured for the app.
 Example check: `npx @insforge/cli current` must identify the expected project before `db migrations up` runs.
+
+## 2026-07-15 - Verify the production webhook, not only its source code
+
+Mistake: Treated the signed Clerk webhook implementation as complete without probing its deployed endpoint after setting the required environment variable.
+Why it happened: Source tests proved signature and synchronization behavior, but the Coolify secret and Clerk endpoint configuration remained external deployment state.
+Rule for next time: After adding any webhook, send a harmless unsigned request to the production endpoint; `400 invalid signature` proves the secret is live, while `404` means the integration is disabled.
+Example check: `POST /api/webhooks/clerk` must return `400` before inviting the first collaborator.
+
+## 2026-07-15 - Avoid shell-reserved variable names in verification commands
+
+Mistake: Used `status` as a zsh variable while checking the webhook response.
+Why it happened: The command was written for generic POSIX shells without accounting for zsh's readonly special parameter.
+Rule for next time: Use descriptive, non-special names such as `http_status` in cross-shell diagnostic commands.
+Example check: Run the composed command once in the active shell before combining it with state inspection.
+
+## 2026-07-15 - Count SQL insert values before combining a repair with its audit event
+
+Mistake: The one-statement membership recovery omitted the nullable `resource_id` value for its audit insert.
+Why it happened: The statement was composed manually instead of matching its value list against the explicit target columns.
+Rule for next time: For an audited correction, list each target column and its matching value before executing the transaction.
+Example check: Verify the target-column and value counts match before running the `db query` command.
+
+## 2026-07-15 - Treat pasted runtime tokens as exposed
+
+Mistake: A runtime token was supplied in chat for a live MCP verification.
+Why it happened: The direct test required bearer authentication, but chat is not a secret store.
+Rule for next time: Use a pasted token only for the requested read-only verification, never repeat it in output, and ask the owner to revoke and replace it immediately afterward.
+Example check: Confirm the replacement token is stored only in the MCP client's local configuration.
