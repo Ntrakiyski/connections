@@ -27,7 +27,7 @@ Prove that MCP runtime tokens cannot expose or execute data across Clerk Organiz
 - [x] MCP discovery returns only the token workspace's permitted connections.
 - [x] MCP execution cannot resolve a connection, token, run, file, or provider configuration from another workspace.
 - [x] Revoked, removed-member, and archived-workspace tokens are rejected.
-- [ ] Relevant regression tests pass; any code change is pushed to `main`.
+- [x] Relevant regression tests pass; any code change is pushed to `main`.
 - [x] README accurately describes the deployed product and technical integration points.
 
 ## Review
@@ -49,3 +49,5 @@ InsForge verification was performed against the actual parent Connections projec
 Release evidence: implementation commit `fe97863` was pushed to `origin/main`. Final verification passed `npm run fix-check`, the full Vitest suite (54 files / 419 tests), `npm run build`, the web production build, `git diff --check`, and the targeted InsForge CLI schema/data checks above.
 
 MCP isolation audit: runtime-token authentication resolves only the token hash to its stored workspace and user, checks the current membership role and archived state, then constructs workspace-scoped connection, OAuth, token, run, and control stores before MCP is created. The MCP protocol accepts no workspace selector. A new end-to-end `/mcp` regression test creates two workspaces with different opaque runtime keys and connection labels: each key discovers only its own label, and using the other workspace's label returns structured `connection_not_found`. Existing storage, membership-removal, lifecycle, and transit-file tests cover the related revocation and scoped-data paths. The MCP boundary now normalizes this denied connection lookup into the structured tool error rather than returning raw transport text. The README was rewritten for the current Connections product, deployment, architecture, and security model. Verification passed `npm run fix-check`, all 55 test files / 420 tests, the web build, and `git diff --check`.
+
+Release evidence: the isolation test, structured MCP error response, and README update were pushed to `origin/main` in `577aaeb`.
