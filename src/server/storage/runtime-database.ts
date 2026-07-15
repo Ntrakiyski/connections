@@ -22,6 +22,42 @@ export interface WorkspaceMember {
   updatedAt: string;
 }
 
+export interface WorkspaceProvider {
+  workspaceId: string;
+  service: string;
+  enabledBy: string;
+  enabledAt: string;
+}
+
+export interface WorkspaceActionPolicy {
+  workspaceId: string;
+  actionId: string;
+  requireApproval: boolean;
+  updatedBy: string;
+  updatedAt: string;
+}
+
+export interface AuditEvent {
+  id: string;
+  workspaceId: string;
+  userId: string;
+  event: string;
+  resourceType: string;
+  resourceId?: string;
+  details?: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface IWorkspaceControlStore {
+  listProviders(workspaceId: string): Promise<WorkspaceProvider[]>;
+  enableProvider(provider: WorkspaceProvider): Promise<void>;
+  disableProvider(workspaceId: string, service: string): Promise<boolean>;
+  getActionPolicy(workspaceId: string, actionId: string): Promise<WorkspaceActionPolicy | undefined>;
+  setActionPolicy(policy: WorkspaceActionPolicy): Promise<void>;
+  addAuditEvent(event: AuditEvent): Promise<void>;
+  listAuditEvents(workspaceId: string, limit: number): Promise<AuditEvent[]>;
+}
+
 export interface IWorkspaceStore {
   getByClerkOrgId(clerkOrgId: string): Promise<Workspace | undefined>;
   getById(id: string): Promise<Workspace | undefined>;
@@ -80,5 +116,6 @@ export interface RuntimeDatabase {
   runLogStore: IRunLogStore;
   workspaceStore: IWorkspaceStore;
   membershipStore: IWorkspaceMembershipStore;
+  workspaceControlStore: IWorkspaceControlStore;
   createScopedStores(workspaceId: string): WorkspaceScopedStores;
 }

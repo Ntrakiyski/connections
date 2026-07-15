@@ -183,9 +183,13 @@ class SqliteD1Database implements D1DatabaseBinding {
   private readonly database = new DatabaseSync(":memory:");
 
   constructor() {
-    this.database.exec(readFileSync(new URL("../../../migrations/0001_runtime.sql", import.meta.url), "utf8"));
-    this.database.exec(readFileSync(new URL("../../../migrations/0002_run_service.sql", import.meta.url), "utf8"));
-    this.database.exec(readFileSync(new URL("../../../migrations/0003_workspaces.sql", import.meta.url), "utf8"));
+    this.database.exec(readFileSync(new URL("../../../sqlite-migrations/0001_runtime.sql", import.meta.url), "utf8"));
+    this.database.exec(
+      readFileSync(new URL("../../../sqlite-migrations/0002_run-service.sql", import.meta.url), "utf8"),
+    );
+    this.database.exec(
+      readFileSync(new URL("../../../sqlite-migrations/0003_workspaces.sql", import.meta.url), "utf8"),
+    );
   }
 
   prepare(query: string): D1PreparedStatementBinding {

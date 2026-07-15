@@ -1904,13 +1904,25 @@ class MemoryConnectionStore implements IConnectionStore {
     return this.store.get(createConnectionKey(service, connectionName));
   }
 
-  async set(service: string, connectionName: string, credential: ResolvedCredential): Promise<void> {
+  async getStored(service: string, connectionName: string): Promise<StoredConnection | undefined> {
+    const credential = await this.get(service, connectionName);
+    return credential ? { service, connectionName, credential, createdBy: "local-dev" } : undefined;
+  }
+
+  async set(
+    service: string,
+    connectionName: string,
+    credential: ResolvedCredential,
+    _createdBy?: string,
+  ): Promise<void> {
     this.store.set(createConnectionKey(service, connectionName), credential);
   }
 
   async delete(service: string, connectionName: string): Promise<void> {
     this.store.delete(createConnectionKey(service, connectionName));
   }
+
+  async deleteByOwner(): Promise<void> {}
 
   async list(): Promise<StoredConnection[]> {
     return [...this.store.entries()].map(([key, credential]) => {
@@ -1919,6 +1931,7 @@ class MemoryConnectionStore implements IConnectionStore {
         service: service!,
         connectionName: connectionName!,
         credential,
+        createdBy: "local-dev",
       };
     });
   }
@@ -1983,6 +1996,14 @@ class MemoryRuntimeTokenStore implements IRuntimeTokenStore {
 
   async revoke(id: string): Promise<boolean> {
     return this.tokens.delete(id);
+  }
+
+  async revokeByUser(workspaceId: string, userId: string): Promise<void> {
+    for (const token of this.tokens.values()) {
+      if (token.workspaceId === workspaceId && token.userId === userId) {
+        this.tokens.delete(token.id);
+      }
+    }
   }
 
   async markUsed(id: string, _workspaceId: string, usedAt: string): Promise<void> {

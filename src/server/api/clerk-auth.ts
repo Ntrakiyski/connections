@@ -107,7 +107,10 @@ async function authenticateClerkRequest(context: Context, options: ClerkAuthOpti
 
   const workspace = await findOrCreateWorkspace(stores, claims, clerkOrgId, userId, organization.role);
 
-  const role = (await options.membershipStore.getRole(workspace.id, userId)) ?? "member";
+  const role = await options.membershipStore.getRole(workspace.id, userId);
+  if (!role) {
+    throw new HttpRequestError("workspace_forbidden", "You are not a member of the active workspace.", 403);
+  }
   const workspaceContext = { workspaceId: workspace.id, userId, role };
   context.set("workspace", workspaceContext);
   context.set("clerkSession", { ...workspaceContext, sessionClaims: claims });
@@ -137,7 +140,14 @@ async function findOrCreateWorkspace(
     createdAt: now,
     updatedAt: now,
   };
-  await options.workspaceStore.create(workspace);
+  try {
+    await options.workspaceStore.create(workspace);
+  } catch (error) {
+    const racedWorkspace = await options.workspaceStore.getByClerkOrgId(clerkOrgId);
+    if (!racedWorkspace) throw error;
+    await options.membershipStore.setRole(racedWorkspace.id, userId, "admin");
+    return racedWorkspace;
+  }
   await options.membershipStore.setRole(workspace.id, userId, "admin");
   return workspace;
 }
@@ -156,7 +166,6 @@ function isPublicPath(path: string, method: string): boolean {
     path.startsWith("/oauth/callback/") ||
     (method === "GET" && path === "/api/auth/session") ||
     (method === "POST" && path === "/api/auth/logout") ||
-    (method === "GET" && path.startsWith("/api/files/")) ||
     isConsoleShellRequest(path, method)
   );
 }

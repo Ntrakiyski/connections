@@ -146,6 +146,38 @@ describe("ConnectionService", () => {
     expect(service.forWorkspace("workspace-b")).toBe(workspaceService);
   });
 
+  it("limits members to their own connections while managers retain workspace visibility", async () => {
+    const store = new MemoryConnectionStore();
+    const owner = new ConnectionService({
+      catalog: createCatalogStore([apiKeyProvider]),
+      providerLoader: new FakeProviderLoader(),
+      store,
+      actor: { userId: "user-a", canManageWorkspace: false },
+    });
+    await owner.connectWithApiKey("uptimerobot", {
+      values: { apiKey: "owner-key", accountId: "account-a" },
+    });
+
+    const member = new ConnectionService({
+      catalog: createCatalogStore([apiKeyProvider]),
+      providerLoader: new FakeProviderLoader(),
+      store,
+      actor: { userId: "user-b", canManageWorkspace: false },
+    });
+    await expect(member.listConnections()).resolves.toEqual([]);
+    await expect(member.getCredential("uptimerobot")).rejects.toMatchObject({ code: "connection_not_found" });
+    await expect(member.disconnect("uptimerobot")).rejects.toMatchObject({ code: "connection_not_found" });
+
+    const manager = new ConnectionService({
+      catalog: createCatalogStore([apiKeyProvider]),
+      providerLoader: new FakeProviderLoader(),
+      store,
+      actor: { userId: "user-manager", canManageWorkspace: true },
+    });
+    await expect(manager.listConnections()).resolves.toHaveLength(1);
+    await expect(manager.getCredential("uptimerobot")).resolves.toMatchObject({ apiKey: "owner-key" });
+  });
+
   it("rejects connections for providers unavailable in the current runtime", async () => {
     const service = createService([catalogOnlyProvider]);
 
@@ -622,27 +654,45 @@ class FakeProviderLoader implements IProviderLoader {
 }
 
 class MemoryConnectionStore implements IConnectionStore {
-  private readonly store = new Map<string, ResolvedCredential>();
+  private readonly store = new Map<string, { credential: ResolvedCredential; createdBy: string }>();
 
   async get(service: string, connectionName: string): Promise<ResolvedCredential | undefined> {
-    return this.store.get(createConnectionKey(service, connectionName));
+    return this.store.get(createConnectionKey(service, connectionName))?.credential;
   }
 
-  async set(service: string, connectionName: string, credential: ResolvedCredential): Promise<void> {
-    this.store.set(createConnectionKey(service, connectionName), credential);
+  async getStored(service: string, connectionName: string): Promise<StoredConnection | undefined> {
+    const stored = this.store.get(createConnectionKey(service, connectionName));
+    return stored ? { service, connectionName, ...stored } : undefined;
+  }
+
+  async set(
+    service: string,
+    connectionName: string,
+    credential: ResolvedCredential,
+    createdBy = "local-dev",
+  ): Promise<void> {
+    const key = createConnectionKey(service, connectionName);
+    this.store.set(key, { credential, createdBy: this.store.get(key)?.createdBy || createdBy });
   }
 
   async delete(service: string, connectionName: string): Promise<void> {
     this.store.delete(createConnectionKey(service, connectionName));
   }
 
+  async deleteByOwner(userId: string): Promise<void> {
+    for (const [key, connection] of this.store) {
+      if (connection.createdBy === userId) this.store.delete(key);
+    }
+  }
+
   async list(): Promise<StoredConnection[]> {
-    return [...this.store.entries()].map(([key, credential]) => {
+    return [...this.store.entries()].map(([key, stored]) => {
       const [service, connectionName] = key.split(":");
       return {
         service: service!,
         connectionName: connectionName!,
-        credential,
+        credential: stored.credential,
+        createdBy: stored.createdBy,
       };
     });
   }

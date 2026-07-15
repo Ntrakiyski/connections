@@ -1,5 +1,10 @@
 import type { R2BucketBinding, R2ObjectBinding } from "../cloudflare/cloudflare-bindings.ts";
-import type { ITransitFileService, TransitFileRead, TransitFileUpload } from "./transit-file-store.ts";
+import type {
+  ITransitFileService,
+  TransitFileAccess,
+  TransitFileRead,
+  TransitFileUpload,
+} from "./transit-file-store.ts";
 
 import { extname } from "node:path";
 import { contentTypeFromFileId, TransitFileError } from "./transit-file-store.ts";
@@ -16,6 +21,8 @@ interface TransitFileMetadata {
   mimeType: string;
   createdAt: string;
   sizeBytes: number;
+  workspaceId?: string;
+  userId?: string;
 }
 
 export class R2TransitFileService implements ITransitFileService {
@@ -31,7 +38,7 @@ export class R2TransitFileService implements ITransitFileService {
     this.maxBytes = options.maxBytes;
   }
 
-  async create(file: File): Promise<TransitFileUpload> {
+  async create(file: File, access?: TransitFileAccess): Promise<TransitFileUpload> {
     this.assertFileSize(file.size);
     const fileId = `${randomHex(16)}${safeExtension(file.name)}`;
     const metadata = normalizeMetadata({
@@ -39,6 +46,8 @@ export class R2TransitFileService implements ITransitFileService {
       mimeType: file.type || contentTypeFromFileId(fileId),
       createdAt: new Date().toISOString(),
       sizeBytes: file.size,
+      workspaceId: access?.workspaceId,
+      userId: access?.userId,
     });
 
     await this.bucket.put(objectKey(fileId), file.stream(), {
@@ -55,8 +64,8 @@ export class R2TransitFileService implements ITransitFileService {
     };
   }
 
-  async read(fileId: string): Promise<TransitFileRead> {
-    const { object, metadata } = await this.readObject(fileId);
+  async read(fileId: string, access?: TransitFileAccess): Promise<TransitFileRead> {
+    const { object, metadata } = await this.readObject(fileId, access);
     return {
       file: new File([await object.arrayBuffer()], metadata.name, { type: metadata.mimeType }),
       sizeBytes: metadata.sizeBytes,
@@ -65,8 +74,8 @@ export class R2TransitFileService implements ITransitFileService {
     };
   }
 
-  async response(fileId: string): Promise<Response> {
-    const { object, metadata } = await this.readObject(fileId);
+  async response(fileId: string, access?: TransitFileAccess): Promise<Response> {
+    const { object, metadata } = await this.readObject(fileId, access);
     return new Response(object.body, {
       headers: {
         "content-length": String(metadata.sizeBytes),
@@ -76,25 +85,35 @@ export class R2TransitFileService implements ITransitFileService {
     });
   }
 
-  async delete(fileId: string): Promise<boolean> {
+  async delete(fileId: string, access?: TransitFileAccess): Promise<boolean> {
     assertSafeFileId(fileId);
-    const existing = await this.bucket.get(objectKey(fileId));
-    await Promise.all([this.bucket.delete(objectKey(fileId)), this.bucket.delete(metadataKey(fileId))]);
-    return existing != null;
+    const [existing, metadata] = await Promise.all([this.bucket.get(objectKey(fileId)), this.readMetadata(fileId)]);
+    if (!existing || !metadata) return false;
+    try {
+      assertAccess(metadata, access);
+    } catch {
+      return false;
+    }
+    await this.deleteStored(fileId);
+    return true;
   }
 
   async cleanupExpired(): Promise<void> {}
 
-  private async readObject(fileId: string): Promise<{
+  private async readObject(
+    fileId: string,
+    access?: TransitFileAccess,
+  ): Promise<{
     object: R2ObjectBinding;
     metadata: TransitFileMetadata;
   }> {
     assertSafeFileId(fileId);
     const [object, metadata] = await Promise.all([this.bucket.get(objectKey(fileId)), this.readMetadata(fileId)]);
     if (!object || !metadata || this.isExpired(metadata)) {
-      await this.delete(fileId);
+      await this.deleteStored(fileId);
       throw new TransitFileError(404, "file_not_found", "Transit file was not found.");
     }
+    assertAccess(metadata, access);
 
     return { object, metadata };
   }
@@ -121,6 +140,10 @@ export class R2TransitFileService implements ITransitFileService {
   private isExpired(metadata: TransitFileMetadata): boolean {
     return Date.now() - Date.parse(metadata.createdAt) > this.ttlMs;
   }
+
+  private async deleteStored(fileId: string): Promise<void> {
+    await Promise.all([this.bucket.delete(objectKey(fileId)), this.bucket.delete(metadataKey(fileId))]);
+  }
 }
 
 async function metadataText(metadata: { arrayBuffer(): Promise<ArrayBuffer> }): Promise<string> {
@@ -128,13 +151,27 @@ async function metadataText(metadata: { arrayBuffer(): Promise<ArrayBuffer> }): 
 }
 
 function normalizeMetadata(input: Partial<TransitFileMetadata>): TransitFileMetadata {
-  return {
+  const metadata: TransitFileMetadata = {
     name: typeof input.name === "string" && input.name.trim() ? input.name.trim() : "file",
     mimeType:
       typeof input.mimeType === "string" && input.mimeType.trim() ? input.mimeType.trim() : "application/octet-stream",
     createdAt: typeof input.createdAt === "string" && input.createdAt ? input.createdAt : new Date().toISOString(),
     sizeBytes: typeof input.sizeBytes === "number" && Number.isFinite(input.sizeBytes) ? input.sizeBytes : 0,
   };
+  if (typeof input.workspaceId === "string") metadata.workspaceId = input.workspaceId;
+  if (typeof input.userId === "string") metadata.userId = input.userId;
+  return metadata;
+}
+
+function assertAccess(metadata: TransitFileMetadata, access: TransitFileAccess | undefined): void {
+  if (!metadata.workspaceId && !metadata.userId) return;
+  if (
+    !access ||
+    metadata.workspaceId !== access.workspaceId ||
+    (!access.canManageWorkspace && metadata.userId !== access.userId)
+  ) {
+    throw new TransitFileError(404, "file_not_found", "Transit file was not found.");
+  }
 }
 
 function objectKey(fileId: string): string {

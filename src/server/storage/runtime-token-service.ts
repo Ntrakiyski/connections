@@ -32,11 +32,17 @@ export interface RuntimeTokenCreation {
   record: RuntimeTokenRecord;
 }
 
+export interface RuntimeTokenAccess {
+  userId: string;
+  canManageWorkspace: boolean;
+}
+
 export interface IRuntimeTokenStore {
   add(record: RuntimeTokenRecord): Promise<void>;
   list(): Promise<RuntimeTokenRecord[]>;
   findByHash(tokenHash: string): Promise<RuntimeTokenRecord | undefined>;
   revoke(id: string): Promise<boolean>;
+  revokeByUser(workspaceId: string, userId: string): Promise<void>;
   markUsed(id: string, workspaceId: string, usedAt: string): Promise<void>;
 }
 
@@ -64,12 +70,25 @@ export class RuntimeTokenService {
     return { token, record };
   }
 
-  async listTokens(): Promise<RuntimeTokenSummary[]> {
-    return (await this.store.list()).map(summarizeRuntimeToken);
+  async listTokens(access?: RuntimeTokenAccess): Promise<RuntimeTokenSummary[]> {
+    const records = await this.store.list();
+    return records
+      .filter((record) => !access || access.canManageWorkspace || record.userId === access.userId)
+      .map(summarizeRuntimeToken);
   }
 
-  async revokeToken(id: string): Promise<boolean> {
-    return this.store.revoke(id);
+  async revokeToken(id: string, access?: RuntimeTokenAccess): Promise<boolean> {
+    if (access && !access.canManageWorkspace) {
+      const record = (await this.store.list()).find((item) => item.id === id);
+      if (!record || record.userId !== access.userId) {
+        return false;
+      }
+    }
+    return await this.store.revoke(id);
+  }
+
+  async revokeTokensForUser(workspaceId: string, userId: string): Promise<void> {
+    await this.store.revokeByUser(workspaceId, userId);
   }
 
   async verifyToken(token: string): Promise<RuntimeTokenContext | undefined> {

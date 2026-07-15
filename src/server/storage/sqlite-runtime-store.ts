@@ -1,13 +1,17 @@
-import type { IConnectionStore } from "../../connection-service.ts";
+import type { IConnectionStore, StoredConnection } from "../../connection-service.ts";
 import type { ResolvedCredential } from "../../core/types.ts";
 import type { IOAuthClientConfigStore, OAuthClientConfig } from "../../oauth/oauth-client-config-service.ts";
 import type { IOAuthStateStore, OAuthAuthorizationState } from "../../oauth/oauth-flow-service.ts";
 import type { ISecretCodec } from "../secrets/secret-codec-core.ts";
 import type {
   IWorkspaceMembershipStore,
+  IWorkspaceControlStore,
   IWorkspaceStore,
   RuntimeDatabase,
   Workspace,
+  WorkspaceActionPolicy,
+  WorkspaceProvider,
+  AuditEvent,
   WorkspaceMember,
   WorkspaceScopedStores,
 } from "./runtime-database.ts";
@@ -20,7 +24,7 @@ import { PlainTextSecretCodec } from "../secrets/secret-codec-core.ts";
 import { decodeRunLogCursor, encodeRunLogCursor } from "./runtime-store.ts";
 
 type RuntimeRow = Record<string, unknown>;
-const migrationDirectory = new URL("../../../migrations/", import.meta.url);
+const migrationDirectory = new URL("../../../sqlite-migrations/", import.meta.url);
 
 export interface SqliteRuntimeDatabaseOptions {
   runLimit?: number;
@@ -36,6 +40,7 @@ export class SqliteRuntimeDatabase implements RuntimeDatabase {
   readonly runLogStore: SqliteRunLogStore;
   readonly workspaceStore: SqliteWorkspaceStore;
   readonly membershipStore: SqliteWorkspaceMembershipStore;
+  readonly workspaceControlStore: SqliteWorkspaceControlStore;
 
   private readonly database: DatabaseSync;
   private readonly secretCodec: ISecretCodec;
@@ -55,6 +60,7 @@ export class SqliteRuntimeDatabase implements RuntimeDatabase {
     this.runtimeTokenStore = new SqliteRuntimeTokenStore(this.database);
     this.workspaceStore = new SqliteWorkspaceStore(this.database);
     this.membershipStore = new SqliteWorkspaceMembershipStore(this.database);
+    this.workspaceControlStore = new SqliteWorkspaceControlStore(this.database);
   }
 
   createScopedStores(workspaceId: string): WorkspaceScopedStores {
@@ -139,20 +145,34 @@ export class SqliteConnectionStore implements IConnectionStore {
   }
 
   async get(service: string, connectionName: string): Promise<ResolvedCredential | undefined> {
-    const row = this.database
-      .prepare("select value from connections where workspace_id = ? and service = ? and connection_name = ?")
-      .get(this.workspaceId, service, connectionName);
-    return row ? parseJson<ResolvedCredential>(await this.secretCodec.decode(readString(row, "value"))) : undefined;
+    return (await this.getStored(service, connectionName))?.credential;
   }
 
-  async set(service: string, connectionName: string, credential: ResolvedCredential): Promise<void> {
+  async getStored(service: string, connectionName: string): Promise<StoredConnection | undefined> {
+    const row = this.database
+      .prepare(
+        "select service, connection_name, value, created_by from connections where workspace_id = ? and service = ? and connection_name = ?",
+      )
+      .get(this.workspaceId, service, connectionName);
+    return row
+      ? {
+          service: readString(row, "service"),
+          connectionName: readString(row, "connection_name"),
+          credential: parseJson<ResolvedCredential>(await this.secretCodec.decode(readString(row, "value"))),
+          createdBy: readString(row, "created_by"),
+        }
+      : undefined;
+  }
+
+  async set(service: string, connectionName: string, credential: ResolvedCredential, createdBy = ""): Promise<void> {
     this.database
       .prepare(
         `
           insert into connections (workspace_id, service, connection_name, label, value, created_by, updated_at)
-          values (?, ?, ?, '', ?, '', ?)
+          values (?, ?, ?, '', ?, ?, ?)
           on conflict(workspace_id, service, connection_name) do update set
             value = excluded.value,
+            created_by = case when connections.created_by = '' then excluded.created_by else connections.created_by end,
             updated_at = excluded.updated_at
         `,
       )
@@ -161,6 +181,7 @@ export class SqliteConnectionStore implements IConnectionStore {
         service,
         connectionName,
         await this.secretCodec.encode(JSON.stringify(credential)),
+        createdBy,
         new Date().toISOString(),
       );
   }
@@ -171,10 +192,16 @@ export class SqliteConnectionStore implements IConnectionStore {
       .run(this.workspaceId, service, connectionName);
   }
 
-  async list(): Promise<Array<{ service: string; connectionName: string; credential: ResolvedCredential }>> {
+  async deleteByOwner(userId: string): Promise<void> {
+    this.database
+      .prepare("delete from connections where workspace_id = ? and created_by = ?")
+      .run(this.workspaceId, userId);
+  }
+
+  async list(): Promise<StoredConnection[]> {
     const rows = this.database
       .prepare(
-        "select service, connection_name, value from connections where workspace_id = ? order by service, connection_name",
+        "select service, connection_name, value, created_by from connections where workspace_id = ? order by service, connection_name",
       )
       .all(this.workspaceId);
     return await Promise.all(
@@ -182,6 +209,7 @@ export class SqliteConnectionStore implements IConnectionStore {
         service: readString(row, "service"),
         connectionName: readString(row, "connection_name"),
         credential: parseJson<ResolvedCredential>(await this.secretCodec.decode(readString(row, "value"))),
+        createdBy: readString(row, "created_by"),
       })),
     );
   }
@@ -332,6 +360,13 @@ export class SqliteRuntimeTokenStore implements IRuntimeTokenStore {
     return result.changes > 0;
   }
 
+  async revokeByUser(workspaceId: string, userId: string): Promise<void> {
+    this.assertWorkspace(workspaceId);
+    this.database
+      .prepare("update runtime_tokens set revoked_at = ? where workspace_id = ? and user_id = ? and revoked_at is null")
+      .run(new Date().toISOString(), workspaceId, userId);
+  }
+
   async markUsed(id: string, workspaceId: string, usedAt: string): Promise<void> {
     this.assertWorkspace(workspaceId);
     this.database
@@ -400,6 +435,10 @@ export class SqliteRunLogStore implements IRunLogStore {
     if (input.service) {
       filters.push("service = ?");
       values.push(input.service);
+    }
+    if (input.userId) {
+      filters.push("user_id = ?");
+      values.push(input.userId);
     }
     if (cursor) {
       filters.push("(started_at < ? or (started_at = ? and id < ?))");
@@ -488,6 +527,104 @@ class SqliteWorkspaceMembershipStore implements IWorkspaceMembershipStore {
   }
 }
 
+class SqliteWorkspaceControlStore implements IWorkspaceControlStore {
+  private readonly database: DatabaseSync;
+
+  constructor(database: DatabaseSync) {
+    this.database = database;
+  }
+
+  async listProviders(workspaceId: string): Promise<WorkspaceProvider[]> {
+    return this.database
+      .prepare(
+        "select workspace_id, service, enabled_by, enabled_at from workspace_providers where workspace_id = ? order by service",
+      )
+      .all(workspaceId)
+      .map((row) => ({
+        workspaceId: readString(row, "workspace_id"),
+        service: readString(row, "service"),
+        enabledBy: readString(row, "enabled_by"),
+        enabledAt: readString(row, "enabled_at"),
+      }));
+  }
+
+  async enableProvider(provider: WorkspaceProvider): Promise<void> {
+    this.database
+      .prepare(
+        "insert into workspace_providers (workspace_id, service, enabled_by, enabled_at) values (?, ?, ?, ?) on conflict(workspace_id, service) do nothing",
+      )
+      .run(provider.workspaceId, provider.service, provider.enabledBy, provider.enabledAt);
+  }
+
+  async disableProvider(workspaceId: string, service: string): Promise<boolean> {
+    return (
+      this.database
+        .prepare("delete from workspace_providers where workspace_id = ? and service = ?")
+        .run(workspaceId, service).changes > 0
+    );
+  }
+
+  async getActionPolicy(workspaceId: string, actionId: string): Promise<WorkspaceActionPolicy | undefined> {
+    const row = this.database
+      .prepare(
+        "select workspace_id, action_id, require_approval, updated_by, updated_at from workspace_action_policies where workspace_id = ? and action_id = ?",
+      )
+      .get(workspaceId, actionId);
+    return row
+      ? {
+          workspaceId: readString(row, "workspace_id"),
+          actionId: readString(row, "action_id"),
+          requireApproval: readInteger(row, "require_approval") === 1,
+          updatedBy: readString(row, "updated_by"),
+          updatedAt: readString(row, "updated_at"),
+        }
+      : undefined;
+  }
+
+  async setActionPolicy(policy: WorkspaceActionPolicy): Promise<void> {
+    this.database
+      .prepare(
+        "insert into workspace_action_policies (workspace_id, action_id, require_approval, updated_by, updated_at) values (?, ?, ?, ?, ?) on conflict(workspace_id, action_id) do update set require_approval = excluded.require_approval, updated_by = excluded.updated_by, updated_at = excluded.updated_at",
+      )
+      .run(policy.workspaceId, policy.actionId, policy.requireApproval ? 1 : 0, policy.updatedBy, policy.updatedAt);
+  }
+
+  async addAuditEvent(event: AuditEvent): Promise<void> {
+    this.database
+      .prepare(
+        "insert into audit_events (id, workspace_id, user_id, event, resource_type, resource_id, details, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        event.id,
+        event.workspaceId,
+        event.userId,
+        event.event,
+        event.resourceType,
+        event.resourceId ?? null,
+        event.details ? JSON.stringify(event.details) : null,
+        event.createdAt,
+      );
+  }
+
+  async listAuditEvents(workspaceId: string, limit: number): Promise<AuditEvent[]> {
+    return this.database
+      .prepare(
+        "select id, workspace_id, user_id, event, resource_type, resource_id, details, created_at from audit_events where workspace_id = ? order by created_at desc, id desc limit ?",
+      )
+      .all(workspaceId, limit)
+      .map((row) => ({
+        id: readString(row, "id"),
+        workspaceId: readString(row, "workspace_id"),
+        userId: readString(row, "user_id"),
+        event: readString(row, "event"),
+        resourceType: readString(row, "resource_type"),
+        resourceId: readOptionalString(row, "resource_id"),
+        details: readJsonRecord(row, "details"),
+        createdAt: readString(row, "created_at"),
+      }));
+  }
+}
+
 function runSqliteMigrations(database: DatabaseSync): void {
   database.exec("create table if not exists runtime_migrations (name text primary key, applied_at text not null);");
   const applied = new Set(
@@ -499,7 +636,8 @@ function runSqliteMigrations(database: DatabaseSync): void {
   for (const file of readdirSync(migrationDirectory)
     .filter((name) => /^\d+_.*\.sql$/.test(name))
     .sort()) {
-    if (!applied.has(file)) {
+    const legacyName = file.replace(/-/g, "_");
+    if (!applied.has(file) && !applied.has(legacyName)) {
       database.exec(readFileSync(new URL(file, migrationDirectory), "utf8"));
       database
         .prepare("insert into runtime_migrations (name, applied_at) values (?, ?)")
@@ -570,6 +708,23 @@ function readOptionalString(row: unknown, key: string): string | undefined {
     throw new Error(`Expected SQLite column ${key} to be a string.`);
   }
   return value;
+}
+
+function readInteger(row: unknown, key: string): number {
+  const value = (row as RuntimeRow)[key];
+  if (typeof value !== "number") {
+    throw new Error(`Expected SQLite column ${key} to be a number.`);
+  }
+  return value;
+}
+
+function readJsonRecord(row: unknown, key: string): Record<string, unknown> | undefined {
+  const value = readOptionalString(row, key);
+  if (!value) return undefined;
+  const parsed = JSON.parse(value) as unknown;
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : undefined;
 }
 
 function parseJson<T>(value: string): T {

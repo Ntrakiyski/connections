@@ -16,6 +16,7 @@ import { OAuthFlowService } from "../oauth/oauth-flow-service.ts";
 import { ActionRunner } from "./actions/action-runner.ts";
 import { ConnectServer } from "./connect-server.ts";
 import { RuntimeTokenService } from "./storage/runtime-token-service.ts";
+import { WorkspaceControlService } from "./workspace-control-service.ts";
 
 export interface ConnectAppOptions {
   catalog: CatalogStore;
@@ -43,6 +44,11 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
   const hasStoredRuntimeTokens = async (): Promise<boolean> => (await runtimeTokens.listTokens()).length > 0;
   const createWorkspaceServices = (workspace: WorkspaceContext): WorkspaceServerServices => {
     const stores = options.runtimeDatabase.createScopedStores(workspace.workspaceId);
+    const controls = new WorkspaceControlService(
+      options.catalog,
+      options.runtimeDatabase.workspaceControlStore,
+      workspace,
+    );
     const oauthClientConfigs = new OAuthClientConfigService({
       catalog: options.catalog,
       origin: options.publicOrigin,
@@ -53,6 +59,7 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
       oauthCredentials: new OAuthCredentialRefreshService(oauthClientConfigs),
       providerLoader: options.providerLoader,
       store: stores.connectionStore,
+      actor: { userId: workspace.userId, canManageWorkspace: workspace.role !== "member" },
       createWorkspaceService: (workspaceId) =>
         createWorkspaceServices({
           ...workspace,
@@ -61,13 +68,15 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
       logger: options.logger,
     });
     return {
+      controls,
       connections,
       oauthClientConfigs,
       oauthFlow: new OAuthFlowService({
         clientConfigs: oauthClientConfigs,
         connections,
         states: stores.oauthStateStore,
-        statePrefix: workspace.workspaceId,
+        statePrefix: `${workspace.workspaceId}.${workspace.userId}`,
+        userId: workspace.userId,
       }),
       actions: new ActionRunner({
         catalog: options.catalog,
@@ -106,6 +115,16 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
         optional: options.clerkOptional,
         workspaceStore: options.runtimeDatabase.workspaceStore,
         membershipStore: options.runtimeDatabase.membershipStore,
+      },
+      clerkWebhooks: {
+        signingSecret: process.env.CLERK_WEBHOOK_SIGNING_SECRET,
+        workspaceStore: options.runtimeDatabase.workspaceStore,
+        membershipStore: options.runtimeDatabase.membershipStore,
+        workspaceControls: options.runtimeDatabase.workspaceControlStore,
+        runtimeTokens,
+        removeMemberConnections: async (workspaceId, userId) => {
+          await options.runtimeDatabase.createScopedStores(workspaceId).connectionStore.deleteByOwner(userId);
+        },
       },
       runtimeTokenAuth: {
         runtimeTokens,

@@ -49,6 +49,8 @@ export interface ConnectionServiceOptions {
   oauthCredentials?: IOAuthCredentialRefresher;
   providerLoader: IProviderLoader;
   store: IConnectionStore;
+  /** Actor whose workspace-visible connections this service may access. */
+  actor?: ConnectionActor;
   createWorkspaceService?(workspaceId: string): ConnectionService;
   logger?: RuntimeLogger;
 }
@@ -57,6 +59,12 @@ export interface StoredConnection {
   service: string;
   connectionName: string;
   credential: ResolvedCredential;
+  createdBy: string;
+}
+
+export interface ConnectionActor {
+  userId: string;
+  canManageWorkspace: boolean;
 }
 
 export interface DisconnectedConnectionSummary {
@@ -70,8 +78,10 @@ export interface DisconnectedConnectionSummary {
  */
 export interface IConnectionStore {
   get(service: string, connectionName: string): Promise<ResolvedCredential | undefined>;
-  set(service: string, connectionName: string, credential: ResolvedCredential): Promise<void>;
+  getStored(service: string, connectionName: string): Promise<StoredConnection | undefined>;
+  set(service: string, connectionName: string, credential: ResolvedCredential, createdBy?: string): Promise<void>;
   delete(service: string, connectionName: string): Promise<void>;
+  deleteByOwner(userId: string): Promise<void>;
   list(): Promise<StoredConnection[]>;
 }
 
@@ -112,6 +122,7 @@ export class ConnectionService {
   private readonly oauthCredentials?: IOAuthCredentialRefresher;
   private readonly providerLoader: IProviderLoader;
   private readonly store: IConnectionStore;
+  private readonly actor?: ConnectionActor;
   private readonly createWorkspaceService?: (workspaceId: string) => ConnectionService;
   private readonly logger?: RuntimeLogger;
 
@@ -120,6 +131,7 @@ export class ConnectionService {
     this.oauthCredentials = input.oauthCredentials;
     this.providerLoader = input.providerLoader;
     this.store = input.store;
+    this.actor = input.actor;
     this.createWorkspaceService = input.createWorkspaceService;
     this.logger = input.logger;
   }
@@ -130,7 +142,7 @@ export class ConnectionService {
   }
 
   async listConnections(): Promise<ConnectionSummary[]> {
-    const configured = await this.store.list();
+    const configured = (await this.store.list()).filter((connection) => this.canAccess(connection));
     const configuredByService = new Map<string, ServiceConnection[]>();
     for (const connection of configured) {
       const serviceConnections = configuredByService.get(connection.service) ?? [];
@@ -157,7 +169,9 @@ export class ConnectionService {
 
   async listConnectionsByService(service: string): Promise<ConnectionSummary[]> {
     const provider = this.getProvider(service);
-    const connections = (await this.store.list()).filter((connection) => connection.service === service);
+    const connections = (await this.store.list()).filter(
+      (connection) => connection.service === service && this.canAccess(connection),
+    );
     if (connections.length > 0) {
       return connections.map((connection) =>
         this.createConfiguredConnectionSummary(provider, connection.connectionName, connection.credential),
@@ -170,7 +184,7 @@ export class ConnectionService {
   }
 
   async listAuthenticatedServices(services: string[]): Promise<string[]> {
-    const configured = await this.store.list();
+    const configured = (await this.store.list()).filter((connection) => this.canAccess(connection));
     const authenticated = new Set(
       configured
         .filter((connection) => connection.credential.authType !== "no_auth")
@@ -182,13 +196,16 @@ export class ConnectionService {
   async getConnectionSummary(service: string, connectionName?: string): Promise<ConnectionSummary | undefined> {
     const provider = this.getProvider(service);
     const name = normalizeConnectionName(connectionName);
-    const stored = await this.store.get(service, name);
+    const stored = await this.store.getStored(service, name);
+    if (stored && !this.canAccess(stored)) {
+      throw new ConnectionError("connection_not_found", `${service} connection not found: ${name}.`);
+    }
     if (!stored && connectionName && !this.supportsAuth(provider, "no_auth")) {
       throw new ConnectionError("connection_not_found", `${service} connection not found: ${name}.`);
     }
 
     return stored
-      ? this.createConfiguredConnectionSummary(provider, name, stored)
+      ? this.createConfiguredConnectionSummary(provider, name, stored.credential)
       : this.supportsAuth(provider, "no_auth")
         ? this.createNoAuthConnectionSummary(provider, name)
         : undefined;
@@ -197,9 +214,14 @@ export class ConnectionService {
   async getCredential(service: string, connectionName?: string): Promise<ResolvedCredential | undefined> {
     const provider = this.getProvider(service);
     const name = normalizeConnectionName(connectionName);
-    const stored = await this.store.get(service, name);
+    const stored = await this.store.getStored(service, name);
+    if (stored && !this.canAccess(stored)) {
+      throw new ConnectionError("connection_not_found", `${service} connection not found: ${name}.`);
+    }
     if (stored) {
-      return stored.authType === "oauth2" ? await this.resolveOAuthCredential(service, name, stored) : stored;
+      return stored.credential.authType === "oauth2"
+        ? await this.resolveOAuthCredential(service, name, stored.credential)
+        : stored.credential;
     }
 
     if (connectionName && !this.supportsAuth(provider, "no_auth")) {
@@ -251,7 +273,7 @@ export class ConnectionService {
       ),
     };
     const connectionName = normalizeConnectionName(input.connectionName);
-    await this.store.set(service, connectionName, credential);
+    await this.store.set(service, connectionName, credential, this.createdBy());
 
     return this.createStoredConnectionSummary(provider, connectionName, credential);
   }
@@ -280,7 +302,7 @@ export class ConnectionService {
       ),
     };
     const connectionName = normalizeConnectionName(input.connectionName);
-    await this.store.set(service, connectionName, credential);
+    await this.store.set(service, connectionName, credential, this.createdBy());
 
     return this.createStoredConnectionSummary(provider, connectionName, credential);
   }
@@ -308,7 +330,7 @@ export class ConnectionService {
       ...credential,
       ...this.mergeCredentialRuntimeData(provider, "oauth2", credential, validation),
     };
-    await this.store.set(service, connectionName, storedCredential);
+    await this.store.set(service, connectionName, storedCredential, this.createdBy());
     return this.createStoredConnectionSummary(provider, connectionName, storedCredential);
   }
 
@@ -317,6 +339,10 @@ export class ConnectionService {
     connectionNameInput?: string,
   ): Promise<ConnectionSummary | DisconnectedConnectionSummary> {
     const connectionName = normalizeConnectionName(connectionNameInput);
+    const stored = await this.store.getStored(service, connectionName);
+    if (stored && !this.canAccess(stored)) {
+      throw new ConnectionError("connection_not_found", `${service} connection not found: ${connectionName}.`);
+    }
     await this.store.delete(service, connectionName);
     const provider = this.catalog.providers.find((provider) => provider.service === service);
     if (provider && this.supportsAuth(provider, "no_auth")) {
@@ -468,8 +494,16 @@ export class ConnectionService {
     }
 
     const nextCredential = await this.oauthCredentials.refresh(service, credential);
-    await this.store.set(service, connectionName, nextCredential);
+    await this.store.set(service, connectionName, nextCredential, this.createdBy());
     return nextCredential;
+  }
+
+  private canAccess(connection: StoredConnection): boolean {
+    return !this.actor || this.actor.canManageWorkspace || connection.createdBy === this.actor.userId;
+  }
+
+  private createdBy(): string {
+    return this.actor?.userId ?? "local-dev";
   }
 
   private async runCredentialValidator(

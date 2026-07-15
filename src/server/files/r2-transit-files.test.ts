@@ -44,6 +44,26 @@ describe("R2TransitFileService", () => {
     });
   });
 
+  it("keeps workspace transit files private to their owner or workspace managers", async () => {
+    const service = createService(new MemoryR2Bucket());
+    const owner = { workspaceId: "workspace-a", userId: "user-a", canManageWorkspace: false };
+    const otherMember = { workspaceId: "workspace-a", userId: "user-b", canManageWorkspace: false };
+    const manager = { workspaceId: "workspace-a", userId: "user-c", canManageWorkspace: true };
+    const otherWorkspace = { workspaceId: "workspace-b", userId: "user-a", canManageWorkspace: true };
+    const upload = await service.create(new File(["private"], "private.txt"), owner);
+
+    await expect(service.read(upload.fileId, otherMember)).rejects.toMatchObject({
+      status: 404,
+      code: "file_not_found",
+    });
+    await expect(service.read(upload.fileId, otherWorkspace)).rejects.toMatchObject({
+      status: 404,
+      code: "file_not_found",
+    });
+    await expect(service.delete(upload.fileId, otherMember)).resolves.toBe(false);
+    await expect(service.read(upload.fileId, manager).then((file) => file.file.text())).resolves.toBe("private");
+  });
+
   it("treats expired files as not found", async () => {
     const service = createService(new MemoryR2Bucket(), { ttlSeconds: -1 });
     const upload = await service.create(new File(["old"], "old.txt"));

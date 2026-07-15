@@ -1,4 +1,9 @@
-import type { ITransitFileService, TransitFileRead, TransitFileUpload } from "./transit-file-store.ts";
+import type {
+  ITransitFileService,
+  TransitFileAccess,
+  TransitFileRead,
+  TransitFileUpload,
+} from "./transit-file-store.ts";
 
 import { randomBytes } from "node:crypto";
 import { once } from "node:events";
@@ -19,6 +24,8 @@ export interface TransitFileOptions {
 interface TransitFileMetadata {
   name: string;
   mimeType: string;
+  workspaceId?: string;
+  userId?: string;
 }
 
 export class TransitFileService implements ITransitFileService {
@@ -34,7 +41,7 @@ export class TransitFileService implements ITransitFileService {
     this.maxBytes = options.maxBytes;
   }
 
-  async create(file: File): Promise<TransitFileUpload> {
+  async create(file: File, access?: TransitFileAccess): Promise<TransitFileUpload> {
     this.assertFileSize(file.size);
     await this.cleanupExpired();
     await mkdir(this.rootDir, { recursive: true });
@@ -47,6 +54,8 @@ export class TransitFileService implements ITransitFileService {
     const metadata = normalizeMetadata({
       name: file.name || fileId,
       mimeType: file.type || contentTypeFromFileId(fileId),
+      workspaceId: access?.workspaceId,
+      userId: access?.userId,
     });
     await writeFile(metadataPath(path), JSON.stringify(metadata), { flag: "wx" });
 
@@ -59,7 +68,7 @@ export class TransitFileService implements ITransitFileService {
     };
   }
 
-  async read(fileId: string): Promise<TransitFileRead> {
+  async read(fileId: string, access?: TransitFileAccess): Promise<TransitFileRead> {
     assertSafeFileId(fileId);
     const path = join(this.rootDir, fileId);
     const stats = await stat(path).catch(() => undefined);
@@ -72,6 +81,7 @@ export class TransitFileService implements ITransitFileService {
     }
 
     const metadata = await this.readMetadata(path, fileId);
+    assertAccess(metadata, access);
     return {
       file: new File([await readFile(path)], metadata.name, { type: metadata.mimeType }),
       sizeBytes: stats.size,
@@ -80,7 +90,7 @@ export class TransitFileService implements ITransitFileService {
     };
   }
 
-  async response(fileId: string): Promise<Response> {
+  async response(fileId: string, access?: TransitFileAccess): Promise<Response> {
     assertSafeFileId(fileId);
     const path = join(this.rootDir, fileId);
     const stats = await stat(path).catch(() => undefined);
@@ -93,6 +103,7 @@ export class TransitFileService implements ITransitFileService {
     }
 
     const metadata = await this.readMetadata(path, fileId);
+    assertAccess(metadata, access);
     return new Response(Readable.toWeb(createReadStream(path)) as ReadableStream, {
       headers: {
         "content-length": String(stats.size),
@@ -102,10 +113,11 @@ export class TransitFileService implements ITransitFileService {
     });
   }
 
-  async delete(fileId: string): Promise<boolean> {
+  async delete(fileId: string, access?: TransitFileAccess): Promise<boolean> {
     assertSafeFileId(fileId);
     const path = join(this.rootDir, fileId);
     try {
+      assertAccess(await this.readMetadata(path, fileId), access);
       await unlink(path);
       await unlink(metadataPath(path)).catch(() => undefined);
       return true;
@@ -216,7 +228,29 @@ function normalizeMetadata(
   const name = typeof input.name === "string" && input.name.trim() ? input.name.trim() : fallback.name;
   const mimeType =
     typeof input.mimeType === "string" && input.mimeType.trim() ? input.mimeType.trim() : fallback.mimeType;
-  return { name, mimeType };
+  const metadata: TransitFileMetadata = {
+    name,
+    mimeType,
+  };
+  if (typeof input.workspaceId === "string") metadata.workspaceId = input.workspaceId;
+  if (typeof input.userId === "string") metadata.userId = input.userId;
+  return metadata;
+}
+
+function assertAccess(metadata: TransitFileMetadata, access: TransitFileAccess | undefined): void {
+  // Files created before workspace metadata was introduced remain readable for
+  // their short transit lifetime. New authenticated requests always write the
+  // metadata, so this does not create a cross-workspace path going forward.
+  if (!metadata.workspaceId && !metadata.userId) return;
+  if (
+    !access ||
+    !metadata.workspaceId ||
+    !metadata.userId ||
+    metadata.workspaceId !== access.workspaceId ||
+    (!access.canManageWorkspace && metadata.userId !== access.userId)
+  ) {
+    throw new TransitFileError(404, "file_not_found", "Transit file was not found.");
+  }
 }
 
 function escapeHeaderValue(value: string): string {

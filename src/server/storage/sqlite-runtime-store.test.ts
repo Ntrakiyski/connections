@@ -166,7 +166,7 @@ describe("SqliteRuntimeDatabase", () => {
   it("applies pending runtime migrations to existing local databases", async () => {
     const databasePath = await createDatabasePath();
     const legacy = new DatabaseSync(databasePath);
-    legacy.exec(readFileSync(new URL("../../../migrations/0001_runtime.sql", import.meta.url), "utf8"));
+    legacy.exec(readFileSync(new URL("../../../sqlite-migrations/0001_runtime.sql", import.meta.url), "utf8"));
     legacy
       .prepare(
         `

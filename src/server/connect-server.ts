@@ -4,12 +4,15 @@ import type { ActionPolicyService } from "../core/action-policy.ts";
 import type { ActionSearchIndexProvider, ActionSearchResult } from "../core/action-search.ts";
 import type { IProviderLoader } from "../providers/provider-loader.ts";
 import type { ClerkAuthOptions } from "./api/clerk-auth.ts";
+import type { ClerkWebhookOptions } from "./api/clerk-webhooks.ts";
 import type { RuntimeTokenAuthOptions } from "./api/runtime-token-auth.ts";
 import type { ITransitFileService } from "./files/transit-file-store.ts";
+import type { TransitFileAccess } from "./files/transit-file-store.ts";
 import type { Logger } from "./logger.ts";
 import type { RunLogListInput } from "./storage/runtime-store.ts";
 import type { RuntimeTokenService } from "./storage/runtime-token-service.ts";
 import type { WorkspaceContext } from "./storage/runtime-token-service.ts";
+import type { WorkspaceControlService } from "./workspace-control-service.ts";
 import type { Context } from "hono";
 
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
@@ -26,6 +29,7 @@ import { renderActionMarkdown } from "./api/action-markdown.ts";
 import { getResponseCachePolicy } from "./api/cache-policy.ts";
 import { createClerkAuthMiddleware } from "./api/clerk-auth.ts";
 import { registerClerkRoutes } from "./api/clerk-routes.ts";
+import { registerClerkWebhookRoutes } from "./api/clerk-webhooks.ts";
 import { HttpRequestError, internalError, jsonError, notFound, readJsonBody } from "./api/http-utils.ts";
 import { renderOAuthCompletionPage } from "./api/oauth-completion-page.ts";
 import { createOpenApiDocument } from "./api/openapi.ts";
@@ -40,10 +44,11 @@ import {
   writeRuntimeSuccess,
 } from "./api/runtime-api.ts";
 import { createRuntimeTokenAuthMiddleware } from "./api/runtime-token-auth.ts";
-import { getWorkspaceContext } from "./api/workspace-helpers.ts";
+import { getWorkspaceContext, requireManager } from "./api/workspace-helpers.ts";
 import { createTransitFileResponse, TransitFileError } from "./files/transit-file-store.ts";
 import { ProxyRunner } from "./proxy/proxy-runner.ts";
 import { decodeRunLogCursor } from "./storage/runtime-store.ts";
+import { WorkspaceControlService as WorkspaceControlServiceImpl } from "./workspace-control-service.ts";
 
 export interface WorkspaceServerServices {
   connections: ConnectionService;
@@ -51,6 +56,7 @@ export interface WorkspaceServerServices {
   oauthFlow: OAuthFlowService;
   runtimeTokens: RuntimeTokenService;
   actions: ActionRunner;
+  controls: WorkspaceControlService;
 }
 
 /**
@@ -67,6 +73,7 @@ export interface IConnectServerOptions {
   transitFiles: ITransitFileService;
   staticRoot?: string;
   auth?: ClerkAuthOptions;
+  clerkWebhooks?: ClerkWebhookOptions;
   runtimeTokenAuth?: RuntimeTokenAuthOptions;
   createWorkspaceServices?(workspace: WorkspaceContext): WorkspaceServerServices;
   actionPolicy?: ActionPolicyService;
@@ -106,6 +113,9 @@ export class ConnectServer {
       }
     });
     app.get("/health", (context) => context.json({ ok: true }));
+    if (this.options.clerkWebhooks) {
+      registerClerkWebhookRoutes(app, this.options.clerkWebhooks);
+    }
     app.use("*", createClerkAuthMiddleware(auth));
     if (this.options.runtimeTokenAuth) {
       const runtimeTokenAuth = createRuntimeTokenAuthMiddleware(this.options.runtimeTokenAuth);
@@ -150,10 +160,10 @@ export class ConnectServer {
       }),
     );
 
-    app.get("/api/providers", (context) => context.json(this.options.catalog.providers));
+    app.get("/api/providers", (context) => this.listProviders(context));
     app.get("/api/providers/:service", (context) => this.getProvider(context, context.req.param("service")));
 
-    app.get("/api/actions", (context) => context.json(this.options.catalog.actions));
+    app.get("/api/actions", (context) => this.listActions(context));
     app.get("/api/actions/search", (context) => this.searchApiActions(context));
     app.get("/api/actions/:actionId/agent.md", (context) =>
       this.getActionMarkdown(context, context.req.param("actionId")),
@@ -177,6 +187,20 @@ export class ConnectServer {
     app.delete("/api/oauth/configs/:service", (context) =>
       this.deleteOAuthConfig(context, context.req.param("service")),
     );
+    app.get("/api/workspace/providers", (context) => this.listWorkspaceProviders(context));
+    app.put("/api/workspace/providers/:service", (context) =>
+      this.enableWorkspaceProvider(context, context.req.param("service")),
+    );
+    app.delete("/api/workspace/providers/:service", (context) =>
+      this.disableWorkspaceProvider(context, context.req.param("service")),
+    );
+    app.get("/api/workspace/action-policies/:actionId", (context) =>
+      this.getWorkspaceActionPolicy(context, context.req.param("actionId")),
+    );
+    app.put("/api/workspace/action-policies/:actionId", (context) =>
+      this.setWorkspaceActionPolicy(context, context.req.param("actionId")),
+    );
+    app.get("/api/audit-events", (context) => this.listAuditEvents(context));
     app.post("/api/oauth/authorizations", (context) => this.createOAuthAuthorization(context));
     app.get("/oauth/callback", (context) => this.completeOAuth(context));
     app.post("/mcp", (context) => this.handleMcp(context));
@@ -217,11 +241,45 @@ export class ConnectServer {
       oauthFlow: this.options.oauthFlow,
       runtimeTokens: this.options.runtimeTokens,
       actions: this.options.actions,
+      controls: new WorkspaceControlServiceImpl(
+        this.options.catalog,
+        {
+          listProviders: async () =>
+            this.options.catalog.providers.map((provider) => ({
+              workspaceId: workspace.workspaceId,
+              service: provider.service,
+              enabledBy: "local-dev",
+              enabledAt: "",
+            })),
+          enableProvider: async () => {},
+          disableProvider: async () => false,
+          getActionPolicy: async () => undefined,
+          setActionPolicy: async () => {},
+          addAuditEvent: async () => {},
+          listAuditEvents: async () => [],
+        },
+        workspace,
+      ),
     };
   }
 
-  private getProvider(context: Context, service: string): Response {
-    const provider = this.options.catalog.providers.find((provider) => provider.service === service);
+  private async listProviders(context: Context): Promise<Response> {
+    const workspace = getWorkspaceContext(context);
+    return context.json(
+      workspace.role === "member" ? await this.services(context).controls.providers() : this.options.catalog.providers,
+    );
+  }
+
+  private async listActions(context: Context): Promise<Response> {
+    const providers = new Set((await this.services(context).controls.providers()).map((provider) => provider.service));
+    return context.json(this.options.catalog.actions.filter((action) => providers.has(action.service)));
+  }
+
+  private async getProvider(context: Context, service: string): Promise<Response> {
+    const workspace = getWorkspaceContext(context);
+    const provider = (
+      workspace.role === "member" ? await this.services(context).controls.providers() : this.options.catalog.providers
+    ).find((candidate) => candidate.service === service);
     if (!provider) {
       return notFound(context);
     }
@@ -236,7 +294,7 @@ export class ConnectServer {
       if (!(file instanceof File)) {
         return jsonError(context, 400, "invalid_input", "file is required.");
       }
-      const upload = await this.options.transitFiles.create(file);
+      const upload = await this.options.transitFiles.create(file, this.transitFileAccess(context));
       return context.json(upload);
     } catch (error) {
       return this.handleTransitFileError(context, error);
@@ -246,10 +304,10 @@ export class ConnectServer {
   private async getTransitFile(context: Context, fileId: string): Promise<Response> {
     try {
       if (this.options.transitFiles.response) {
-        return await this.options.transitFiles.response(fileId);
+        return await this.options.transitFiles.response(fileId, this.transitFileAccess(context));
       }
 
-      const file = await this.options.transitFiles.read(fileId);
+      const file = await this.options.transitFiles.read(fileId, this.transitFileAccess(context));
       return createTransitFileResponse(file);
     } catch (error) {
       return this.handleTransitFileError(context, error);
@@ -258,7 +316,7 @@ export class ConnectServer {
 
   private async deleteTransitFile(context: Context, fileId: string): Promise<Response> {
     try {
-      const deleted = await this.options.transitFiles.delete(fileId);
+      const deleted = await this.options.transitFiles.delete(fileId, this.transitFileAccess(context));
       return context.json({ fileId, deleted });
     } catch (error) {
       return this.handleTransitFileError(context, error);
@@ -272,9 +330,18 @@ export class ConnectServer {
     throw error;
   }
 
-  private getAction(context: Context, actionId: string): Response {
+  private transitFileAccess(context: Context): TransitFileAccess {
+    const workspace = getWorkspaceContext(context);
+    return {
+      workspaceId: workspace.workspaceId,
+      userId: workspace.userId,
+      canManageWorkspace: workspace.role !== "member",
+    };
+  }
+
+  private async getAction(context: Context, actionId: string): Promise<Response> {
     const action = this.options.catalog.actionsById.get(actionId);
-    if (!action) {
+    if (!action || !(await this.services(context).controls.isProviderEnabled(action.service))) {
       return notFound(context);
     }
 
@@ -296,6 +363,7 @@ export class ConnectServer {
       return jsonError(context, 400, "invalid_input", query.message);
     }
 
+    const enabled = new Set((await this.services(context).controls.providers()).map((provider) => provider.service));
     const index = await this.actionSearch.get();
     return context.json(
       await this.serializeSearchResults(
@@ -303,14 +371,14 @@ export class ConnectServer {
         searchActions(index, query.q, {
           service: query.service,
           limit: query.limit,
-        }),
+        }).filter((result) => enabled.has(result.service)),
       ),
     );
   }
 
   private async getActionMarkdown(context: Context, actionId: string): Promise<Response> {
     const action = this.options.catalog.actionsById.get(actionId);
-    if (!action) {
+    if (!action || !(await this.services(context).controls.isProviderEnabled(action.service))) {
       return notFound(context);
     }
 
@@ -329,10 +397,12 @@ export class ConnectServer {
     );
   }
 
-  private listRuntimeProviders(context: Context): Response {
+  private async listRuntimeProviders(context: Context): Promise<Response> {
     const services = context.req.queries("service") ?? [];
     const query = optionalString(context.req.query("q"))?.toLowerCase();
+    const enabled = new Set((await this.services(context).controls.providers()).map((provider) => provider.service));
     const providers = this.options.catalog.providers.filter((provider) => {
+      if (!enabled.has(provider.service)) return false;
       if (services.length > 0 && !services.includes(provider.service)) {
         return false;
       }
@@ -349,14 +419,21 @@ export class ConnectServer {
     return writeRuntimeSuccess(context, providers.map(serializeRuntimeProvider));
   }
 
-  private listRuntimeActions(context: Context): Response {
+  private async listRuntimeActions(context: Context): Promise<Response> {
     const service = optionalString(context.req.query("service"));
+    const enabled = new Set((await this.services(context).controls.providers()).map((provider) => provider.service));
     if (!service) {
-      const services = [...new Set(this.options.catalog.actions.map((action) => action.service))];
+      const services = [
+        ...new Set(
+          this.options.catalog.actions.filter((action) => enabled.has(action.service)).map((action) => action.service),
+        ),
+      ];
       return writeRuntimeSuccess(context, services.map(serializeRuntimeActionService));
     }
 
-    const actions = this.options.catalog.actions.filter((action) => action.service === service);
+    const actions = this.options.catalog.actions.filter(
+      (action) => action.service === service && enabled.has(action.service),
+    );
     return writeRuntimeSuccess(context, actions.map(serializeRuntimeAction));
   }
 
@@ -371,10 +448,11 @@ export class ConnectServer {
     }
 
     const index = await this.actionSearch.get();
+    const enabled = new Set((await this.services(context).controls.providers()).map((provider) => provider.service));
     const results = searchActions(index, query.q, {
       service: query.service,
       limit: query.limit,
-    });
+    }).filter((result) => enabled.has(result.service));
     return writeRuntimeSuccess(context, await this.serializeSearchResults(context, results));
   }
 
@@ -396,9 +474,9 @@ export class ConnectServer {
     });
   }
 
-  private getRuntimeAction(context: Context, actionId: string): Response {
+  private async getRuntimeAction(context: Context, actionId: string): Promise<Response> {
     const action = this.options.catalog.actionsById.get(actionId);
-    if (!action) {
+    if (!action || !(await this.services(context).controls.isProviderEnabled(action.service))) {
       return writeRuntimeFailure(context, {
         status: 404,
         errorCode: "invalid_input",
@@ -411,7 +489,8 @@ export class ConnectServer {
   }
 
   private async createRuntimeActionRun(context: Context, actionId: string): Promise<Response> {
-    if (!this.options.catalog.actionsById.has(actionId)) {
+    const action = this.options.catalog.actionsById.get(actionId);
+    if (!action || !(await this.services(context).controls.isProviderEnabled(action.service))) {
       return writeRuntimeFailure(context, {
         status: 404,
         errorCode: "invalid_input",
@@ -453,6 +532,7 @@ export class ConnectServer {
   }
 
   private async createRuntimeProxyRequest(context: Context, service: string): Promise<Response> {
+    await this.services(context).controls.assertProviderEnabled(service);
     let body: Record<string, unknown>;
     try {
       body = await readJsonBody(context);
@@ -494,14 +574,18 @@ export class ConnectServer {
   }
 
   private async listRuntimeApps(context: Context): Promise<Response> {
+    const enabled = new Set((await this.services(context).controls.providers()).map((provider) => provider.service));
     return writeRuntimeSuccess(
       context,
-      (await this.services(context).connections.listConnections()).map(serializeRuntimeConnectedApp),
+      (await this.services(context).connections.listConnections())
+        .filter((connection) => enabled.has(connection.service))
+        .map(serializeRuntimeConnectedApp),
     );
   }
 
   private async listRuntimeAppsByService(context: Context, service: string): Promise<Response> {
     try {
+      await this.services(context).controls.assertProviderEnabled(service);
       return writeRuntimeSuccess(
         context,
         (await this.services(context).connections.listConnectionsByService(service)).map(serializeRuntimeConnectedApp),
@@ -522,7 +606,13 @@ export class ConnectServer {
 
   private async listAuthenticatedRuntimeApps(context: Context): Promise<Response> {
     const services = context.req.queries("service") ?? [];
-    return writeRuntimeSuccess(context, await this.services(context).connections.listAuthenticatedServices(services));
+    const enabled = new Set((await this.services(context).controls.providers()).map((provider) => provider.service));
+    return writeRuntimeSuccess(
+      context,
+      await this.services(context).connections.listAuthenticatedServices(
+        services.filter((service) => enabled.has(service)),
+      ),
+    );
   }
 
   private async handleMcp(context: Context): Promise<Response> {
@@ -540,6 +630,8 @@ export class ConnectServer {
       actionPolicy: this.options.actionPolicy,
       actionSearch: this.actionSearch,
       workspaceContext: workspace,
+      isProviderEnabled: (service) => services.controls.isProviderEnabled(service),
+      requireApproval: async (action) => (await services.controls.getActionPolicy(action)).requireApproval,
     });
 
     await server.connect(transport);
@@ -565,10 +657,21 @@ export class ConnectServer {
   }
 
   private async listConnections(context: Context): Promise<Response> {
-    return context.json(await this.services(context).connections.listConnections());
+    const enabled = new Set((await this.services(context).controls.providers()).map((provider) => provider.service));
+    return context.json(
+      (await this.services(context).connections.listConnections()).filter((connection) =>
+        enabled.has(connection.service),
+      ),
+    );
   }
 
   private async upsertConnection(context: Context, service: string): Promise<Response> {
+    const workspace = getWorkspaceContext(context);
+    if (workspace.role === "member") {
+      await this.services(context).controls.assertProviderEnabled(service);
+    } else if (!(await this.services(context).controls.isProviderEnabled(service))) {
+      await this.services(context).controls.enableProvider(service);
+    }
     const body = await readJsonBody(context);
     const authType = optionalString(body.authType);
     if (!authType) {
@@ -598,6 +701,7 @@ export class ConnectServer {
         context,
         this.services(context).connections.connectWithoutAuth(service, { connectionName }),
         logContext,
+        "connection.connected",
       );
     }
     if (authType === "api_key") {
@@ -606,6 +710,7 @@ export class ConnectServer {
         context,
         this.services(context).connections.connectWithApiKey(service, { values, connectionName }),
         logContext,
+        "connection.connected",
       );
     }
     if (authType === "custom_credential") {
@@ -614,6 +719,7 @@ export class ConnectServer {
         context,
         this.services(context).connections.connectWithCustomCredential(service, { values, connectionName }),
         logContext,
+        "connection.connected",
       );
     }
 
@@ -641,6 +747,7 @@ export class ConnectServer {
       context,
       this.services(context).connections.disconnect(service, connectionName),
       logContext,
+      "connection.disconnected",
     );
   }
 
@@ -654,6 +761,7 @@ export class ConnectServer {
         "service",
         (message) => new OAuthFlowError("invalid_input", message),
       );
+      await this.services(context).controls.assertProviderEnabled(service);
       const logContext = {
         path: context.req.path,
         service,
@@ -691,7 +799,13 @@ export class ConnectServer {
   }
 
   private async listRuntimeTokens(context: Context): Promise<Response> {
-    return context.json(await this.services(context).runtimeTokens.listTokens());
+    const workspace = getWorkspaceContext(context);
+    return context.json(
+      await this.services(context).runtimeTokens.listTokens({
+        userId: workspace.userId,
+        canManageWorkspace: workspace.role !== "member",
+      }),
+    );
   }
 
   private async createRuntimeToken(context: Context): Promise<Response> {
@@ -707,6 +821,7 @@ export class ConnectServer {
       workspace.userId,
       name,
     );
+    await this.services(context).controls.audit("runtime_token.created", "runtime_token", created.record.id);
     return context.json({
       token: created.token,
       record: {
@@ -718,9 +833,17 @@ export class ConnectServer {
   }
 
   private async revokeRuntimeToken(context: Context, id: string): Promise<Response> {
-    if (!(await this.services(context).runtimeTokens.revokeToken(id))) {
+    const workspace = getWorkspaceContext(context);
+    if (
+      !(await this.services(context).runtimeTokens.revokeToken(id, {
+        userId: workspace.userId,
+        canManageWorkspace: workspace.role !== "member",
+      }))
+    ) {
       return jsonError(context, 404, "runtime_token_not_found", `Runtime token not found: ${id}.`);
     }
+
+    await this.services(context).controls.audit("runtime_token.revoked", "runtime_token", id);
 
     return context.json({ id, revoked: true });
   }
@@ -730,6 +853,7 @@ export class ConnectServer {
   }
 
   private async upsertOAuthConfig(context: Context, service: string): Promise<Response> {
+    requireManager(context);
     const body = await readJsonBody(context);
     return this.writeOAuthResult(
       context,
@@ -740,11 +864,52 @@ export class ConnectServer {
         extra: optionalRecord(body.extra),
         secretExtra: optionalRecord(body.secretExtra),
       }),
+      async () => {
+        await this.services(context).controls.enableProvider(service);
+        await this.services(context).controls.audit("oauth_config.updated", "provider", service);
+      },
     );
   }
 
   private async deleteOAuthConfig(context: Context, service: string): Promise<Response> {
-    return this.writeOAuthResult(context, this.services(context).oauthClientConfigs.deleteConfig(service));
+    requireManager(context);
+    return this.writeOAuthResult(context, this.services(context).oauthClientConfigs.deleteConfig(service), async () => {
+      await this.services(context).controls.audit("oauth_config.deleted", "provider", service);
+    });
+  }
+
+  private async listWorkspaceProviders(context: Context): Promise<Response> {
+    return context.json(await this.services(context).controls.providers());
+  }
+
+  private async enableWorkspaceProvider(context: Context, service: string): Promise<Response> {
+    return context.json(await this.services(context).controls.enableProvider(service));
+  }
+
+  private async disableWorkspaceProvider(context: Context, service: string): Promise<Response> {
+    if (!(await this.services(context).controls.disableProvider(service))) {
+      return jsonError(context, 404, "provider_not_enabled", `Provider ${service} is not enabled for this workspace.`);
+    }
+    return context.json({ service, enabled: false });
+  }
+
+  private async getWorkspaceActionPolicy(context: Context, actionId: string): Promise<Response> {
+    const action = this.options.catalog.actionsById.get(actionId);
+    if (!action) return notFound(context);
+    await this.services(context).controls.assertProviderEnabled(action.service);
+    return context.json(await this.services(context).controls.getActionPolicy(action));
+  }
+
+  private async setWorkspaceActionPolicy(context: Context, actionId: string): Promise<Response> {
+    const body = await readJsonBody(context);
+    if (typeof body.requireApproval !== "boolean") {
+      return jsonError(context, 400, "invalid_input", "requireApproval must be a boolean.");
+    }
+    return context.json(await this.services(context).controls.setActionPolicy(actionId, body.requireApproval));
+  }
+
+  private async listAuditEvents(context: Context): Promise<Response> {
+    return context.json(await this.services(context).controls.listAuditEvents());
   }
 
   private async completeOAuth(context: Context): Promise<Response> {
@@ -770,8 +935,9 @@ export class ConnectServer {
     let service: string;
     try {
       const workspaceId = readWorkspaceIdFromOAuthState(state);
+      const userId = readUserIdFromOAuthState(state);
       const oauthFlow = workspaceId
-        ? this.workspaceServices({ workspaceId, userId: "oauth-callback", role: "member" }).oauthFlow
+        ? this.workspaceServices({ workspaceId, userId: userId ?? "oauth-callback", role: "member" }).oauthFlow
         : this.options.oauthFlow;
       service = (await oauthFlow.completeAuthorization({ state, code })).service;
       this.options.logger?.info(
@@ -802,9 +968,17 @@ export class ConnectServer {
     context: Context,
     operation: Promise<unknown>,
     logContext?: ConnectionLogContext,
+    auditEvent?: string,
   ): Promise<Response> {
     try {
       const result = await operation;
+      if (auditEvent && logContext) {
+        await this.services(context).controls.audit(
+          auditEvent,
+          "connection",
+          `${logContext.service}:${logContext.connectionName}`,
+        );
+      }
       if (logContext) {
         this.options.logger?.info(
           logContext,
@@ -830,9 +1004,15 @@ export class ConnectServer {
     }
   }
 
-  private async writeOAuthResult(context: Context, operation: Promise<unknown>): Promise<Response> {
+  private async writeOAuthResult(
+    context: Context,
+    operation: Promise<unknown>,
+    onSuccess?: () => Promise<void>,
+  ): Promise<Response> {
     try {
-      return context.json(await operation);
+      const result = await operation;
+      await onSuccess?.();
+      return context.json(result);
     } catch (error) {
       if (error instanceof OAuthClientConfigError || error instanceof OAuthFlowError) {
         return jsonError(context, error.code === "unknown_service" ? 404 : 400, error.code, error.message);
@@ -868,6 +1048,14 @@ function readConnectionName(context: Context, body?: Record<string, unknown>): s
 function readWorkspaceIdFromOAuthState(state: string): string | undefined {
   const separator = state.indexOf(".");
   return separator > 0 ? state.slice(0, separator) : undefined;
+}
+
+function readUserIdFromOAuthState(state: string): string | undefined {
+  const firstSeparator = state.indexOf(".");
+  const secondSeparator = state.indexOf(".", firstSeparator + 1);
+  return firstSeparator > 0 && secondSeparator > firstSeparator + 1
+    ? state.slice(firstSeparator + 1, secondSeparator)
+    : undefined;
 }
 
 type SearchQuery =

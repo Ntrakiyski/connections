@@ -24,6 +24,8 @@ export interface IMcpServerOptions {
   actionPolicy?: ActionPolicyService;
   actionSearch?: ActionSearchIndexProvider;
   workspaceContext?: WorkspaceContext;
+  isProviderEnabled?(service: string): Promise<boolean>;
+  requireApproval?(action: RuntimeActionDefinition): Promise<boolean>;
 }
 
 /**
@@ -161,8 +163,16 @@ export function createMcpServer(options: IMcpServerOptions): McpServer {
 
 async function listApps(options: IMcpServerOptions, query: string | undefined): Promise<unknown> {
   const normalized = query?.trim().toLowerCase();
-  const providers = options.catalog.providers
-    .filter((provider) => {
+  const providers = (
+    await Promise.all(
+      options.catalog.providers.map(async (provider) => ({
+        provider,
+        enabled: (await options.isProviderEnabled?.(provider.service)) ?? true,
+      })),
+    )
+  )
+    .filter(({ provider, enabled }) => {
+      if (!enabled) return false;
       if (!normalized) {
         return true;
       }
@@ -172,7 +182,7 @@ async function listApps(options: IMcpServerOptions, query: string | undefined): 
         .toLowerCase()
         .includes(normalized);
     })
-    .map(async (provider) => {
+    .map(async ({ provider }) => {
       const connection = await options.connections.getConnectionSummary(provider.service);
       return {
         service: provider.service,
@@ -201,21 +211,30 @@ async function searchActions(
     : options.catalog.actions
         .filter((action) => !input.service || action.service === input.service)
         .slice(0, input.limit);
-  const actions = rankedActions.map(async (action) => ({
-    id: action.id,
-    service: action.service,
-    name: action.name,
-    description: action.description,
-    capability: await describeActionCapability(options, action),
-    inputSummary: summarizeInputSchema(action.inputSchema),
-  }));
+  const actions = (
+    await Promise.all(
+      rankedActions.map(async (action) => ({
+        action,
+        enabled: (await options.isProviderEnabled?.(action.service)) ?? true,
+      })),
+    )
+  )
+    .filter(({ enabled }) => enabled)
+    .map(async ({ action }) => ({
+      id: action.id,
+      service: action.service,
+      name: action.name,
+      description: action.description,
+      capability: await describeActionCapability(options, action),
+      inputSummary: summarizeInputSchema(action.inputSchema),
+    }));
 
   return Promise.all(actions);
 }
 
 async function getActionGuide(options: IMcpServerOptions, actionId: string): Promise<ToolPayload> {
   const action = options.catalog.actionsById.get(actionId);
-  if (!action) {
+  if (!action || !((await options.isProviderEnabled?.(action.service)) ?? true)) {
     return errorPayload("unknown_action", `Unknown action: ${actionId}`);
   }
 
@@ -231,7 +250,7 @@ async function executeAction(
   input: Record<string, unknown>,
 ): Promise<ToolPayload> {
   const action = options.catalog.actionsById.get(actionId);
-  if (!action) {
+  if (!action || !((await options.isProviderEnabled?.(action.service)) ?? true)) {
     return errorPayload("unknown_action", `Unknown action: ${actionId}`);
   }
 
@@ -277,6 +296,7 @@ type ActionCapability = {
   providerPermissions: string[];
   policy: ReturnType<ActionPolicyService["evaluate"]> | { allowed: true };
   connection?: ConnectionSummary;
+  requireApproval: boolean;
 };
 
 async function describeActionCapability(
@@ -291,6 +311,7 @@ async function describeActionCapability(
     providerPermissions: action.providerPermissions,
     policy: options.actionPolicy?.evaluate(action) ?? { allowed: true },
     connection: await options.connections.getConnectionSummary(action.service),
+    requireApproval: (await options.requireApproval?.(action)) ?? true,
   };
 }
 

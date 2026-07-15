@@ -7,6 +7,8 @@
 - Users sign in to the Connections web app through Clerk.
 - Clerk validates identity and workspace membership; the application database owns the effective `member`, `manager`, and `admin` role used by runtime tokens and authorization.
 - One Clerk Organization maps to one workspace.
+- Clerk's Organization UI is the workspace profile and membership surface: organization creation, switching, naming, invitations, and member removal happen there. Connections does not duplicate those screens.
+- Connections synchronizes Clerk membership changes into its authorization store so runtime tokens and workspace access reflect Clerk membership immediately.
 - A private workspace has only its owner. A shared workspace has invited members.
 - The workspace creator is its first admin, and every workspace must retain at least one admin.
 - A physically isolated deployment is an optional customer-demand exception, not the default.
@@ -34,6 +36,7 @@
 - **Admin:** has the same provider/connection visibility and chat access as a manager in v1; the role is reserved for future administrative capabilities.
 - Only admins invite/remove members and assign Member, Manager, and Admin roles.
 - Members cannot change workspace configuration.
+- Clerk's Organization roles map to Connections roles until Connections needs product-specific roles beyond Clerk's membership model.
 
 ## MCP and runtime tokens
 

@@ -222,9 +222,15 @@ class MemoryConnectionStore implements IConnectionStore {
     return undefined;
   }
 
+  async getStored(): Promise<StoredConnection | undefined> {
+    return undefined;
+  }
+
   async set(): Promise<void> {}
 
   async delete(): Promise<void> {}
+
+  async deleteByOwner(): Promise<void> {}
 
   async list(): Promise<StoredConnection[]> {
     return [];

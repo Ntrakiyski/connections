@@ -5,9 +5,13 @@ import type { IOAuthStateStore, OAuthAuthorizationState } from "../../oauth/oaut
 import type { ISecretCodec } from "../secrets/secret-codec-core.ts";
 import type {
   IWorkspaceMembershipStore,
+  IWorkspaceControlStore,
   IWorkspaceStore,
   RuntimeDatabase,
   Workspace,
+  WorkspaceActionPolicy,
+  WorkspaceProvider,
+  AuditEvent,
   WorkspaceMember,
   WorkspaceScopedStores,
 } from "./runtime-database.ts";
@@ -27,6 +31,7 @@ export class PostgresRuntimeDatabase implements RuntimeDatabase {
   readonly runLogStore: IRunLogStore;
   readonly workspaceStore: IWorkspaceStore;
   readonly membershipStore: IWorkspaceMembershipStore;
+  readonly workspaceControlStore: IWorkspaceControlStore;
   readonly #pool: Pool;
   readonly #codec: ISecretCodec;
 
@@ -41,6 +46,7 @@ export class PostgresRuntimeDatabase implements RuntimeDatabase {
     this.runLogStore = unscoped.runLogStore;
     this.workspaceStore = new PostgresWorkspaceStore(pool);
     this.membershipStore = new PostgresMembershipStore(pool);
+    this.workspaceControlStore = new PostgresWorkspaceControlStore(pool);
   }
 
   close(): Promise<void> {
@@ -80,23 +86,33 @@ class PostgresConnectionStore implements IConnectionStore {
   }
 
   async get(service: string, connectionName: string): Promise<ResolvedCredential | undefined> {
+    return (await this.getStored(service, connectionName))?.credential;
+  }
+
+  async getStored(service: string, connectionName: string): Promise<StoredConnection | undefined> {
     const result = await this.#pool.query(
-      `select value from connections where workspace_id = $1 and service = $2 and connection_name = $3`,
+      `select service, connection_name, value, created_by
+       from connections where workspace_id = $1 and service = $2 and connection_name = $3`,
       [this.#workspaceId, service, connectionName],
     );
     if (result.rows.length === 0) return undefined;
     const decoded = await this.#codec.decode(result.rows[0].value);
-    return JSON.parse(decoded) as ResolvedCredential;
+    return {
+      service: result.rows[0].service,
+      connectionName: result.rows[0].connection_name,
+      credential: JSON.parse(decoded) as ResolvedCredential,
+      createdBy: result.rows[0].created_by,
+    };
   }
 
-  async set(service: string, connectionName: string, credential: ResolvedCredential): Promise<void> {
+  async set(service: string, connectionName: string, credential: ResolvedCredential, createdBy = ""): Promise<void> {
     const encoded = await this.#codec.encode(JSON.stringify(credential));
     await this.#pool.query(
       `insert into connections (workspace_id, service, connection_name, label, value, created_by, updated_at)
        values ($1, $2, $3, $4, $5, $6, $7)
        on conflict (workspace_id, service, connection_name) do update
-       set label = $4, value = $5, updated_at = $7`,
-      [this.#workspaceId, service, connectionName, connectionName, encoded, "", now()],
+       set label = $4, value = $5, created_by = case when connections.created_by = '' then excluded.created_by else connections.created_by end, updated_at = $7`,
+      [this.#workspaceId, service, connectionName, connectionName, encoded, createdBy, now()],
     );
   }
 
@@ -107,9 +123,16 @@ class PostgresConnectionStore implements IConnectionStore {
     );
   }
 
+  async deleteByOwner(userId: string): Promise<void> {
+    await this.#pool.query(`delete from connections where workspace_id = $1 and created_by = $2`, [
+      this.#workspaceId,
+      userId,
+    ]);
+  }
+
   async list(): Promise<StoredConnection[]> {
     const result = await this.#pool.query(
-      `select service, connection_name, value from connections where workspace_id = $1`,
+      `select service, connection_name, value, created_by from connections where workspace_id = $1`,
       [this.#workspaceId],
     );
     const items: StoredConnection[] = [];
@@ -119,6 +142,7 @@ class PostgresConnectionStore implements IConnectionStore {
         service: row.service,
         connectionName: row.connection_name,
         credential: JSON.parse(decoded) as ResolvedCredential,
+        createdBy: row.created_by,
       });
     }
     return items;
@@ -264,6 +288,13 @@ class PostgresTokenStore implements IRuntimeTokenStore {
     return (result.rowCount ?? 0) > 0;
   }
 
+  async revokeByUser(workspaceId: string, userId: string): Promise<void> {
+    await this.#pool.query(
+      `update runtime_tokens set revoked_at = $1 where workspace_id = $2 and user_id = $3 and revoked_at is null`,
+      [now(), workspaceId, userId],
+    );
+  }
+
   async markUsed(id: string, workspaceId: string, usedAt: string): Promise<void> {
     await this.#pool.query(`update runtime_tokens set last_used_at = $1 where workspace_id = $2 and id = $3`, [
       usedAt,
@@ -312,6 +343,11 @@ class PostgresRunLogStore implements IRunLogStore {
     if (input?.service) {
       query += ` and service = $${paramIndex++}`;
       params.push(input.service);
+    }
+
+    if (input?.userId) {
+      query += ` and user_id = $${paramIndex++}`;
+      params.push(input.userId);
     }
 
     if (cursor) {
@@ -427,6 +463,106 @@ class PostgresMembershipStore implements IWorkspaceMembershipStore {
       workspaceId,
       userId,
     ]);
+  }
+}
+
+class PostgresWorkspaceControlStore implements IWorkspaceControlStore {
+  readonly #pool: Pool;
+
+  constructor(pool: Pool) {
+    this.#pool = pool;
+  }
+
+  async listProviders(workspaceId: string): Promise<WorkspaceProvider[]> {
+    const result = await this.#pool.query(
+      `select workspace_id, service, enabled_by, enabled_at from workspace_providers where workspace_id = $1 order by service`,
+      [workspaceId],
+    );
+    return result.rows.map((row) => ({
+      workspaceId: row.workspace_id,
+      service: row.service,
+      enabledBy: row.enabled_by,
+      enabledAt: row.enabled_at,
+    }));
+  }
+
+  async enableProvider(provider: WorkspaceProvider): Promise<void> {
+    await this.#pool.query(
+      `insert into workspace_providers (workspace_id, service, enabled_by, enabled_at)
+       values ($1, $2, $3, $4) on conflict (workspace_id, service) do nothing`,
+      [provider.workspaceId, provider.service, provider.enabledBy, provider.enabledAt],
+    );
+  }
+
+  async disableProvider(workspaceId: string, service: string): Promise<boolean> {
+    const result = await this.#pool.query(`delete from workspace_providers where workspace_id = $1 and service = $2`, [
+      workspaceId,
+      service,
+    ]);
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async getActionPolicy(workspaceId: string, actionId: string): Promise<WorkspaceActionPolicy | undefined> {
+    const result = await this.#pool.query(
+      `select workspace_id, action_id, require_approval, updated_by, updated_at
+       from workspace_action_policies where workspace_id = $1 and action_id = $2`,
+      [workspaceId, actionId],
+    );
+    const row = result.rows[0];
+    return row
+      ? {
+          workspaceId: row.workspace_id,
+          actionId: row.action_id,
+          requireApproval: row.require_approval,
+          updatedBy: row.updated_by,
+          updatedAt: row.updated_at,
+        }
+      : undefined;
+  }
+
+  async setActionPolicy(policy: WorkspaceActionPolicy): Promise<void> {
+    await this.#pool.query(
+      `insert into workspace_action_policies (workspace_id, action_id, require_approval, updated_by, updated_at)
+       values ($1, $2, $3, $4, $5)
+       on conflict (workspace_id, action_id) do update
+       set require_approval = excluded.require_approval, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
+      [policy.workspaceId, policy.actionId, policy.requireApproval, policy.updatedBy, policy.updatedAt],
+    );
+  }
+
+  async addAuditEvent(event: AuditEvent): Promise<void> {
+    await this.#pool.query(
+      `insert into audit_events (id, workspace_id, user_id, event, resource_type, resource_id, details, created_at)
+       values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [
+        event.id,
+        event.workspaceId,
+        event.userId,
+        event.event,
+        event.resourceType,
+        event.resourceId ?? null,
+        event.details ? JSON.stringify(event.details) : null,
+        event.createdAt,
+      ],
+    );
+  }
+
+  async listAuditEvents(workspaceId: string, limit: number): Promise<AuditEvent[]> {
+    const result = await this.#pool.query(
+      `select id, workspace_id, user_id, event, resource_type, resource_id, details, created_at
+       from audit_events where workspace_id = $1 order by created_at desc, id desc limit $2`,
+      [workspaceId, limit],
+    );
+    return result.rows.map((row) => ({
+      id: row.id,
+      workspaceId: row.workspace_id,
+      userId: row.user_id,
+      event: row.event,
+      resourceType: row.resource_type,
+      resourceId: row.resource_id ?? undefined,
+      details: typeof row.details === "string" ? (JSON.parse(row.details) as Record<string, unknown>) : undefined,
+      createdAt: row.created_at,
+    }));
   }
 }
 

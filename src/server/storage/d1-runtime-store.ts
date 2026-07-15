@@ -1,4 +1,4 @@
-import type { IConnectionStore } from "../../connection-service.ts";
+import type { IConnectionStore, StoredConnection } from "../../connection-service.ts";
 import type { ResolvedCredential } from "../../core/types.ts";
 import type { IOAuthClientConfigStore, OAuthClientConfig } from "../../oauth/oauth-client-config-service.ts";
 import type { IOAuthStateStore, OAuthAuthorizationState } from "../../oauth/oauth-flow-service.ts";
@@ -6,9 +6,13 @@ import type { D1DatabaseBinding } from "../cloudflare/cloudflare-bindings.ts";
 import type { ISecretCodec } from "../secrets/secret-codec-core.ts";
 import type {
   IWorkspaceMembershipStore,
+  IWorkspaceControlStore,
   IWorkspaceStore,
   RuntimeDatabase,
   Workspace,
+  WorkspaceActionPolicy,
+  WorkspaceProvider,
+  AuditEvent,
   WorkspaceMember,
   WorkspaceScopedStores,
 } from "./runtime-database.ts";
@@ -34,6 +38,7 @@ export class D1RuntimeDatabase implements RuntimeDatabase {
   readonly runLogStore: D1RunLogStore;
   readonly workspaceStore: D1WorkspaceStore;
   readonly membershipStore: D1WorkspaceMembershipStore;
+  readonly workspaceControlStore: D1WorkspaceControlStore;
 
   private readonly database: D1DatabaseBinding;
   private readonly secretCodec: ISecretCodec;
@@ -51,6 +56,7 @@ export class D1RuntimeDatabase implements RuntimeDatabase {
     this.runtimeTokenStore = new D1RuntimeTokenStore(database);
     this.workspaceStore = new D1WorkspaceStore(database);
     this.membershipStore = new D1WorkspaceMembershipStore(database);
+    this.workspaceControlStore = new D1WorkspaceControlStore(database);
   }
 
   createScopedStores(workspaceId: string): WorkspaceScopedStores {
@@ -75,20 +81,36 @@ export class D1ConnectionStore implements IConnectionStore {
   }
 
   async get(service: string, connectionName: string): Promise<ResolvedCredential | undefined> {
-    const row = await this.database
-      .prepare("select value from connections where workspace_id = ? and service = ? and connection_name = ?")
-      .bind(this.workspaceId, service, connectionName)
-      .first<RuntimeRow>();
-    return row ? parseJson(await this.secretCodec.decode(readString(row, "value"))) : undefined;
+    return (await this.getStored(service, connectionName))?.credential;
   }
 
-  async set(service: string, connectionName: string, credential: ResolvedCredential): Promise<void> {
+  async getStored(service: string, connectionName: string): Promise<StoredConnection | undefined> {
+    const row = await this.database
+      .prepare(
+        "select service, connection_name, value, created_by from connections where workspace_id = ? and service = ? and connection_name = ?",
+      )
+      .bind(this.workspaceId, service, connectionName)
+      .first<RuntimeRow>();
+    return row
+      ? {
+          service: readString(row, "service"),
+          connectionName: readString(row, "connection_name"),
+          credential: parseJson(await this.secretCodec.decode(readString(row, "value"))),
+          createdBy: readString(row, "created_by"),
+        }
+      : undefined;
+  }
+
+  async set(service: string, connectionName: string, credential: ResolvedCredential, createdBy = ""): Promise<void> {
     await this.database
       .prepare(
         `
           insert into connections (workspace_id, service, connection_name, label, value, created_by, updated_at)
-          values (?, ?, ?, '', ?, '', ?)
-          on conflict(workspace_id, service, connection_name) do update set value = excluded.value, updated_at = excluded.updated_at
+          values (?, ?, ?, '', ?, ?, ?)
+          on conflict(workspace_id, service, connection_name) do update set
+            value = excluded.value,
+            created_by = case when connections.created_by = '' then excluded.created_by else connections.created_by end,
+            updated_at = excluded.updated_at
         `,
       )
       .bind(
@@ -96,6 +118,7 @@ export class D1ConnectionStore implements IConnectionStore {
         service,
         connectionName,
         await this.secretCodec.encode(JSON.stringify(credential)),
+        createdBy,
         new Date().toISOString(),
       )
       .run();
@@ -108,10 +131,17 @@ export class D1ConnectionStore implements IConnectionStore {
       .run();
   }
 
-  async list(): Promise<Array<{ service: string; connectionName: string; credential: ResolvedCredential }>> {
+  async deleteByOwner(userId: string): Promise<void> {
+    await this.database
+      .prepare("delete from connections where workspace_id = ? and created_by = ?")
+      .bind(this.workspaceId, userId)
+      .run();
+  }
+
+  async list(): Promise<StoredConnection[]> {
     const { results } = await this.database
       .prepare(
-        "select service, connection_name, value from connections where workspace_id = ? order by service, connection_name",
+        "select service, connection_name, value, created_by from connections where workspace_id = ? order by service, connection_name",
       )
       .bind(this.workspaceId)
       .all<RuntimeRow>();
@@ -120,6 +150,7 @@ export class D1ConnectionStore implements IConnectionStore {
         service: readString(row, "service"),
         connectionName: readString(row, "connection_name"),
         credential: parseJson(await this.secretCodec.decode(readString(row, "value"))),
+        createdBy: readString(row, "created_by"),
       })),
     );
   }
@@ -270,6 +301,14 @@ export class D1RuntimeTokenStore implements IRuntimeTokenStore {
     return (result.meta.changes ?? 0) > 0;
   }
 
+  async revokeByUser(workspaceId: string, userId: string): Promise<void> {
+    this.assertWorkspace(workspaceId);
+    await this.database
+      .prepare("update runtime_tokens set revoked_at = ? where workspace_id = ? and user_id = ? and revoked_at is null")
+      .bind(new Date().toISOString(), workspaceId, userId)
+      .run();
+  }
+
   async markUsed(id: string, workspaceId: string, usedAt: string): Promise<void> {
     this.assertWorkspace(workspaceId);
     await this.database
@@ -337,6 +376,10 @@ export class D1RunLogStore implements IRunLogStore {
     if (input.service) {
       filters.push("service = ?");
       values.push(input.service);
+    }
+    if (input.userId) {
+      filters.push("user_id = ?");
+      values.push(input.userId);
     }
     if (cursor) {
       filters.push("(started_at < ? or (started_at = ? and id < ?))");
@@ -430,6 +473,110 @@ class D1WorkspaceMembershipStore implements IWorkspaceMembershipStore {
   }
 }
 
+class D1WorkspaceControlStore implements IWorkspaceControlStore {
+  private readonly database: D1DatabaseBinding;
+
+  constructor(database: D1DatabaseBinding) {
+    this.database = database;
+  }
+
+  async listProviders(workspaceId: string): Promise<WorkspaceProvider[]> {
+    const { results } = await this.database
+      .prepare(
+        "select workspace_id, service, enabled_by, enabled_at from workspace_providers where workspace_id = ? order by service",
+      )
+      .bind(workspaceId)
+      .all<RuntimeRow>();
+    return results.map((row) => ({
+      workspaceId: readString(row, "workspace_id"),
+      service: readString(row, "service"),
+      enabledBy: readString(row, "enabled_by"),
+      enabledAt: readString(row, "enabled_at"),
+    }));
+  }
+
+  async enableProvider(provider: WorkspaceProvider): Promise<void> {
+    await this.database
+      .prepare(
+        "insert into workspace_providers (workspace_id, service, enabled_by, enabled_at) values (?, ?, ?, ?) on conflict(workspace_id, service) do nothing",
+      )
+      .bind(provider.workspaceId, provider.service, provider.enabledBy, provider.enabledAt)
+      .run();
+  }
+
+  async disableProvider(workspaceId: string, service: string): Promise<boolean> {
+    const result = await this.database
+      .prepare("delete from workspace_providers where workspace_id = ? and service = ?")
+      .bind(workspaceId, service)
+      .run();
+    return (result.meta.changes ?? 0) > 0;
+  }
+
+  async getActionPolicy(workspaceId: string, actionId: string): Promise<WorkspaceActionPolicy | undefined> {
+    const row = await this.database
+      .prepare(
+        "select workspace_id, action_id, require_approval, updated_by, updated_at from workspace_action_policies where workspace_id = ? and action_id = ?",
+      )
+      .bind(workspaceId, actionId)
+      .first<RuntimeRow>();
+    return row
+      ? {
+          workspaceId: readString(row, "workspace_id"),
+          actionId: readString(row, "action_id"),
+          requireApproval: readNumber(row, "require_approval") === 1,
+          updatedBy: readString(row, "updated_by"),
+          updatedAt: readString(row, "updated_at"),
+        }
+      : undefined;
+  }
+
+  async setActionPolicy(policy: WorkspaceActionPolicy): Promise<void> {
+    await this.database
+      .prepare(
+        "insert into workspace_action_policies (workspace_id, action_id, require_approval, updated_by, updated_at) values (?, ?, ?, ?, ?) on conflict(workspace_id, action_id) do update set require_approval = excluded.require_approval, updated_by = excluded.updated_by, updated_at = excluded.updated_at",
+      )
+      .bind(policy.workspaceId, policy.actionId, policy.requireApproval ? 1 : 0, policy.updatedBy, policy.updatedAt)
+      .run();
+  }
+
+  async addAuditEvent(event: AuditEvent): Promise<void> {
+    await this.database
+      .prepare(
+        "insert into audit_events (id, workspace_id, user_id, event, resource_type, resource_id, details, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .bind(
+        event.id,
+        event.workspaceId,
+        event.userId,
+        event.event,
+        event.resourceType,
+        event.resourceId ?? null,
+        event.details ? JSON.stringify(event.details) : null,
+        event.createdAt,
+      )
+      .run();
+  }
+
+  async listAuditEvents(workspaceId: string, limit: number): Promise<AuditEvent[]> {
+    const { results } = await this.database
+      .prepare(
+        "select id, workspace_id, user_id, event, resource_type, resource_id, details, created_at from audit_events where workspace_id = ? order by created_at desc, id desc limit ?",
+      )
+      .bind(workspaceId, limit)
+      .all<RuntimeRow>();
+    return results.map((row) => ({
+      id: readString(row, "id"),
+      workspaceId: readString(row, "workspace_id"),
+      userId: readString(row, "user_id"),
+      event: readString(row, "event"),
+      resourceType: readString(row, "resource_type"),
+      resourceId: readOptionalString(row, "resource_id"),
+      details: readJsonRecord(row, "details"),
+      createdAt: readString(row, "created_at"),
+    }));
+  }
+}
+
 function readRuntimeTokenRow(row: RuntimeRow): RuntimeTokenRecord {
   return {
     id: readString(row, "id"),
@@ -483,6 +630,21 @@ function readOptionalString(row: RuntimeRow, key: string): string | undefined {
   if (value == null) return undefined;
   if (typeof value !== "string") throw new Error(`Expected D1 column ${key} to be a string.`);
   return value;
+}
+
+function readNumber(row: RuntimeRow, key: string): number {
+  const value = row[key];
+  if (typeof value !== "number") throw new Error(`Expected D1 column ${key} to be a number.`);
+  return value;
+}
+
+function readJsonRecord(row: RuntimeRow, key: string): Record<string, unknown> | undefined {
+  const value = readOptionalString(row, key);
+  if (!value) return undefined;
+  const parsed = JSON.parse(value) as unknown;
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : undefined;
 }
 
 function parseJson<T>(value: string): T {

@@ -26,6 +26,8 @@ export interface RunLogListInput {
   limit?: number;
   cursor?: string;
   service?: string;
+  /** Internal visibility filter; never supplied directly by clients. */
+  userId?: string;
 }
 
 export interface RunLogPage {

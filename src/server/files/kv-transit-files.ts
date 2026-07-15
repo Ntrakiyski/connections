@@ -1,5 +1,10 @@
 import type { KVNamespaceBinding } from "../cloudflare/cloudflare-bindings.ts";
-import type { ITransitFileService, TransitFileRead, TransitFileUpload } from "./transit-file-store.ts";
+import type {
+  ITransitFileService,
+  TransitFileAccess,
+  TransitFileRead,
+  TransitFileUpload,
+} from "./transit-file-store.ts";
 
 import { extname } from "node:path";
 import { contentTypeFromFileId, TransitFileError } from "./transit-file-store.ts";
@@ -23,6 +28,8 @@ interface TransitFileMetadata {
   mimeType: string;
   createdAt: string;
   sizeBytes: number;
+  workspaceId?: string;
+  userId?: string;
 }
 
 export class KVTransitFileService implements ITransitFileService {
@@ -41,7 +48,7 @@ export class KVTransitFileService implements ITransitFileService {
     this.maxBytes = Math.min(positiveInteger(options.maxBytes, "maxBytes"), KV_MAX_VALUE_BYTES);
   }
 
-  async create(file: File): Promise<TransitFileUpload> {
+  async create(file: File, access?: TransitFileAccess): Promise<TransitFileUpload> {
     this.assertFileSize(file.size);
     const fileId = `${randomHex(16)}${safeExtension(file.name)}`;
     const metadata: TransitFileMetadata = {
@@ -49,6 +56,8 @@ export class KVTransitFileService implements ITransitFileService {
       mimeType: file.type || contentTypeFromFileId(fileId),
       createdAt: new Date().toISOString(),
       sizeBytes: file.size,
+      workspaceId: access?.workspaceId,
+      userId: access?.userId,
     };
     const buffer = await file.arrayBuffer();
     // KV 原生 TTL：写入时直接指定过期时间，无需 cleanupExpired
@@ -67,8 +76,8 @@ export class KVTransitFileService implements ITransitFileService {
     };
   }
 
-  async read(fileId: string): Promise<TransitFileRead> {
-    const { buffer, metadata } = await this.readObject(fileId);
+  async read(fileId: string, access?: TransitFileAccess): Promise<TransitFileRead> {
+    const { buffer, metadata } = await this.readObject(fileId, access);
     return {
       file: new File([buffer], metadata.name, { type: metadata.mimeType }),
       sizeBytes: metadata.sizeBytes,
@@ -77,8 +86,8 @@ export class KVTransitFileService implements ITransitFileService {
     };
   }
 
-  async response(fileId: string): Promise<Response> {
-    const { buffer, metadata } = await this.readObject(fileId);
+  async response(fileId: string, access?: TransitFileAccess): Promise<Response> {
+    const { buffer, metadata } = await this.readObject(fileId, access);
     return new Response(buffer, {
       headers: {
         "content-length": String(metadata.sizeBytes),
@@ -88,17 +97,29 @@ export class KVTransitFileService implements ITransitFileService {
     });
   }
 
-  async delete(fileId: string): Promise<boolean> {
+  async delete(fileId: string, access?: TransitFileAccess): Promise<boolean> {
     assertSafeFileId(fileId);
-    const existing = await this.namespace.get(objectKey(fileId), "arrayBuffer");
+    const [existing, metadata] = await Promise.all([
+      this.namespace.get(objectKey(fileId), "arrayBuffer"),
+      this.readMetadata(fileId),
+    ]);
+    if (!existing || !metadata) return false;
+    try {
+      assertAccess(metadata, access);
+    } catch {
+      return false;
+    }
     await Promise.all([this.namespace.delete(objectKey(fileId)), this.namespace.delete(metadataKey(fileId))]);
-    return existing != null;
+    return true;
   }
 
   // KV 依赖原生 TTL 自动过期，无需手动清理
   async cleanupExpired(): Promise<void> {}
 
-  private async readObject(fileId: string): Promise<{
+  private async readObject(
+    fileId: string,
+    access?: TransitFileAccess,
+  ): Promise<{
     buffer: ArrayBuffer;
     metadata: TransitFileMetadata;
   }> {
@@ -113,6 +134,7 @@ export class KVTransitFileService implements ITransitFileService {
     if (!buffer || !metadata) {
       throw new TransitFileError(404, "file_not_found", "Transit file was not found.");
     }
+    assertAccess(metadata, access);
     return { buffer, metadata };
   }
 
@@ -163,11 +185,25 @@ function randomHex(byteLength: number): string {
   return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 function normalizeMetadata(input: Partial<TransitFileMetadata>): TransitFileMetadata {
-  return {
+  const metadata: TransitFileMetadata = {
     name: typeof input.name === "string" && input.name.trim() ? input.name.trim() : "file",
     mimeType:
       typeof input.mimeType === "string" && input.mimeType.trim() ? input.mimeType.trim() : "application/octet-stream",
     createdAt: typeof input.createdAt === "string" && input.createdAt ? input.createdAt : new Date().toISOString(),
     sizeBytes: typeof input.sizeBytes === "number" && Number.isFinite(input.sizeBytes) ? input.sizeBytes : 0,
   };
+  if (typeof input.workspaceId === "string") metadata.workspaceId = input.workspaceId;
+  if (typeof input.userId === "string") metadata.userId = input.userId;
+  return metadata;
+}
+
+function assertAccess(metadata: TransitFileMetadata, access: TransitFileAccess | undefined): void {
+  if (!metadata.workspaceId && !metadata.userId) return;
+  if (
+    !access ||
+    metadata.workspaceId !== access.workspaceId ||
+    (!access.canManageWorkspace && metadata.userId !== access.userId)
+  ) {
+    throw new TransitFileError(404, "file_not_found", "Transit file was not found.");
+  }
 }

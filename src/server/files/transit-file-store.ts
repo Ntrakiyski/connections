@@ -13,12 +13,18 @@ export interface TransitFileRead {
   mimeType: string;
 }
 
+export interface TransitFileAccess {
+  workspaceId: string;
+  userId: string;
+  canManageWorkspace: boolean;
+}
+
 export interface ITransitFileService {
   readonly maxBytes: number;
-  create(file: File): Promise<TransitFileUpload>;
-  read(fileId: string): Promise<TransitFileRead>;
-  response?(fileId: string): Promise<Response>;
-  delete(fileId: string): Promise<boolean>;
+  create(file: File, access?: TransitFileAccess): Promise<TransitFileUpload>;
+  read(fileId: string, access?: TransitFileAccess): Promise<TransitFileRead>;
+  response?(fileId: string, access?: TransitFileAccess): Promise<Response>;
+  delete(fileId: string, access?: TransitFileAccess): Promise<boolean>;
   cleanupExpired(): Promise<void>;
 }
 

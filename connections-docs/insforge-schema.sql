@@ -94,3 +94,21 @@ create table if not exists audit_events (
   created_at text not null
 );
 create index if not exists audit_events_workspace_idx on audit_events (workspace_id, created_at desc);
+
+-- Workspace provider availability and action approval policy
+create table if not exists workspace_providers (
+  workspace_id text not null references workspaces(id) on delete cascade,
+  service text not null,
+  enabled_by text not null,
+  enabled_at text not null,
+  primary key (workspace_id, service)
+);
+
+create table if not exists workspace_action_policies (
+  workspace_id text not null references workspaces(id) on delete cascade,
+  action_id text not null,
+  require_approval boolean not null,
+  updated_by text not null,
+  updated_at text not null,
+  primary key (workspace_id, action_id)
+);

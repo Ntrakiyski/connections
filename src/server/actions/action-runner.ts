@@ -3,8 +3,10 @@ import type { ConnectionService } from "../../connection-service.ts";
 import type { ActionPolicyService } from "../../core/action-policy.ts";
 import type { ExecutionContext, ExecutionResult, TransitFileWriter } from "../../core/types.ts";
 import type { IProviderLoader } from "../../providers/provider-loader.ts";
+import type { ITransitFileService } from "../files/transit-file-store.ts";
 import type { Logger } from "../logger.ts";
 import type { IRunLogStore, RunLogListInput, RunLogPage, RunLogCaller } from "../storage/runtime-store.ts";
+import type { WorkspaceRole } from "../storage/runtime-token-service.ts";
 
 import { executeAction as executeProviderAction } from "../../core/execution.ts";
 import { summarizeForRunLog } from "./run-log-summary.ts";
@@ -14,7 +16,7 @@ export interface ActionRunnerOptions {
   providerLoader: IProviderLoader;
   connections: ConnectionService;
   runs: IRunLogStore;
-  transitFiles?: TransitFileWriter;
+  transitFiles?: ITransitFileService;
   actionPolicy?: ActionPolicyService;
   logger?: Logger;
   workspace?: ActionRunnerWorkspace;
@@ -24,6 +26,7 @@ export interface ActionRunnerOptions {
 export interface ActionRunnerWorkspace {
   workspaceId: string;
   userId: string;
+  role: WorkspaceRole;
 }
 
 export interface RunActionInput {
@@ -129,7 +132,11 @@ export class ActionRunner {
   }
 
   listRuns(input?: RunLogListInput): Promise<RunLogPage> {
-    return this.options.runs.list(input);
+    const query: RunLogListInput = input ? { ...input } : {};
+    if (this.options.workspace?.role === "member") {
+      query.userId = this.options.workspace.userId;
+    }
+    return this.options.runs.list(query);
   }
 
   private createExecutionContext(connectionName: string | undefined): ExecutionContext {
@@ -137,8 +144,25 @@ export class ActionRunner {
       ...this.options.connections.forConnection(connectionName),
     };
     if (this.options.transitFiles) {
-      context.transitFiles = this.options.transitFiles;
+      context.transitFiles = this.createTransitFileWriter(this.options.transitFiles);
     }
     return context;
+  }
+
+  private createTransitFileWriter(transitFiles: ITransitFileService): TransitFileWriter {
+    const workspace = this.options.workspace;
+    const access = workspace
+      ? {
+          workspaceId: workspace.workspaceId,
+          userId: workspace.userId,
+          canManageWorkspace: workspace.role !== "member",
+        }
+      : undefined;
+    return {
+      maxBytes: transitFiles.maxBytes,
+      create: async (file) => await transitFiles.create(file, access),
+      read: async (fileId) => await transitFiles.read(fileId, access),
+      delete: async (fileId) => await transitFiles.delete(fileId, access),
+    };
   }
 }

@@ -23,6 +23,7 @@ export interface OAuthFlowServiceOptions {
   states: IOAuthStateStore;
   stateMaxAgeMs?: number;
   statePrefix?: string;
+  userId?: string;
 }
 
 export interface OAuthAuthorizationCompleteInput {
@@ -39,6 +40,7 @@ export type OAuthAuthorizationState = {
   state: string;
   createdAt: string;
   pkceCodeVerifier?: string;
+  userId?: string;
 };
 
 /**
@@ -58,6 +60,7 @@ export class OAuthFlowService {
   private readonly states: IOAuthStateStore;
   private readonly stateMaxAgeMs: number;
   private readonly statePrefix: string | undefined;
+  private readonly userId: string | undefined;
 
   constructor(input: OAuthFlowServiceOptions) {
     this.clientConfigs = input.clientConfigs;
@@ -65,6 +68,7 @@ export class OAuthFlowService {
     this.states = input.states;
     this.stateMaxAgeMs = input.stateMaxAgeMs ?? 15 * 60 * 1000;
     this.statePrefix = input.statePrefix;
+    this.userId = input.userId;
   }
 
   async startAuthorization(input: OAuthAuthorizationStartInput): Promise<OAuthAuthorizationStart> {
@@ -84,6 +88,7 @@ export class OAuthFlowService {
       state,
       createdAt: new Date().toISOString(),
       pkceCodeVerifier,
+      userId: this.userId,
     });
 
     const authorizationUrl = new URL(this.clientConfigs.resolveEndpointUrl(service, auth.authorizationUrl, config));

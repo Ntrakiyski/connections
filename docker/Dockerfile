@@ -22,6 +22,7 @@ COPY package.json package-lock.json ./
 COPY scripts/healthcheck.ts ./scripts/healthcheck.ts
 COPY scripts/ensure-generated.ts ./scripts/ensure-generated.ts
 COPY migrations ./migrations
+COPY sqlite-migrations ./sqlite-migrations
 COPY --from=build /app/src ./src
 COPY --from=build /app/catalog ./catalog
 COPY --from=build /app/dist ./dist
