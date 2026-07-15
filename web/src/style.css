@@ -308,7 +308,7 @@ h3 {
   top: 0;
   align-self: start;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   height: 100svh;
   min-height: 0;
   border-right: 1px solid var(--sidebar-border);
@@ -368,6 +368,15 @@ h3 {
   min-height: 56px;
   padding: 0 20px;
   border-bottom: 1px solid var(--sidebar-border);
+}
+
+.clerk-organization-switcher {
+  min-width: 0;
+  padding: 12px 12px 0;
+}
+
+.clerk-organization-switcher > div {
+  width: 100%;
 }
 
 .shell-workspace-name,
@@ -2710,6 +2719,7 @@ tr:last-child td {
     align-self: auto;
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-rows: auto;
     align-items: center;
     height: auto;
     min-height: 0;
@@ -2722,6 +2732,10 @@ tr:last-child td {
     min-height: 0;
     padding: 0;
     border-bottom: 0;
+  }
+
+  .clerk-organization-switcher {
+    padding: 0;
   }
 
   .sidebar-nav {

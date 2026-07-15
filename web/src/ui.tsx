@@ -118,6 +118,23 @@ export interface RuntimeLoadResult {
   data: AppData;
 }
 
+export interface OrganizationTokenGetter {
+  (options: { organizationId: string; skipCache: boolean }): Promise<string | null>;
+}
+
+/**
+ * Gets a Clerk session token for the organization selected in this browser tab.
+ *
+ * Clerk sessions can have different active organizations in separate tabs, so the
+ * browser-to-API bearer token must carry this explicit workspace context.
+ */
+export async function getOrganizationToken(
+  getToken: OrganizationTokenGetter,
+  organizationId: string,
+): Promise<string | null> {
+  return await getToken({ organizationId, skipCache: true });
+}
+
 export async function loadRuntimeData(clerkToken: string | null): Promise<RuntimeLoadResult> {
   const bearerToken = clerkToken ?? undefined;
   const rawSession = await apiGet<Partial<AuthSession>>("/api/auth/session", { bearerToken });
@@ -188,7 +205,7 @@ export function App(): ReactNode {
 
     let cancelled = false;
     setLoading(true);
-    getToken({ skipCache: true })
+    getOrganizationToken(getToken, orgId)
       .then((clerkToken) => loadRuntimeData(clerkToken))
       .then(({ data: nextData }) => {
         if (!cancelled) {
@@ -310,7 +327,9 @@ function AppShell(props: {
           </div>
         </div>
 
-        <OrganizationSwitcher hidePersonal afterCreateOrganizationUrl="/" afterSelectOrganizationUrl="/" />
+        <div className="clerk-organization-switcher">
+          <OrganizationSwitcher hidePersonal afterCreateOrganizationUrl="/" afterSelectOrganizationUrl="/" />
+        </div>
 
         <nav className="sidebar-nav" aria-label={t("shell.primaryNav")}>
           {visibleNavItems.map((item) => {

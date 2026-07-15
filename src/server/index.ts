@@ -12,6 +12,7 @@ import { createConnectApp } from "./connect-app.ts";
 import { TransitFileService } from "./files/transit-files.ts";
 import { logger } from "./logger.ts";
 import { createSecretCodec } from "./secrets/secret-codec.ts";
+import { normalizePostgresConnectionString } from "./storage/postgres-config.ts";
 import { PostgresRuntimeDatabase } from "./storage/postgres-runtime-store.ts";
 import { SqliteRuntimeDatabase } from "./storage/sqlite-runtime-store.ts";
 
@@ -40,7 +41,10 @@ const catalog = await loadCatalog(undefined, {
 });
 const providerLoader = new ProviderLoader(executorModules);
 const runtimeDatabase = process.env.DATABASE_URL
-  ? new PostgresRuntimeDatabase(new pg.Pool({ connectionString: process.env.DATABASE_URL }), secretCodec)
+  ? new PostgresRuntimeDatabase(
+      new pg.Pool({ connectionString: normalizePostgresConnectionString(process.env.DATABASE_URL) }),
+      secretCodec,
+    )
   : new SqliteRuntimeDatabase(join(dataDir, "connect.sqlite"), { secretCodec });
 const transitFiles = new TransitFileService({
   rootDir: join(dataDir, "files"),

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { subscribeToOAuthCompletions, loadRuntimeData } from "./ui";
+import { getOrganizationToken, subscribeToOAuthCompletions, loadRuntimeData } from "./ui";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -47,6 +47,13 @@ describe("subscribeToOAuthCompletions", () => {
 });
 
 describe("loadRuntimeData", () => {
+  it("requests a Clerk token scoped to the selected organization", async () => {
+    const getToken = vi.fn().mockResolvedValue("organization-token");
+
+    await expect(getOrganizationToken(getToken, "org_selected")).resolves.toBe("organization-token");
+    expect(getToken).toHaveBeenCalledWith({ organizationId: "org_selected", skipCache: true });
+  });
+
   it("passes the Clerk token to all API calls", async () => {
     const calls: Array<{ path: string; headers: Headers }> = [];
     vi.stubGlobal(
