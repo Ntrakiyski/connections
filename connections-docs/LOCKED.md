@@ -71,7 +71,7 @@
 ## Approval policy
 
 - Each provider action has a workspace-scoped `Require approval` true/false setting.
-- Every action defaults to `Require approval = on` when its provider is enabled; an admin deliberately turns it off for trusted actions.
+- An action whose ID or name contains `delete`, `create`, `update`, or `move` defaults to `Require approval = on`; every other action defaults off. An admin or manager may change the stored workspace policy.
 - OpenConnector stores and returns that setting only.
 - The consuming MCP client or agent host presents the approval prompt and controls execution after approval.
 - OpenConnector does not have an approval inbox, queued-execution system, or approval UI.

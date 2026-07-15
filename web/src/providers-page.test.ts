@@ -123,6 +123,38 @@ describe("ProvidersPage OAuth client settings", () => {
   });
 });
 
+describe("ProvidersPage action policies", () => {
+  it("shows the approval control beside provider actions to managers but not members", () => {
+    const dataWithAction = {
+      ...providerData,
+      providers: [
+        {
+          ...oauthProvider,
+          actions: [
+            {
+              id: "gmail.create_draft",
+              service: "gmail",
+              name: "create_draft",
+              description: "Create a draft.",
+              requiredScopes: [],
+              inputSchema: {},
+              outputSchema: {},
+              execution: executableActionExecution,
+            },
+          ],
+        },
+      ],
+    } satisfies AppData;
+
+    expect(renderProvidersPage({ ...dataWithAction, role: "manager" }, "/providers/gmail")).toContain(
+      "Require approval",
+    );
+    expect(renderProvidersPage({ ...dataWithAction, role: "member" }, "/providers/gmail")).not.toContain(
+      "Require approval",
+    );
+  });
+});
+
 describe("ProvidersPage route shell", () => {
   it("renders only the provider browser at /providers", () => {
     const markup = renderProvidersPage(providerData, "/providers");

@@ -40,7 +40,7 @@ Clerk's Organization UI owns invitations, removals, and role changes. The worksp
 
 A manager or admin enables a provider for the workspace and configures its OAuth application. That makes the provider's full action catalog available to the team.
 
-Every provider action requires approval by default. A manager or admin may disable that requirement for a trusted action. Connections stores this policy; it does not create an approval inbox. The MCP client or agent host asks the human for approval before executing an action that requires it.
+Actions whose ID or name contains `delete`, `create`, `update`, or `move` require approval by default; other actions are trusted by default. A manager or admin can change either setting beside the action in the provider console. Connections stores this policy; it does not create an approval inbox. The MCP client or agent host asks the human for approval before executing an action that requires it.
 
 OAuth client secrets and connected-account credentials are workspace-scoped encrypted data. They never reach the browser, MCP client, or another workspace.
 

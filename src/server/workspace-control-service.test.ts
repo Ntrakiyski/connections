@@ -21,13 +21,43 @@ const action: ActionDefinition = {
   outputSchema: { type: "object" },
 };
 
+const createAction: ActionDefinition = {
+  ...action,
+  id: "example.create_record",
+  name: "create record",
+};
+
+const readAction: ActionDefinition = {
+  ...action,
+  id: "example.read_record",
+  name: "read record",
+};
+
+const deleteAction: ActionDefinition = {
+  ...action,
+  id: "example.delete_record",
+  name: "delete record",
+};
+
+const updateAction: ActionDefinition = {
+  ...action,
+  id: "example.update_record",
+  name: "update record",
+};
+
+const moveAction: ActionDefinition = {
+  ...action,
+  id: "example.move_record",
+  name: "move record",
+};
+
 const provider: ProviderDefinition = {
   service: "example",
   displayName: "Example",
   categories: ["Developer Tools"],
   authTypes: ["no_auth"],
   auth: [{ type: "no_auth" }],
-  actions: [action],
+  actions: [createAction, deleteAction, updateAction, moveAction, readAction],
 };
 
 describe("WorkspaceControlService", () => {
@@ -52,13 +82,28 @@ describe("WorkspaceControlService", () => {
       enabledBy: "manager-a",
     });
     await expect(manager.providers()).resolves.toMatchObject([{ service: provider.service }]);
-    await expect(manager.setActionPolicy(action.id, false)).resolves.toMatchObject({ requireApproval: false });
-    await expect(manager.getActionPolicy(catalog.actionsById.get(action.id)!)).resolves.toMatchObject({
+    await expect(manager.getActionPolicy(catalog.actionsById.get(createAction.id)!)).resolves.toMatchObject({
+      requireApproval: true,
+    });
+    await expect(manager.getActionPolicy(catalog.actionsById.get(deleteAction.id)!)).resolves.toMatchObject({
+      requireApproval: true,
+    });
+    await expect(manager.getActionPolicy(catalog.actionsById.get(updateAction.id)!)).resolves.toMatchObject({
+      requireApproval: true,
+    });
+    await expect(manager.getActionPolicy(catalog.actionsById.get(moveAction.id)!)).resolves.toMatchObject({
+      requireApproval: true,
+    });
+    await expect(manager.getActionPolicy(catalog.actionsById.get(readAction.id)!)).resolves.toMatchObject({
+      requireApproval: false,
+    });
+    await expect(manager.setActionPolicy(createAction.id, false)).resolves.toMatchObject({ requireApproval: false });
+    await expect(manager.getActionPolicy(catalog.actionsById.get(createAction.id)!)).resolves.toMatchObject({
       requireApproval: false,
       updatedBy: "manager-a",
     });
     await expect(manager.listAuditEvents()).resolves.toMatchObject([
-      { event: "action_policy.updated", resourceId: action.id },
+      { event: "action_policy.updated", resourceId: createAction.id },
       { event: "provider.enabled", resourceId: provider.service },
     ]);
   });

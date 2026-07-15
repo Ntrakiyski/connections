@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
+import { ActionApprovalControl } from "./action-approval-control";
 import { apiDelete, apiPatch, apiPost, apiPut } from "./api";
 import { credentialFieldsFor, filterProviders, resolveProviderConnectionStatus, sortProviders } from "./model";
 import { Badge, EmptyState, FormStatus, ProviderIcon, TagList } from "./shared-ui";
@@ -653,17 +654,20 @@ function ProviderDetail(props: ProviderDetailProps): ReactNode {
           ) : (
             <div className="linked-list">
               {props.provider.actions.map((action) => (
-                <Link key={action.id} className="linked-row" to={`/actions/${action.id}`}>
-                  <span>
-                    <strong>{action.name}</strong>
-                    <small>{action.id}</small>
-                  </span>
-                  <Badge tone={action.execution.locallyExecutable ? "success" : undefined}>
-                    {action.execution.locallyExecutable
-                      ? t("providers.execution.executable")
-                      : t("providers.execution.catalogOnly")}
-                  </Badge>
-                </Link>
+                <div key={action.id} className="provider-action-row">
+                  <Link className="linked-row" to={`/actions/${action.id}`}>
+                    <span>
+                      <strong>{action.name}</strong>
+                      <small>{action.id}</small>
+                    </span>
+                    <Badge tone={action.execution.locallyExecutable ? "success" : undefined}>
+                      {action.execution.locallyExecutable
+                        ? t("providers.execution.executable")
+                        : t("providers.execution.catalogOnly")}
+                    </Badge>
+                  </Link>
+                  <ActionApprovalControl actionId={action.id} canManage={props.canManageProviders} />
+                </div>
               ))}
             </div>
           )}

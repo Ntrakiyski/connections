@@ -204,3 +204,36 @@ Design a workspace action-policy control in the action detail UI and make the re
 ## Review
 
 Managers and admins can now toggle `Require approval` from an action's existing detail panel; the existing workspace policy API persists and audits the change. MCP initialization, action search, and action guides return the explicit instruction to ask the user in the current conversation before executing protected actions. Focused UI/MCP tests, `npm run fix-check`, the web production build, and the full Vitest suite pass (56 files / 422 tests). This is intentionally conversational guidance: a host configured to ignore MCP policy cannot be prevented from calling the tool without adding the separate server-verifiable approval mode the user declined.
+
+---
+
+# Task Plan
+
+## Goal
+
+Expose `Require approval` beside each action in a provider's action list and use the requested high-impact default policy for actions without a saved workspace rule.
+
+## Constraints
+
+- Keep each action name as its existing link to the action-detail page; the toggle must not become nested interactive content inside that link.
+- Existing workspace action-policy rows are explicit decisions and must not be overwritten.
+- Only action IDs or names containing `delete`, `create`, `update`, or `move` default to approval on; all other unsaved policies default off.
+- Update the locked product decision because this deliberately changes the previous all-actions-on default.
+
+## Steps
+
+- [x] Trace the provider action-row UI and default-policy resolver.
+- [x] Add the reusable manager/admin toggle beside each provider action row.
+- [x] Change the unsaved policy resolver to the requested action-name heuristic.
+- [x] Update the product decision and regression tests.
+
+## Verification
+
+- [x] Existing saved policy is retained over the heuristic.
+- [x] High-impact names default on and other names default off.
+- [x] Manager/admin sees the provider-row control; member does not.
+- [x] `npm run fix-check`, web build, focused tests, and full suite pass.
+
+## Review
+
+The provider action list now keeps its action link and Executable badge while placing the manager/admin approval toggle on the same row. The default resolver checks unsaved action IDs and names for `delete`, `create`, `update`, and `move`; those actions require approval, while all other unsaved actions do not. Explicit workspace rules still win and continue to be audited. The locked product decision and vision now record the rule. Verification passed `npm run fix-check`, the web production build, all 56 Vitest files / 423 tests, and `git diff --check`.

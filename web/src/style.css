@@ -1462,6 +1462,27 @@ h3 {
   cursor: pointer;
 }
 
+.provider-action-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 58px;
+  border-bottom: 1px solid var(--border);
+}
+
+.provider-action-row:last-child {
+  border-bottom: 0;
+}
+
+.provider-action-row .linked-row {
+  flex: 1;
+  border-bottom: 0;
+}
+
+.provider-action-row .action-approval-control {
+  margin-right: 12px;
+}
+
 .provider-row:last-child,
 .action-row:last-child,
 .linked-row:last-child {

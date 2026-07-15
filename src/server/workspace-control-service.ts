@@ -129,12 +129,18 @@ export class WorkspaceControlService {
   }
 
   private defaultActionPolicy(actionId: string): WorkspaceActionPolicy {
+    const action = this.catalog.actionsById.get(actionId);
     return {
       workspaceId: this.workspace.workspaceId,
       actionId,
-      requireApproval: true,
+      requireApproval: action ? actionRequiresApprovalByDefault(action) : false,
       updatedBy: "",
       updatedAt: "",
     };
   }
+}
+
+function actionRequiresApprovalByDefault(action: RuntimeActionDefinition): boolean {
+  const name = `${action.id} ${action.name}`.toLowerCase();
+  return ["delete", "create", "update", "move"].some((word) => name.includes(word));
 }
