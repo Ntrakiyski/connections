@@ -257,6 +257,8 @@
     "searchPlaceholder": "Искать действия по имени, ID или провайдеру",
     "provider": "Провайдер",
     "allProviders": "Все провайдеры",
+    "noProvidersSelected": "Провайдеры не выбраны",
+    "providersSelected": "Выбрано провайдеров: {{count}}",
     "actionsCount": "{{count}} действий",
     "noActionsTitle": "Действия не найдены",
     "noActionsDescription": "Попробуйте другой поиск или фильтр провайдера.",

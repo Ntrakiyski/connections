@@ -51,13 +51,35 @@ const moveAction: ActionDefinition = {
   name: "move record",
 };
 
+const additionalMutationActions = ["send", "add", "remove", "submit", "upload", "archive", "revoke", "transfer"].map(
+  (verb) => ({
+    ...action,
+    id: `example.${verb}_record`,
+    name: `${verb} record`,
+  }),
+);
+
+const camelCaseMutationAction: ActionDefinition = {
+  ...action,
+  id: "example.notification",
+  name: "sendEmail",
+};
+
 const provider: ProviderDefinition = {
   service: "example",
   displayName: "Example",
   categories: ["Developer Tools"],
   authTypes: ["no_auth"],
   auth: [{ type: "no_auth" }],
-  actions: [createAction, deleteAction, updateAction, moveAction, readAction],
+  actions: [
+    createAction,
+    deleteAction,
+    updateAction,
+    moveAction,
+    ...additionalMutationActions,
+    camelCaseMutationAction,
+    readAction,
+  ],
 };
 
 describe("WorkspaceControlService", () => {
@@ -92,6 +114,16 @@ describe("WorkspaceControlService", () => {
       requireApproval: true,
     });
     await expect(manager.getActionPolicy(catalog.actionsById.get(moveAction.id)!)).resolves.toMatchObject({
+      requireApproval: true,
+    });
+    for (const additionalMutationAction of additionalMutationActions) {
+      await expect(
+        manager.getActionPolicy(catalog.actionsById.get(additionalMutationAction.id)!),
+      ).resolves.toMatchObject({
+        requireApproval: true,
+      });
+    }
+    await expect(manager.getActionPolicy(catalog.actionsById.get(camelCaseMutationAction.id)!)).resolves.toMatchObject({
       requireApproval: true,
     });
     await expect(manager.getActionPolicy(catalog.actionsById.get(readAction.id)!)).resolves.toMatchObject({

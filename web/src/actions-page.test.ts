@@ -49,19 +49,59 @@ describe("ActionsPage approval policy", () => {
   });
 });
 
-function renderActionsPage(appData: AppData): string {
+describe("ActionsPage provider defaults", () => {
+  it("renders actions from connected providers only on a new page load", () => {
+    const connectedData: AppData = {
+      ...data,
+      providers: [
+        provider("gmail", "Gmail", "Gmail search"),
+        provider("slack", "Slack", "Slack post"),
+        provider("notion", "Notion", "Notion query"),
+      ],
+      connections: [
+        { service: "gmail", authType: "oauth2", configured: true, metadata: {} },
+        { service: "slack", authType: "oauth2", configured: true, metadata: {} },
+      ],
+    };
+
+    const markup = renderActionsPage(connectedData, "/actions");
+
+    expect(markup).toContain("Gmail search");
+    expect(markup).toContain("Slack post");
+    expect(markup).not.toContain("Notion query");
+    expect(markup).toContain("2 providers selected");
+  });
+});
+
+function provider(service: string, displayName: string, actionName: string): AppData["providers"][number] {
+  return {
+    ...data.providers[0],
+    service,
+    displayName,
+    actions: [
+      {
+        ...data.providers[0].actions[0],
+        id: `${service}.action`,
+        service,
+        name: actionName,
+      },
+    ],
+  };
+}
+
+function renderActionsPage(appData: AppData, initialPath = "/actions/example.echo"): string {
   return renderToStaticMarkup(
     createElement(
       I18nProvider,
       { i18n: createAppI18n("en") },
       createElement(
         MemoryRouter,
-        { initialEntries: ["/actions/example.echo"] },
+        { initialEntries: [initialPath] },
         createElement(
           Routes,
           null,
           createElement(Route, {
-            path: "/actions/:actionId",
+            path: "/actions/:actionId?",
             element: createElement(ActionsPage, { data: appData, onRefresh() {} }),
           }),
         ),

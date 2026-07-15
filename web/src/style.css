@@ -694,6 +694,78 @@ h3 {
   box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 40%, transparent);
 }
 
+.provider-multi-select {
+  position: relative;
+  min-width: 180px;
+}
+
+.provider-multi-select summary {
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.provider-multi-select summary::-webkit-details-marker {
+  display: none;
+}
+
+.provider-multi-select summary::after {
+  width: 16px;
+  height: 16px;
+  margin-left: auto;
+  content: "";
+  background: currentColor;
+  clip-path: polygon(15% 30%, 50% 65%, 85% 30%, 100% 45%, 50% 95%, 0 45%);
+  opacity: 0.6;
+}
+
+.provider-multi-select[open] summary::after {
+  transform: rotate(180deg);
+}
+
+.provider-multi-select-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 7px);
+  right: 0;
+  display: grid;
+  width: max-content;
+  min-width: 220px;
+  max-width: min(320px, calc(100vw - 32px));
+  max-height: 300px;
+  padding: 6px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--popover);
+  box-shadow: var(--console-shadow-md);
+}
+
+.provider-multi-select-option {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 34px;
+  padding: 7px 9px;
+  border-radius: calc(var(--radius-md) - 3px);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.provider-multi-select-option:hover {
+  background: var(--accent);
+}
+
+.provider-multi-select-option input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--primary);
+}
+
 .runtime-strip {
   display: flex;
   flex-direction: row;

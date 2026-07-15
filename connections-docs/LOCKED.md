@@ -71,7 +71,7 @@
 ## Approval policy
 
 - Each provider action has a workspace-scoped `Require approval` true/false setting.
-- An action whose ID or name contains `delete`, `create`, `update`, or `move` defaults to `Require approval = on`; every other action defaults off. An admin or manager may change the stored workspace policy.
+- Actions with a recognized mutation verb in their ID or name default to `Require approval = on`; read-only actions default off. The default verb set covers `acknowledge`, `activate`, `add`, `append`, `apply`, `approve`, `archive`, `assign`, `attach`, `ban`, `cancel`, `change`, `clear`, `close`, `copy`, `create`, `deactivate`, `decline`, `delete`, `detach`, `disable`, `edit`, `enable`, `execute`, `export`, `forward`, `import`, `insert`, `mark`, `merge`, `modify`, `move`, `mute`, `patch`, `pin`, `post`, `publish`, `purge`, `put`, `remove`, `rename`, `replace`, `reply`, `reset`, `restore`, `revoke`, `rollback`, `save`, `schedule`, `send`, `set`, `share`, `start`, `stop`, `submit`, `suspend`, `tag`, `toggle`, `transfer`, `trigger`, `unarchive`, `unassign`, `unban`, `unfollow`, `unlock`, `unmute`, `unpin`, `untrash`, `update`, `upload`, `upsert`, `void`, and `write`. An admin or manager may change the stored workspace policy.
 - OpenConnector stores and returns that setting only.
 - The consuming MCP client or agent host presents the approval prompt and controls execution after approval.
 - OpenConnector does not have an approval inbox, queued-execution system, or approval UI.

@@ -257,6 +257,8 @@
     "searchPlaceholder": "Rechercher des actions par nom, ID ou fournisseur",
     "provider": "Fournisseur",
     "allProviders": "Tous les fournisseurs",
+    "noProvidersSelected": "Aucun fournisseur sélectionné",
+    "providersSelected": "{{count}} fournisseurs sélectionnés",
     "actionsCount": "{{count}} actions",
     "noActionsTitle": "Aucune action trouvée",
     "noActionsDescription": "Essayez une autre recherche ou un autre filtre de fournisseur.",

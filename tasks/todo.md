@@ -237,3 +237,68 @@ Expose `Require approval` beside each action in a provider's action list and use
 ## Review
 
 The provider action list now keeps its action link and Executable badge while placing the manager/admin approval toggle on the same row. The default resolver checks unsaved action IDs and names for `delete`, `create`, `update`, and `move`; those actions require approval, while all other unsaved actions do not. Explicit workspace rules still win and continue to be audited. The locked product decision and vision now record the rule. Verification passed `npm run fix-check`, the web production build, all 56 Vitest files / 423 tests, and `git diff --check`.
+
+---
+
+# Task Plan
+
+## Goal
+
+Expand the default approval heuristic to cover the catalog's other mutation-style verbs while retaining safe read-only defaults and every explicit workspace override.
+
+## Constraints
+
+- Inspect only normalized catalog verbs; do not expose provider action names.
+- The recognition rule must match words in either the action ID or action name, including camel-case names, without treating unrelated substrings as verbs.
+- Existing stored workspace policies override the default.
+- Update the locked decision and vision with the broadened policy.
+
+## Steps
+
+- [x] Inspect the complete generated catalog and identify mutation-style verb candidates.
+- [x] Centralize the approved mutation-verb set in the default-policy resolver.
+- [x] Cover the requested mutation verbs, camel-case names, and a read-only control in regression tests.
+- [x] Update product documentation and verify the full application.
+
+## Verification
+
+- [x] Requested mutation verbs default to approval on.
+- [x] Read-only actions still default off.
+- [x] Stored workspace policy still overrides the default.
+- [x] `npm run fix-check`, web build, focused tests, and full suite pass.
+
+## Review
+
+The default policy now recognizes the expanded mutation-verb set in action IDs and names, including camel-case names. It covers creation, deletion, updates, sends, adds/removals, submission, upload, archive, revoke, transfer, access/lifecycle changes, publishing, sharing, scheduling, and similar mutations; read-only actions remain off by default. Explicit workspace policies still override this fallback. The locked decision and vision were updated. Verification passed focused policy/UI/MCP tests, `npm run fix-check`, the web build, all 56 Vitest files / 423 tests, and `git diff --check`.
+
+---
+
+# Task Plan
+
+## Goal
+
+Make the Actions browser start with actions from connected providers only, while allowing a user to add or remove multiple provider filters during that browser session.
+
+## Constraints
+
+- Derive the default only from the current app data; do not persist the user selection.
+- A browser refresh resets to the currently connected-provider default.
+- Preserve action deep links and the selected-action behavior.
+
+## Steps
+
+- [x] Trace the single-provider Actions filter and available connection data.
+- [x] Replace the single-select filter with a multi-provider control initialized from connected providers.
+- [x] Preserve search, clear, pagination, and deep-link behavior.
+- [x] Add focused UI/model regression coverage and verify the application.
+
+## Verification
+
+- [x] Initially connected providers are the only included action sources.
+- [x] Users can select and deselect multiple providers.
+- [x] A new page load returns to the connected-provider default.
+- [x] `npm run fix-check`, web build, focused tests, and full suite pass.
+
+## Review
+
+The Actions browser now begins with only providers that have an active, non-virtual credential connection. Its provider dropdown is a multi-select: people can add or remove providers for the current browser session, while the Clear control and a browser refresh return to the connected-provider default. Search, pagination, and action deep links remain intact. The approval default now also recognizes the catalog's full mutation-verb set, including camel-case action names; stored workspace policies still override the default. Focused tests, the web production build, `npm run fix-check`, the full Vitest suite (56 files / 426 tests), and `git diff --check` passed.

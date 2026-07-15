@@ -257,6 +257,8 @@
     "searchPlaceholder": "名前、ID、プロバイダーでアクションを検索",
     "provider": "プロバイダー",
     "allProviders": "すべてのプロバイダー",
+    "noProvidersSelected": "プロバイダーが選択されていません",
+    "providersSelected": "{{count}} 件のプロバイダーを選択",
     "actionsCount": "{{count}} 件のアクション",
     "noActionsTitle": "アクションが見つかりません",
     "noActionsDescription": "別の検索語句またはプロバイダーフィルターを試してください。",

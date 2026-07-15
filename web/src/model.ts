@@ -264,13 +264,18 @@ function pickUsableCredentialConnection(connections: ConnectionRecord[]): Connec
   return usableConnections.find((connection) => connection.default) ?? usableConnections[0];
 }
 
-function isUsableCredentialConnection(connection: ConnectionRecord | undefined): connection is ConnectionRecord {
+export function isUsableCredentialConnection(connection: ConnectionRecord | undefined): connection is ConnectionRecord {
   return (
     connection != null &&
     connection.authType !== "no_auth" &&
     connection.virtual !== true &&
     connection.configured !== false
   );
+}
+
+/** Provider services with an active, non-virtual credential connection. */
+export function connectedProviderServices(connections: ConnectionRecord[]): Set<string> {
+  return new Set(connections.filter(isUsableCredentialConnection).map((connection) => connection.service));
 }
 
 function providerHasOAuth(provider: ProviderDefinition): boolean {
@@ -355,10 +360,14 @@ export function firstProviderByConnectionStatus(
   return sortProviders(providers, new Map(connections.map((connection) => [connection.service, connection])))[0];
 }
 
-export function filterActions(actions: ActionDefinition[], query: string, service: string | null): ActionDefinition[] {
+export function filterActions(
+  actions: ActionDefinition[],
+  query: string,
+  services: ReadonlySet<string>,
+): ActionDefinition[] {
   const normalized = query.trim().toLowerCase();
   return actions.filter((action) => {
-    if (service && action.service !== service) return false;
+    if (!services.has(action.service)) return false;
     if (!normalized) return true;
     return [action.id, action.name, action.description, action.requiredScopes.join(" ")]
       .join(" ")

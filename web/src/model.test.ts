@@ -1,7 +1,13 @@
 import type { AppData, ProviderDefinition, RunLog } from "./model";
 
 import { describe, expect, it } from "vitest";
-import { createOverviewSummary, resolveProviderConnectionStatus, sortProviders } from "./model";
+import {
+  connectedProviderServices,
+  createOverviewSummary,
+  filterActions,
+  resolveProviderConnectionStatus,
+  sortProviders,
+} from "./model";
 
 function provider(service: string, displayName: string): ProviderDefinition {
   return {
@@ -145,6 +151,31 @@ describe("createOverviewSummary", () => {
 
     expect(summary.failedRunCount).toBe(6);
     expect(summary.failedRuns).toHaveLength(5);
+  });
+});
+
+describe("action provider filters", () => {
+  it("uses only configured credential providers as the default action sources", () => {
+    const connections = [
+      { service: "gmail", authType: "oauth2", configured: true, metadata: {} },
+      { service: "clock", authType: "no_auth", virtual: true, metadata: {} },
+      { service: "slack", authType: "oauth2", configured: false, metadata: {} },
+    ];
+    const actions = [action("gmail.search", true), action("clock.now", true), action("slack.post", true)];
+
+    const selectedServices = connectedProviderServices(connections);
+
+    expect([...selectedServices]).toEqual(["gmail"]);
+    expect(filterActions(actions, "", selectedServices).map((item) => item.id)).toEqual(["gmail.search"]);
+  });
+
+  it("includes actions from every selected provider", () => {
+    const actions = [action("gmail.search", true), action("slack.post", true), action("notion.query", true)];
+
+    expect(filterActions(actions, "", new Set(["gmail", "slack"])).map((item) => item.id)).toEqual([
+      "gmail.search",
+      "slack.post",
+    ]);
   });
 });
 

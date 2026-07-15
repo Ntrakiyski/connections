@@ -257,6 +257,8 @@
     "searchPlaceholder": "按名称、ID 或提供商搜索操作",
     "provider": "提供商",
     "allProviders": "全部提供商",
+    "noProvidersSelected": "未选择提供商",
+    "providersSelected": "已选择 {{count}} 个提供商",
     "actionsCount": "{{count}} 个操作",
     "noActionsTitle": "没有找到操作",
     "noActionsDescription": "试试其他搜索词或提供商筛选。",

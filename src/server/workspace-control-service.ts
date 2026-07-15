@@ -10,6 +10,82 @@ import type { WorkspaceContext } from "./storage/runtime-token-service.ts";
 
 import { HttpRequestError } from "./api/http-utils.ts";
 
+const defaultApprovalVerbs = new Set([
+  "acknowledge",
+  "activate",
+  "add",
+  "append",
+  "apply",
+  "approve",
+  "archive",
+  "assign",
+  "attach",
+  "ban",
+  "cancel",
+  "change",
+  "clear",
+  "close",
+  "copy",
+  "create",
+  "deactivate",
+  "decline",
+  "delete",
+  "detach",
+  "disable",
+  "edit",
+  "enable",
+  "execute",
+  "export",
+  "forward",
+  "import",
+  "insert",
+  "mark",
+  "merge",
+  "modify",
+  "move",
+  "mute",
+  "patch",
+  "pin",
+  "post",
+  "publish",
+  "purge",
+  "put",
+  "remove",
+  "rename",
+  "replace",
+  "reply",
+  "reset",
+  "restore",
+  "revoke",
+  "rollback",
+  "save",
+  "schedule",
+  "send",
+  "set",
+  "share",
+  "start",
+  "stop",
+  "submit",
+  "suspend",
+  "tag",
+  "toggle",
+  "transfer",
+  "trigger",
+  "unarchive",
+  "unassign",
+  "unban",
+  "unfollow",
+  "unlock",
+  "unmute",
+  "unpin",
+  "untrash",
+  "update",
+  "upload",
+  "upsert",
+  "void",
+  "write",
+]);
+
 export class WorkspaceControlService {
   private readonly catalog: CatalogStore;
   private readonly store: IWorkspaceControlStore;
@@ -141,6 +217,9 @@ export class WorkspaceControlService {
 }
 
 function actionRequiresApprovalByDefault(action: RuntimeActionDefinition): boolean {
-  const name = `${action.id} ${action.name}`.toLowerCase();
-  return ["delete", "create", "update", "move"].some((word) => name.includes(word));
+  const words = `${action.id} ${action.name}`
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .split(/[^a-z]+/);
+  return words.some((word) => defaultApprovalVerbs.has(word));
 }

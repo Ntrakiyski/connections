@@ -257,6 +257,8 @@
     "searchPlaceholder": "Search actions by name, id, or provider",
     "provider": "Provider",
     "allProviders": "All providers",
+    "noProvidersSelected": "No providers selected",
+    "providersSelected": "{{count}} providers selected",
     "actionsCount": "{{count}} actions",
     "noActionsTitle": "No actions found",
     "noActionsDescription": "Try a different search or provider filter.",

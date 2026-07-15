@@ -7,7 +7,13 @@ import { Check, ChevronRight, Code2, Copy, ExternalLink, Loader2, Play, Search, 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { ActionApprovalControl } from "./action-approval-control";
-import { buildActionExamples, exampleInput, filterActions, parameterSummaries } from "./model";
+import {
+  buildActionExamples,
+  connectedProviderServices,
+  exampleInput,
+  filterActions,
+  parameterSummaries,
+} from "./model";
 import { Badge, EmptyState, TagList } from "./shared-ui";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -36,19 +42,19 @@ interface ExampleTabsProps {
 }
 
 const actionPageSize = 120;
-const allProvidersFilterValue = "__all_providers__";
 
 export function ActionsPage(props: ActionsPageProps): ReactNode {
   const t = useTranslate();
   const params = useParams();
   const [query, setQuery] = useState("");
-  const [selectedService, setSelectedService] = useState<string | null>(null);
+  const connectedServices = useMemo(() => connectedProviderServices(props.data.connections), [props.data.connections]);
+  const [selectedServices, setSelectedServices] = useState(() => connectedServices);
   const [visibleLimit, setVisibleLimit] = useState(actionPageSize);
   const selectedRowRef = useRef<HTMLAnchorElement | null>(null);
   const actions = useMemo(() => props.data.providers.flatMap((provider) => provider.actions), [props.data.providers]);
   const visibleActions = useMemo(
-    () => filterActions(actions, query, selectedService),
-    [actions, query, selectedService],
+    () => filterActions(actions, query, selectedServices),
+    [actions, query, selectedServices],
   );
   const renderedActions = useMemo(() => visibleActions.slice(0, visibleLimit), [visibleActions, visibleLimit]);
   const selectedAction = params.actionId ? actions.find((action) => action.id === params.actionId) : null;
@@ -56,9 +62,12 @@ export function ActionsPage(props: ActionsPageProps): ReactNode {
     () => new Map(props.data.providers.map((provider) => [provider.service, provider.displayName])),
     [props.data.providers],
   );
-  const selectedProviderName = selectedService
-    ? (providerNames.get(selectedService) ?? selectedService)
-    : t("actions.allProviders");
+  const selectedProviderName = selectedProviderFilterLabel({
+    selectedServices,
+    providerNames,
+    providerCount: props.data.providers.length,
+    t,
+  });
 
   useEffect(() => {
     selectedRowRef.current?.scrollIntoView({ block: "nearest" });
@@ -66,7 +75,7 @@ export function ActionsPage(props: ActionsPageProps): ReactNode {
 
   useEffect(() => {
     setVisibleLimit(actionPageSize);
-  }, [query, selectedService]);
+  }, [query, selectedServices]);
 
   const selectedInResults = selectedAction ? visibleActions.some((action) => action.id === selectedAction.id) : false;
   const selectedIsRendered = selectedAction ? renderedActions.some((action) => action.id === selectedAction.id) : false;
@@ -75,11 +84,19 @@ export function ActionsPage(props: ActionsPageProps): ReactNode {
 
   function clearFilters(): void {
     setQuery("");
-    setSelectedService(null);
+    setSelectedServices(new Set(connectedServices));
   }
 
-  function selectService(value: string): void {
-    setSelectedService(value === allProvidersFilterValue ? null : value);
+  function toggleService(service: string): void {
+    setSelectedServices((current) => {
+      const next = new Set(current);
+      if (next.has(service)) {
+        next.delete(service);
+      } else {
+        next.add(service);
+      }
+      return next;
+    });
   }
 
   function renderActionRow(action: ActionDefinition): ReactNode {
@@ -120,19 +137,21 @@ export function ActionsPage(props: ActionsPageProps): ReactNode {
         </label>
         <div className="select-filter">
           <span className="select-filter-label">{t("actions.provider")}</span>
-          <Select value={selectedService ?? allProvidersFilterValue} onValueChange={selectService}>
-            <SelectTrigger className="select-filter-trigger" size="sm" aria-label={t("actions.provider")}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent className="select-filter-content" position="popper" align="start">
-              <SelectItem value={allProvidersFilterValue}>{t("actions.allProviders")}</SelectItem>
+          <details className="provider-multi-select">
+            <summary aria-label={t("actions.provider")}>{selectedProviderName}</summary>
+            <div className="provider-multi-select-menu">
               {props.data.providers.map((provider) => (
-                <SelectItem key={provider.service} value={provider.service}>
+                <label key={provider.service} className="provider-multi-select-option">
+                  <input
+                    type="checkbox"
+                    checked={selectedServices.has(provider.service)}
+                    onChange={() => toggleService(provider.service)}
+                  />
                   {provider.displayName}
-                </SelectItem>
+                </label>
               ))}
-            </SelectContent>
-          </Select>
+            </div>
+          </details>
         </div>
       </section>
 
@@ -143,7 +162,7 @@ export function ActionsPage(props: ActionsPageProps): ReactNode {
               <strong>{t("actions.actionsCount", { count: visibleActions.length })}</strong>
               <span>{selectedProviderName}</span>
             </div>
-            {query || selectedService ? (
+            {query || !sameServices(selectedServices, connectedServices) ? (
               <Button variant="outline" size="sm" onClick={clearFilters}>
                 {t("common.clear")}
               </Button>
@@ -198,6 +217,27 @@ export function ActionsPage(props: ActionsPageProps): ReactNode {
       </div>
     </div>
   );
+}
+
+interface SelectedProviderFilterLabelOptions {
+  selectedServices: ReadonlySet<string>;
+  providerNames: ReadonlyMap<string, string>;
+  providerCount: number;
+  t(key: string, values?: Record<string, unknown>): string;
+}
+
+function selectedProviderFilterLabel(options: SelectedProviderFilterLabelOptions): string {
+  if (options.selectedServices.size === 0) return options.t("actions.noProvidersSelected");
+  if (options.selectedServices.size === 1) {
+    const [service] = options.selectedServices;
+    return options.providerNames.get(service) ?? service;
+  }
+  if (options.selectedServices.size === options.providerCount) return options.t("actions.allProviders");
+  return options.t("actions.providersSelected", { count: options.selectedServices.size });
+}
+
+function sameServices(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
+  return left.size === right.size && [...left].every((service) => right.has(service));
 }
 
 function ActionDetail(props: ActionDetailProps): ReactNode {
