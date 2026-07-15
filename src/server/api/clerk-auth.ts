@@ -3,11 +3,17 @@ import type { WorkspaceContext } from "../storage/runtime-token-service.ts";
 import type { Context, MiddlewareHandler } from "hono";
 
 import { getCookie } from "hono/cookie";
+import { optionalRecord } from "../../core/cast.ts";
 import { isConsoleShellRequest } from "./console-paths.ts";
 import { HttpRequestError } from "./http-utils.ts";
 
 export interface ClerkAuthSession extends WorkspaceContext {
   sessionClaims: Record<string, unknown>;
+}
+
+export interface ClerkOrganizationClaim {
+  id?: string;
+  role?: string;
 }
 
 export interface ClerkAuthOptions {
@@ -93,12 +99,13 @@ async function authenticateClerkRequest(context: Context, options: ClerkAuthOpti
   }
 
   const userId = readClaim(claims, "sub");
-  const clerkOrgId = readClaim(claims, "org_id");
+  const organization = readClerkOrganization(claims);
+  const clerkOrgId = organization.id;
   if (!userId || !clerkOrgId) {
     throw new HttpRequestError("workspace_required", "An active Clerk Organization is required.", 403);
   }
 
-  const workspace = await findOrCreateWorkspace(stores, claims, clerkOrgId, userId);
+  const workspace = await findOrCreateWorkspace(stores, claims, clerkOrgId, userId, organization.role);
 
   const role = (await options.membershipStore.getRole(workspace.id, userId)) ?? "member";
   const workspaceContext = { workspaceId: workspace.id, userId, role };
@@ -111,13 +118,14 @@ async function findOrCreateWorkspace(
   claims: Record<string, unknown>,
   clerkOrgId: string,
   userId: string,
+  clerkOrgRole: string | undefined,
 ): Promise<{ id: string }> {
   const existing = await options.workspaceStore.getByClerkOrgId(clerkOrgId);
   if (existing) {
     return existing;
   }
 
-  if (claims.org_role !== "org:admin") {
+  if (clerkOrgRole !== "org:admin") {
     throw new HttpRequestError("workspace_not_found", "The active workspace has not been configured.", 403);
   }
 
@@ -171,4 +179,16 @@ function readBearerToken(context: Context): string | undefined {
 function readClaim(claims: Record<string, unknown>, name: string): string | undefined {
   const value = claims[name];
   return typeof value === "string" && value ? value : undefined;
+}
+
+/** Reads both Clerk v1 and compact v2 active-organization session claims. */
+export function readClerkOrganization(claims: Record<string, unknown>): ClerkOrganizationClaim {
+  const current = optionalRecord(claims.o) ?? {};
+  const id = readClaim(claims, "org_id") ?? readClaim(current, "id");
+  const legacyRole = readClaim(claims, "org_role");
+  const compactRole = readClaim(current, "rol");
+  return {
+    id,
+    role: legacyRole ?? (compactRole ? `org:${compactRole}` : undefined),
+  };
 }

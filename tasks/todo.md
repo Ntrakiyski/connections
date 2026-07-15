@@ -21,6 +21,8 @@ Diagnose and repair the deployed Connections console after Clerk organization se
 - [x] Make the sidebar organization control layout intentional.
 - [x] Make the database TLS behavior explicit for the connection string supplied by Coolify.
 - [x] Verify the repaired local production flow, test suite, lint/typecheck, and deployment-ready diff.
+- [x] Accept Clerk's current compact organization claims in the server verifier while retaining legacy-claim compatibility.
+- [x] Add a regression check for both Clerk claim formats and redeploy the correction.
 
 ## Verification
 
@@ -30,7 +32,8 @@ Diagnose and repair the deployed Connections console after Clerk organization se
 - [x] Sidebar grid gives the organization control its own row at desktop and preserves the compact mobile layout.
 - [x] `npm test`, `npm run build:web`, and `npm run fix-check` pass.
 - [x] PostgreSQL TLS alias handling is explicit and verified during local startup.
+- [x] Active organization claim formats are verified at the server workspace claim resolver.
 
 ## Review
 
-The deployed session did not have an active organization according to Clerk's backend API, even though the browser switcher showed the user's membership. Clerk documents that multi-organization browser requests must request a token for the selected tab's organization; the console now calls `getToken({ organizationId: orgId, skipCache: true })`, so the Hono middleware receives the required `org_id` and retains its strict workspace boundary. The sidebar now assigns the switcher a dedicated grid row, avoiding the large blank area caused by an implicit grid row. The PostgreSQL URL normalizer changes pg's currently equivalent `prefer`, `require`, and `verify-ca` aliases to explicit `verify-full`, removing Coolify's security warning without weakening TLS. Clerk CLI health passed; it showed one organization and an authenticated user but the session's server-side active organization was null, confirming the diagnosis. InsForge DB diagnostics showed healthy connections, no slow queries or waiting locks, and all required Connections tables. Local production startup on port 3002 succeeded with no PostgreSQL TLS warning. Full tests passed: 50 files / 405 tests, as did the web build and `npm run fix-check`. The remaining deployment requirement is to use a Clerk production instance before treating the public site as production; the CLI confirms it currently uses a development instance.
+The original token-scoping fix deployed successfully, but the deployed screenshot showed that the API still rejected the active organization. Clerk v2 session tokens use compact `o.id` and `o.rol` fields; the server had only read v1 `org_id` and `org_role`. The single workspace-claim resolver now supports both formats, preserving the admin-only workspace-creation check and strict workspace isolation. Regression tests cover both claim versions; `npm run fix-check` and the full suite pass (51 files / 407 tests). The database and sidebar findings above remain valid.
