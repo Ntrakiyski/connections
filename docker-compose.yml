@@ -3,6 +3,9 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
+      args:
+        # Vite embeds this public value in the console bundle during `docker compose build`.
+        VITE_CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:-}
     volumes:
       - connector-data:/app/data
     environment:
