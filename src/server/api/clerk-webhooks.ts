@@ -76,7 +76,12 @@ async function ensureWorkspace(
   name: string,
 ): Promise<{ id: string }> {
   const existing = await options.workspaceStore.getByClerkOrgId(clerkOrgId);
-  if (existing) return existing;
+  if (existing) {
+    if (existing.name !== name) {
+      await options.workspaceStore.updateName(existing.id, name, new Date().toISOString());
+    }
+    return existing;
+  }
 
   const now = new Date().toISOString();
   const workspace = { id: crypto.randomUUID(), clerkOrgId, name, createdAt: now, updatedAt: now };

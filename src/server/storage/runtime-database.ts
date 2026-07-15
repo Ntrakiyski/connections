@@ -12,6 +12,10 @@ export interface Workspace {
   name: string;
   createdAt: string;
   updatedAt: string;
+  /** Set while the encrypted workspace backup is retained. */
+  deletedAt?: string;
+  /** ISO timestamp at which the backup must be permanently erased. */
+  purgeAt?: string;
 }
 
 export interface WorkspaceMember {
@@ -62,6 +66,15 @@ export interface IWorkspaceStore {
   getByClerkOrgId(clerkOrgId: string): Promise<Workspace | undefined>;
   getById(id: string): Promise<Workspace | undefined>;
   create(workspace: Workspace): Promise<void>;
+  /** Mirrors the Clerk-owned Organization profile name for lifecycle confirmation. */
+  updateName(workspaceId: string, name: string, updatedAt: string): Promise<void>;
+}
+
+/** Persists the archive, restore, and irrevocable purge state for a workspace. */
+export interface IWorkspaceLifecycleStore {
+  archive(workspaceId: string, deletedAt: string, purgeAt: string): Promise<boolean>;
+  restore(workspaceId: string, restoredAt: string): Promise<boolean>;
+  purgeExpired(now: string): Promise<string[]>;
 }
 
 export interface IWorkspaceMembershipStore {
@@ -115,6 +128,7 @@ export interface RuntimeDatabase {
   runtimeTokenStore: IRuntimeTokenStore;
   runLogStore: IRunLogStore;
   workspaceStore: IWorkspaceStore;
+  workspaceLifecycleStore?: IWorkspaceLifecycleStore;
   membershipStore: IWorkspaceMembershipStore;
   workspaceControlStore: IWorkspaceControlStore;
   createScopedStores(workspaceId: string): WorkspaceScopedStores;

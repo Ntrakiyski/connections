@@ -7,6 +7,7 @@ import type {
   IWorkspaceMembershipStore,
   IWorkspaceControlStore,
   IWorkspaceStore,
+  IWorkspaceLifecycleStore,
   RuntimeDatabase,
   Workspace,
   WorkspaceActionPolicy,
@@ -30,6 +31,7 @@ export class PostgresRuntimeDatabase implements RuntimeDatabase {
   readonly runtimeTokenStore: IRuntimeTokenStore;
   readonly runLogStore: IRunLogStore;
   readonly workspaceStore: IWorkspaceStore;
+  readonly workspaceLifecycleStore: IWorkspaceLifecycleStore;
   readonly membershipStore: IWorkspaceMembershipStore;
   readonly workspaceControlStore: IWorkspaceControlStore;
   readonly #pool: Pool;
@@ -45,6 +47,7 @@ export class PostgresRuntimeDatabase implements RuntimeDatabase {
     this.runtimeTokenStore = unscoped.runtimeTokenStore;
     this.runLogStore = unscoped.runLogStore;
     this.workspaceStore = new PostgresWorkspaceStore(pool);
+    this.workspaceLifecycleStore = new PostgresWorkspaceLifecycleStore(pool);
     this.membershipStore = new PostgresMembershipStore(pool);
     this.workspaceControlStore = new PostgresWorkspaceControlStore(pool);
   }
@@ -295,6 +298,13 @@ class PostgresTokenStore implements IRuntimeTokenStore {
     );
   }
 
+  async revokeByWorkspace(workspaceId: string): Promise<void> {
+    await this.#pool.query(`update runtime_tokens set revoked_at = $1 where workspace_id = $2 and revoked_at is null`, [
+      now(),
+      workspaceId,
+    ]);
+  }
+
   async markUsed(id: string, workspaceId: string, usedAt: string): Promise<void> {
     await this.#pool.query(`update runtime_tokens set last_used_at = $1 where workspace_id = $2 and id = $3`, [
       usedAt,
@@ -399,7 +409,7 @@ class PostgresWorkspaceStore implements IWorkspaceStore {
 
   async getByClerkOrgId(clerkOrgId: string): Promise<Workspace | undefined> {
     const result = await this.#pool.query(
-      `select id, clerk_org_id, name, created_at, updated_at from workspaces where clerk_org_id = $1`,
+      `select id, clerk_org_id, name, created_at, updated_at, deleted_at, purge_at from workspaces where clerk_org_id = $1`,
       [clerkOrgId],
     );
     if (result.rows.length === 0) return undefined;
@@ -408,7 +418,7 @@ class PostgresWorkspaceStore implements IWorkspaceStore {
 
   async getById(id: string): Promise<Workspace | undefined> {
     const result = await this.#pool.query(
-      `select id, clerk_org_id, name, created_at, updated_at from workspaces where id = $1`,
+      `select id, clerk_org_id, name, created_at, updated_at, deleted_at, purge_at from workspaces where id = $1`,
       [id],
     );
     if (result.rows.length === 0) return undefined;
@@ -421,6 +431,73 @@ class PostgresWorkspaceStore implements IWorkspaceStore {
        values ($1, $2, $3, $4, $5)`,
       [workspace.id, workspace.clerkOrgId, workspace.name, workspace.createdAt, workspace.updatedAt],
     );
+  }
+
+  async updateName(workspaceId: string, name: string, updatedAt: string): Promise<void> {
+    await this.#pool.query(`update workspaces set name = $1, updated_at = $2 where id = $3`, [
+      name,
+      updatedAt,
+      workspaceId,
+    ]);
+  }
+}
+
+class PostgresWorkspaceLifecycleStore implements IWorkspaceLifecycleStore {
+  readonly #pool: Pool;
+
+  constructor(pool: Pool) {
+    this.#pool = pool;
+  }
+
+  async archive(workspaceId: string, deletedAt: string, purgeAt: string): Promise<boolean> {
+    const result = await this.#pool.query(
+      `update workspaces set deleted_at = $1, purge_at = $2, updated_at = $1 where id = $3 and deleted_at is null`,
+      [deletedAt, purgeAt, workspaceId],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async restore(workspaceId: string, restoredAt: string): Promise<boolean> {
+    const result = await this.#pool.query(
+      `update workspaces set deleted_at = null, purge_at = null, updated_at = $1 where id = $2 and deleted_at is not null`,
+      [restoredAt, workspaceId],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async purgeExpired(now: string): Promise<string[]> {
+    const client = await this.#pool.connect();
+    try {
+      await client.query("begin");
+      const result = await client.query<{ id: string }>(
+        `select id from workspaces where purge_at is not null and purge_at <= $1 for update`,
+        [now],
+      );
+      const workspaceIds = result.rows.map((row) => row.id);
+      if (workspaceIds.length > 0) {
+        for (const table of [
+          "connections",
+          "oauth_client_configs",
+          "oauth_states",
+          "runtime_tokens",
+          "runs",
+          "audit_events",
+          "workspace_providers",
+          "workspace_action_policies",
+          "workspace_memberships",
+        ]) {
+          await client.query(`delete from ${table} where workspace_id = any($1::text[])`, [workspaceIds]);
+        }
+        await client.query(`delete from workspaces where id = any($1::text[])`, [workspaceIds]);
+      }
+      await client.query("commit");
+      return workspaceIds;
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 }
 
@@ -585,6 +662,8 @@ function mapWorkspaceRow(r: QueryResultRow): Workspace {
     name: r.name as string,
     createdAt: r.created_at as string,
     updatedAt: r.updated_at as string,
+    deletedAt: (r.deleted_at as string) ?? undefined,
+    purgeAt: (r.purge_at as string) ?? undefined,
   };
 }
 

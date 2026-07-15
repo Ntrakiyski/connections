@@ -13,6 +13,7 @@ import type { RunLogListInput } from "./storage/runtime-store.ts";
 import type { RuntimeTokenService } from "./storage/runtime-token-service.ts";
 import type { WorkspaceContext } from "./storage/runtime-token-service.ts";
 import type { WorkspaceControlService } from "./workspace-control-service.ts";
+import type { WorkspaceLifecycleService } from "./workspace-lifecycle-service.ts";
 import type { Context } from "hono";
 
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
@@ -49,6 +50,7 @@ import { createTransitFileResponse, TransitFileError } from "./files/transit-fil
 import { ProxyRunner } from "./proxy/proxy-runner.ts";
 import { decodeRunLogCursor } from "./storage/runtime-store.ts";
 import { WorkspaceControlService as WorkspaceControlServiceImpl } from "./workspace-control-service.ts";
+import { WorkspaceLifecycleError } from "./workspace-lifecycle-service.ts";
 
 export interface WorkspaceServerServices {
   connections: ConnectionService;
@@ -57,6 +59,7 @@ export interface WorkspaceServerServices {
   runtimeTokens: RuntimeTokenService;
   actions: ActionRunner;
   controls: WorkspaceControlService;
+  lifecycle?: WorkspaceLifecycleService;
 }
 
 /**
@@ -76,6 +79,7 @@ export interface IConnectServerOptions {
   clerkWebhooks?: ClerkWebhookOptions;
   runtimeTokenAuth?: RuntimeTokenAuthOptions;
   createWorkspaceServices?(workspace: WorkspaceContext): WorkspaceServerServices;
+  purgeExpiredWorkspaces?(): Promise<void>;
   actionPolicy?: ActionPolicyService;
   actionSearch?: ActionSearchIndexProvider;
   registerStaticRoutes?: (app: Hono) => void;
@@ -100,6 +104,7 @@ export class ConnectServer {
     const auth = this.options.auth ?? {};
 
     app.use("*", async (context, next) => {
+      await this.options.purgeExpiredWorkspaces?.();
       await next();
       const cachePolicy = getResponseCachePolicy(context.req.method, context.req.path, context.res.status);
       if (cachePolicy) {
@@ -173,6 +178,9 @@ export class ConnectServer {
 
     app.get("/api/connections", (context) => this.listConnections(context));
     app.put("/api/connections/:service", (context) => this.upsertConnection(context, context.req.param("service")));
+    app.patch("/api/connections/:service/:connectionName", (context) =>
+      this.renameConnection(context, context.req.param("service"), context.req.param("connectionName")),
+    );
     app.delete("/api/connections/:service", (context) => this.disconnect(context, context.req.param("service")));
 
     app.get("/api/runs", (context) => this.listRuns(context));
@@ -200,6 +208,8 @@ export class ConnectServer {
     app.put("/api/workspace/action-policies/:actionId", (context) =>
       this.setWorkspaceActionPolicy(context, context.req.param("actionId")),
     );
+    app.delete("/api/workspace", (context) => this.deleteWorkspace(context));
+    app.post("/api/workspace/restore", (context) => this.restoreWorkspace(context));
     app.get("/api/audit-events", (context) => this.listAuditEvents(context));
     app.post("/api/oauth/authorizations", (context) => this.createOAuthAuthorization(context));
     app.get("/oauth/callback", (context) => this.completeOAuth(context));
@@ -268,6 +278,40 @@ export class ConnectServer {
     return context.json(
       workspace.role === "member" ? await this.services(context).controls.providers() : this.options.catalog.providers,
     );
+  }
+
+  private async deleteWorkspace(context: Context): Promise<Response> {
+    const lifecycle = this.services(context).lifecycle;
+    if (!lifecycle) return notFound(context);
+    const body = await readJsonBody(context);
+    const confirmation = optionalString(body.confirmation);
+    if (!confirmation) {
+      return jsonError(context, 400, "invalid_confirmation", "confirmation is required.");
+    }
+    try {
+      return context.json(await lifecycle.archive(confirmation));
+    } catch (error) {
+      return this.writeWorkspaceLifecycleError(context, error);
+    }
+  }
+
+  private async restoreWorkspace(context: Context): Promise<Response> {
+    const lifecycle = this.services(context).lifecycle;
+    if (!lifecycle) return notFound(context);
+    try {
+      await lifecycle.restore();
+      return context.json({ ok: true });
+    } catch (error) {
+      return this.writeWorkspaceLifecycleError(context, error);
+    }
+  }
+
+  private writeWorkspaceLifecycleError(context: Context, error: unknown): Response {
+    if (error instanceof WorkspaceLifecycleError) {
+      const status = error.code === "workspace_forbidden" ? 403 : 400;
+      return jsonError(context, status, error.code, error.message);
+    }
+    throw error;
   }
 
   private async listActions(context: Context): Promise<Response> {
@@ -384,10 +428,7 @@ export class ConnectServer {
 
     return context.text(
       renderActionMarkdown(action, {
-        connection: await this.services(context).connections.getConnectionSummary(
-          action.service,
-          readConnectionName(context),
-        ),
+        connections: await this.services(context).connections.listConnectionsByService(action.service),
         providerPermissions: action.providerPermissions,
       }),
       200,
@@ -500,12 +541,21 @@ export class ConnectServer {
     }
 
     const body = await readJsonBody(context);
+    const connectionName = readConnectionName(context, body);
+    if (!connectionName) {
+      return writeRuntimeFailure(context, {
+        status: 400,
+        errorCode: "connection_name_required",
+        message: "connectionName is required when executing an action.",
+        meta: { actionId },
+      });
+    }
     try {
       const run = await this.services(context).actions.run({
         actionId,
         input: body.input ?? {},
         caller: "http",
-        connectionName: readConnectionName(context, body),
+        connectionName,
       });
       if (!run) {
         return writeRuntimeFailure(context, {
@@ -549,6 +599,16 @@ export class ConnectServer {
       throw error;
     }
 
+    const connectionName = readConnectionName(context, body);
+    if (!connectionName) {
+      return writeRuntimeFailure(context, {
+        status: 400,
+        errorCode: "connection_name_required",
+        message: "connectionName is required when executing a proxy request.",
+        meta: { service },
+      });
+    }
+
     const result = await new ProxyRunner({
       catalog: this.options.catalog,
       providerLoader: this.options.providerLoader,
@@ -558,7 +618,7 @@ export class ConnectServer {
     }).run({
       service,
       input: body,
-      connectionName: readConnectionName(context, body),
+      connectionName,
     });
     if (result.ok) {
       return writeRuntimeSuccess(context, result.response);
@@ -748,6 +808,29 @@ export class ConnectServer {
       this.services(context).connections.disconnect(service, connectionName),
       logContext,
       "connection.disconnected",
+    );
+  }
+
+  private async renameConnection(context: Context, service: string, connectionName: string): Promise<Response> {
+    const body = await readJsonBody(context);
+    const nextConnectionName = optionalString(body.connectionName);
+    if (!nextConnectionName) {
+      return jsonError(context, 400, "invalid_input", "connectionName is required.");
+    }
+    const logContext: ConnectionLogContext = {
+      operation: "rename",
+      path: context.req.path,
+      service,
+      connectionName,
+    };
+    this.options.logger?.info(logContext, "connection rename started");
+    return this.writeConnectionResult(
+      context,
+      this.services(context).connections.renameConnection(service, connectionName, {
+        connectionName: nextConnectionName,
+      }),
+      logContext,
+      "connection.renamed",
     );
   }
 
@@ -1027,7 +1110,7 @@ export class ConnectServer {
 }
 
 interface ConnectionLogContext {
-  operation: "connect" | "disconnect";
+  operation: "connect" | "disconnect" | "rename";
   path: string;
   service: string;
   authType?: string;

@@ -42,6 +42,17 @@ export async function apiPut<T = unknown>(path: string, body: unknown, options: 
   );
 }
 
+export async function apiPatch<T = unknown>(path: string, body: unknown, options: RequestOptions = {}): Promise<T> {
+  return readJson<T>(
+    await fetch(path, {
+      method: "PATCH",
+      headers: headersFor(options, true),
+      credentials: "same-origin",
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
 export async function apiDelete<T = unknown>(path: string, options: RequestOptions = {}): Promise<T> {
   return readJson<T>(
     await fetch(path, {

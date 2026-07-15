@@ -67,6 +67,7 @@ const mcpServerInstructions = [
   "Check returned capability, policy, connection, scopes, and permissions before execution.",
   "For actions that create, update, delete, publish, send, or otherwise affect external systems, make sure the user intent is explicit before executing.",
   "Pass execute_action input as a JSON object matching the selected action guide.",
+  "For execute_action, always pass the exact connectionName returned for the selected provider; Connections never chooses an account for you.",
   "Your actions are scoped to your current workspace. You can only access connections configured in this workspace.",
 ].join("\n");
 
@@ -146,16 +147,21 @@ export function createMcpServer(options: IMcpServerOptions): McpServer {
     {
       title: "Execute Action",
       description:
-        "Execute one local provider action by id with a JSON input object. Call get_action_guide first if the input shape is unclear.",
+        "Execute one local provider action by id with a JSON input object and an explicit connection label. Call get_action_guide first if the input shape is unclear.",
       inputSchema: {
         actionId: z.string().describe("Full action id, for example hackernews.get_item."),
+        connectionName: z
+          .string()
+          .min(1)
+          .describe("Exact connection label for this action. Use a label returned by list_apps."),
         input: z
           .record(z.string(), z.unknown())
           .default({})
           .describe("Action input object matching the selected action guide."),
       },
     },
-    async ({ actionId, input }) => toolResult(await executeAction(options, actionId, input)),
+    async ({ actionId, connectionName, input }) =>
+      toolResult(await executeAction(options, actionId, connectionName, input)),
   );
 
   return server;
@@ -183,7 +189,7 @@ async function listApps(options: IMcpServerOptions, query: string | undefined): 
         .includes(normalized);
     })
     .map(async ({ provider }) => {
-      const connection = await options.connections.getConnectionSummary(provider.service);
+      const connections = await options.connections.listConnectionsByService(provider.service);
       return {
         service: provider.service,
         displayName: provider.displayName,
@@ -191,7 +197,7 @@ async function listApps(options: IMcpServerOptions, query: string | undefined): 
         authTypes: provider.authTypes,
         actionCount: provider.actions.length,
         executableActionCount: provider.actions.filter((action) => action.execution.locallyExecutable).length,
-        connection,
+        connections,
       };
     });
 
@@ -247,6 +253,7 @@ async function getActionGuide(options: IMcpServerOptions, actionId: string): Pro
 async function executeAction(
   options: IMcpServerOptions,
   actionId: string,
+  connectionName: string,
   input: Record<string, unknown>,
 ): Promise<ToolPayload> {
   const action = options.catalog.actionsById.get(actionId);
@@ -258,6 +265,7 @@ async function executeAction(
     actionId,
     input,
     caller: "mcp",
+    connectionName,
   });
   if (!run) {
     return errorPayload("unknown_action", `Unknown action: ${actionId}`);
@@ -295,7 +303,7 @@ type ActionCapability = {
   requiredScopes: string[];
   providerPermissions: string[];
   policy: ReturnType<ActionPolicyService["evaluate"]> | { allowed: true };
-  connection?: ConnectionSummary;
+  connections: ConnectionSummary[];
   requireApproval: boolean;
 };
 
@@ -310,7 +318,7 @@ async function describeActionCapability(
     requiredScopes: action.requiredScopes,
     providerPermissions: action.providerPermissions,
     policy: options.actionPolicy?.evaluate(action) ?? { allowed: true },
-    connection: await options.connections.getConnectionSummary(action.service),
+    connections: await options.connections.listConnectionsByService(action.service),
     requireApproval: (await options.requireApproval?.(action)) ?? true,
   };
 }
@@ -318,9 +326,9 @@ async function describeActionCapability(
 async function describeActionMarkdownContext(
   options: IMcpServerOptions,
   action: RuntimeActionDefinition,
-): Promise<{ connection?: ConnectionSummary; providerPermissions: string[] }> {
+): Promise<{ connections: ConnectionSummary[]; providerPermissions: string[] }> {
   return {
-    connection: await options.connections.getConnectionSummary(action.service),
+    connections: await options.connections.listConnectionsByService(action.service),
     providerPermissions: action.providerPermissions,
   };
 }

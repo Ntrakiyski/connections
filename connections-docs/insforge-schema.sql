@@ -7,8 +7,11 @@ create table if not exists workspaces (
   clerk_org_id text not null unique,
   name text not null,
   created_at text not null,
-  updated_at text not null
+  updated_at text not null,
+  deleted_at text,
+  purge_at text
 );
+create index if not exists workspaces_purge_at_idx on workspaces (purge_at) where purge_at is not null;
 
 -- Workspace memberships
 create table if not exists workspace_memberships (

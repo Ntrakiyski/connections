@@ -169,6 +169,12 @@
       "notUsed": "未使用"
     },
     "connection": "连接",
+    "connectedAccounts": "已连接账户",
+    "selectConnection": "选择账户",
+    "addConnection": "连接另一个账户",
+    "connectionLabel": "连接标签",
+    "connectionLabelHint": "请使用清晰、工作区可见且可供代理选择的名称。",
+    "connectionLabelRenameHint": "请从已连接账户菜单中重命名此账户。",
     "connectionMethod": "连接方式",
     "connectionDescriptions": {
       "noSetup": "这个提供商无需本地凭证即可运行。",
@@ -205,7 +211,10 @@
       "failed": "连接失败。",
       "disconnecting": "正在断开连接...",
       "disconnected": "已断开连接。",
-      "disconnectFailed": "断开连接失败。"
+      "disconnectFailed": "断开连接失败。",
+      "renaming": "正在重命名连接...",
+      "renamed": "连接已重命名。",
+      "renameFailed": "无法重命名连接。"
     },
     "buttons": {
       "configureOAuthClient": "配置 OAuth Client",
@@ -216,6 +225,8 @@
       "manageConnection": "管理",
       "connectProvider": "连接 {{name}}",
       "reconnectProvider": "重新连接 {{name}}",
+      "renameConnection": "重命名",
+      "saveConnectionName": "保存名称",
       "disconnect": "断开连接",
       "saveOAuthClient": "保存 OAuth Client",
       "updateOAuthClient": "更新 OAuth Client",
@@ -241,6 +252,8 @@
     }
   },
   "actions": {
+    "connection": "连接",
+    "defaultConnection": "默认",
     "searchPlaceholder": "按名称、ID 或提供商搜索操作",
     "provider": "提供商",
     "allProviders": "全部提供商",

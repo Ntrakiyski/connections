@@ -41,6 +41,45 @@ describe("SqliteRuntimeDatabase", () => {
     database.close();
   });
 
+  it("archives and permanently purges expired workspace data", async () => {
+    const databasePath = await createDatabasePath();
+    const database = new SqliteRuntimeDatabase(databasePath);
+    await database.workspaceStore.create({
+      id: "workspace-archive",
+      clerkOrgId: "org_archive",
+      name: "Archive Me",
+      createdAt: "2026-07-15T00:00:00.000Z",
+      updatedAt: "2026-07-15T00:00:00.000Z",
+    });
+    const scoped = database.createScopedStores("workspace-archive");
+    await scoped.connectionStore.set("github", "finance", {
+      authType: "api_key",
+      apiKey: "finance-token",
+      values: { apiKey: "finance-token" },
+      profile: githubProfile,
+      metadata: {},
+    });
+
+    await expect(
+      database.workspaceLifecycleStore.archive(
+        "workspace-archive",
+        "2026-07-15T01:00:00.000Z",
+        "2026-07-15T01:00:00.000Z",
+      ),
+    ).resolves.toBe(true);
+    await expect(database.workspaceStore.getById("workspace-archive")).resolves.toMatchObject({
+      deletedAt: "2026-07-15T01:00:00.000Z",
+      purgeAt: "2026-07-15T01:00:00.000Z",
+    });
+
+    await expect(database.workspaceLifecycleStore.purgeExpired("2026-07-15T01:00:01.000Z")).resolves.toEqual([
+      "workspace-archive",
+    ]);
+    await expect(database.workspaceStore.getById("workspace-archive")).resolves.toBeUndefined();
+    await expect(scoped.connectionStore.get("github", "finance")).resolves.toBeUndefined();
+    database.close();
+  });
+
   it("persists local runtime state across database instances", async () => {
     const databasePath = await createDatabasePath();
     const first = new SqliteRuntimeDatabase(databasePath, { runLimit: 2 });

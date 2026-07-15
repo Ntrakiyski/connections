@@ -169,6 +169,12 @@
       "notUsed": "Not used"
     },
     "connection": "Connection",
+    "connectedAccounts": "Connected accounts",
+    "selectConnection": "Select an account",
+    "addConnection": "Connect another account",
+    "connectionLabel": "Connection label",
+    "connectionLabelHint": "Use a clear, workspace-visible name that agents can select.",
+    "connectionLabelRenameHint": "Rename this account from the connected accounts menu.",
     "connectionMethod": "Connection method",
     "connectionDescriptions": {
       "noSetup": "This provider can run without local credentials.",
@@ -205,7 +211,10 @@
       "failed": "Connection failed.",
       "disconnecting": "Disconnecting...",
       "disconnected": "Disconnected.",
-      "disconnectFailed": "Disconnect failed."
+      "disconnectFailed": "Disconnect failed.",
+      "renaming": "Renaming connection...",
+      "renamed": "Connection renamed.",
+      "renameFailed": "Could not rename the connection."
     },
     "buttons": {
       "configureOAuthClient": "Configure OAuth Client",
@@ -216,6 +225,8 @@
       "manageConnection": "Manage",
       "connectProvider": "Connect {{name}}",
       "reconnectProvider": "Reconnect {{name}}",
+      "renameConnection": "Rename",
+      "saveConnectionName": "Save name",
       "disconnect": "Disconnect",
       "saveOAuthClient": "Save OAuth Client",
       "updateOAuthClient": "Update OAuth Client",
@@ -241,6 +252,8 @@
     }
   },
   "actions": {
+    "connection": "Connection",
+    "defaultConnection": "default",
     "searchPlaceholder": "Search actions by name, id, or provider",
     "provider": "Provider",
     "allProviders": "All providers",

@@ -7,6 +7,7 @@ import type {
   IWorkspaceMembershipStore,
   IWorkspaceControlStore,
   IWorkspaceStore,
+  IWorkspaceLifecycleStore,
   RuntimeDatabase,
   Workspace,
   WorkspaceActionPolicy,
@@ -39,6 +40,7 @@ export class SqliteRuntimeDatabase implements RuntimeDatabase {
   readonly runtimeTokenStore: SqliteRuntimeTokenStore;
   readonly runLogStore: SqliteRunLogStore;
   readonly workspaceStore: SqliteWorkspaceStore;
+  readonly workspaceLifecycleStore: SqliteWorkspaceLifecycleStore;
   readonly membershipStore: SqliteWorkspaceMembershipStore;
   readonly workspaceControlStore: SqliteWorkspaceControlStore;
 
@@ -59,6 +61,7 @@ export class SqliteRuntimeDatabase implements RuntimeDatabase {
     // Token verification starts from a token hash, before its workspace is known.
     this.runtimeTokenStore = new SqliteRuntimeTokenStore(this.database);
     this.workspaceStore = new SqliteWorkspaceStore(this.database);
+    this.workspaceLifecycleStore = new SqliteWorkspaceLifecycleStore(this.database);
     this.membershipStore = new SqliteWorkspaceMembershipStore(this.database);
     this.workspaceControlStore = new SqliteWorkspaceControlStore(this.database);
   }
@@ -367,6 +370,13 @@ export class SqliteRuntimeTokenStore implements IRuntimeTokenStore {
       .run(new Date().toISOString(), workspaceId, userId);
   }
 
+  async revokeByWorkspace(workspaceId: string): Promise<void> {
+    this.assertWorkspace(workspaceId);
+    this.database
+      .prepare("update runtime_tokens set revoked_at = ? where workspace_id = ? and revoked_at is null")
+      .run(new Date().toISOString(), workspaceId);
+  }
+
   async markUsed(id: string, workspaceId: string, usedAt: string): Promise<void> {
     this.assertWorkspace(workspaceId);
     this.database
@@ -466,14 +476,18 @@ class SqliteWorkspaceStore implements IWorkspaceStore {
 
   async getByClerkOrgId(clerkOrgId: string): Promise<Workspace | undefined> {
     const row = this.database
-      .prepare("select id, clerk_org_id, name, created_at, updated_at from workspaces where clerk_org_id = ?")
+      .prepare(
+        "select id, clerk_org_id, name, created_at, updated_at, deleted_at, purge_at from workspaces where clerk_org_id = ?",
+      )
       .get(clerkOrgId);
     return row ? readWorkspace(row) : undefined;
   }
 
   async getById(id: string): Promise<Workspace | undefined> {
     const row = this.database
-      .prepare("select id, clerk_org_id, name, created_at, updated_at from workspaces where id = ?")
+      .prepare(
+        "select id, clerk_org_id, name, created_at, updated_at, deleted_at, purge_at from workspaces where id = ?",
+      )
       .get(id);
     return row ? readWorkspace(row) : undefined;
   }
@@ -482,6 +496,70 @@ class SqliteWorkspaceStore implements IWorkspaceStore {
     this.database
       .prepare("insert into workspaces (id, clerk_org_id, name, created_at, updated_at) values (?, ?, ?, ?, ?)")
       .run(workspace.id, workspace.clerkOrgId, workspace.name, workspace.createdAt, workspace.updatedAt);
+  }
+
+  async updateName(workspaceId: string, name: string, updatedAt: string): Promise<void> {
+    this.database
+      .prepare("update workspaces set name = ?, updated_at = ? where id = ?")
+      .run(name, updatedAt, workspaceId);
+  }
+}
+
+class SqliteWorkspaceLifecycleStore implements IWorkspaceLifecycleStore {
+  private readonly database: DatabaseSync;
+  constructor(database: DatabaseSync) {
+    this.database = database;
+  }
+
+  async archive(workspaceId: string, deletedAt: string, purgeAt: string): Promise<boolean> {
+    return (
+      this.database
+        .prepare(
+          "update workspaces set deleted_at = ?, purge_at = ?, updated_at = ? where id = ? and deleted_at is null",
+        )
+        .run(deletedAt, purgeAt, deletedAt, workspaceId).changes > 0
+    );
+  }
+
+  async restore(workspaceId: string, restoredAt: string): Promise<boolean> {
+    return (
+      this.database
+        .prepare(
+          "update workspaces set deleted_at = null, purge_at = null, updated_at = ? where id = ? and deleted_at is not null",
+        )
+        .run(restoredAt, workspaceId).changes > 0
+    );
+  }
+
+  async purgeExpired(now: string): Promise<string[]> {
+    const workspaceIds = this.database
+      .prepare("select id from workspaces where purge_at is not null and purge_at <= ?")
+      .all(now)
+      .map((row) => readString(row, "id"));
+    this.database.exec("begin");
+    try {
+      for (const workspaceId of workspaceIds) {
+        for (const table of [
+          "connections",
+          "oauth_client_configs",
+          "oauth_states",
+          "runtime_tokens",
+          "runs",
+          "audit_events",
+          "workspace_providers",
+          "workspace_action_policies",
+          "workspace_memberships",
+        ]) {
+          this.database.prepare(`delete from ${table} where workspace_id = ?`).run(workspaceId);
+        }
+        this.database.prepare("delete from workspaces where id = ?").run(workspaceId);
+      }
+      this.database.exec("commit");
+    } catch (error) {
+      this.database.exec("rollback");
+      throw error;
+    }
+    return workspaceIds;
   }
 }
 
@@ -670,6 +748,8 @@ function readWorkspace(row: unknown): Workspace {
     name: readString(row, "name"),
     createdAt: readString(row, "created_at"),
     updatedAt: readString(row, "updated_at"),
+    deletedAt: readOptionalString(row, "deleted_at"),
+    purgeAt: readOptionalString(row, "purge_at"),
   };
 }
 

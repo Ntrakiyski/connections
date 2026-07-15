@@ -24,6 +24,7 @@ interface ActionsPageProps {
 interface ActionDetailProps {
   action: ActionDefinition;
   providerName: string;
+  connections: AppData["connections"];
   onRefresh(): void;
 }
 
@@ -178,6 +179,7 @@ export function ActionsPage(props: ActionsPageProps): ReactNode {
             <ActionDetail
               action={selectedAction}
               providerName={providerNames.get(selectedAction.service) ?? selectedAction.service}
+              connections={props.data.connections.filter((connection) => connection.service === selectedAction.service)}
               onRefresh={props.onRefresh}
             />
           ) : (
@@ -243,7 +245,12 @@ function ActionDetail(props: ActionDetailProps): ReactNode {
       <ParameterList schema={props.action.inputSchema} />
       <ExampleTabs action={props.action} examples={examples} />
       {debugOpen ? (
-        <RunActionModal action={props.action} onRefresh={props.onRefresh} onClose={() => setDebugOpen(false)} />
+        <RunActionModal
+          action={props.action}
+          connections={props.connections}
+          onRefresh={props.onRefresh}
+          onClose={() => setDebugOpen(false)}
+        />
       ) : null}
     </>
   );
@@ -336,12 +343,18 @@ function ExampleTabs(props: ExampleTabsProps): ReactNode {
   );
 }
 
-function RunActionModal(props: { action: ActionDefinition; onRefresh(): void; onClose(): void }): ReactNode {
+function RunActionModal(props: {
+  action: ActionDefinition;
+  connections: AppData["connections"];
+  onRefresh(): void;
+  onClose(): void;
+}): ReactNode {
   const t = useTranslate();
   const [input, setInput] = useState(() => exampleInput(props.action.inputSchema));
   const [result, setResult] = useState<ExecutionResult | null>(null);
   const [running, setRunning] = useState(false);
   const [actionId, setActionId] = useState(props.action.id);
+  const [connectionName, setConnectionName] = useState(() => props.connections[0]?.connectionName ?? "default");
 
   useEffect(() => {
     if (!shouldResetRunActionModal(actionId, props.action.id)) {
@@ -353,6 +366,10 @@ function RunActionModal(props: { action: ActionDefinition; onRefresh(): void; on
     setResult(null);
   }, [actionId, props.action.id, props.action.inputSchema]);
 
+  useEffect(() => {
+    setConnectionName(props.connections[0]?.connectionName ?? "default");
+  }, [props.action.service, props.connections]);
+
   async function run(): Promise<void> {
     setRunning(true);
     setResult(null);
@@ -362,7 +379,7 @@ function RunActionModal(props: { action: ActionDefinition; onRefresh(): void; on
         method: "POST",
         headers: new Headers({ "content-type": "application/json" }),
         credentials: "same-origin",
-        body: JSON.stringify({ input: parsed }),
+        body: JSON.stringify({ connectionName, input: parsed }),
       });
       const payload = (await response.json()) as RuntimeActionResponse;
       setResult(
@@ -408,6 +425,28 @@ function RunActionModal(props: { action: ActionDefinition; onRefresh(): void; on
         </DialogHeader>
         <div className={result ? "run-action-dialog-body has-result" : "run-action-dialog-body"}>
           <Label className="field">
+            <span>{t("actions.connection")}</span>
+            <Select value={connectionName} onValueChange={setConnectionName}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {props.connections.length > 0 ? (
+                  props.connections.map((connection) => (
+                    <SelectItem
+                      key={connection.connectionName ?? connection.id}
+                      value={connection.connectionName ?? "default"}
+                    >
+                      {connection.connectionName ?? "default"} · {connectionDisplayName(connection)}
+                    </SelectItem>
+                  ))
+                ) : (
+                  <SelectItem value="default">{t("actions.defaultConnection")}</SelectItem>
+                )}
+              </SelectContent>
+            </Select>
+          </Label>
+          <Label className="field">
             <span>{t("actions.input")}</span>
             <Textarea
               className="run-json-input font-mono text-xs leading-relaxed"
@@ -450,6 +489,11 @@ function ResultPanel(props: { actionId: string; result: ExecutionResult }): Reac
   );
 }
 
+function connectionDisplayName(connection: AppData["connections"][number]): string {
+  const displayName = connection.profile?.displayName;
+  return typeof displayName === "string" && displayName ? displayName : connection.authType;
+}
+
 export function shouldResetRunActionModal(currentActionId: string, nextActionId: string): boolean {
   return currentActionId !== nextActionId;
 }
@@ -458,7 +502,7 @@ function buildAgentPrompt(action: ActionDefinition): { prompt: string } {
   const markdownUrl = `${window.location.origin}/api/actions/${action.id}/agent.md`;
   const prompt = [
     `Read ${markdownUrl} to discover the local request contract for ${action.name}.`,
-    `Then call ${window.location.origin}/v1/actions/${action.id} with JSON shaped as { "input": ... }.`,
+    `Then call ${window.location.origin}/v1/actions/${action.id} with JSON shaped as { "connectionName": "YOUR_CONNECTION_LABEL", "input": ... }.`,
     "Use the localhost runtime endpoint. Do not call the provider API directly unless I explicitly ask.",
   ].join("\n");
 

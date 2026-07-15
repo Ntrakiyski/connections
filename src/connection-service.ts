@@ -73,6 +73,11 @@ export interface DisconnectedConnectionSummary {
   configured: false;
 }
 
+/** Request to rename a workspace-visible connection label. */
+export interface RenameConnectionInput {
+  connectionName: string;
+}
+
 /**
  * Storage contract for local provider connections.
  */
@@ -350,6 +355,35 @@ export class ConnectionService {
     }
 
     return { service, connectionName, configured: false };
+  }
+
+  /**
+   * Moves a connection to a new label while preserving the account credential
+   * and its original owner. Connection labels are the selection keys exposed
+   * to people and MCP clients.
+   */
+  async renameConnection(
+    service: string,
+    currentConnectionNameInput: string | undefined,
+    input: RenameConnectionInput,
+  ): Promise<ConnectionSummary> {
+    const provider = this.getProvider(service);
+    const currentConnectionName = normalizeConnectionName(currentConnectionNameInput);
+    const connectionName = normalizeConnectionName(input.connectionName);
+    const stored = await this.store.getStored(service, currentConnectionName);
+    if (!stored || !this.canAccess(stored)) {
+      throw new ConnectionError("connection_not_found", `${service} connection not found: ${currentConnectionName}.`);
+    }
+    if (connectionName === currentConnectionName) {
+      return this.createConfiguredConnectionSummary(provider, connectionName, stored.credential);
+    }
+    if (await this.store.getStored(service, connectionName)) {
+      throw new ConnectionError("connection_name_taken", `${service} connection already exists: ${connectionName}.`);
+    }
+
+    await this.store.set(service, connectionName, stored.credential, stored.createdBy);
+    await this.store.delete(service, currentConnectionName);
+    return this.createConfiguredConnectionSummary(provider, connectionName, stored.credential);
   }
 
   private createConfiguredConnectionSummary(

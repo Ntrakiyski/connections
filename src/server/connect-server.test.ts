@@ -254,10 +254,16 @@ describe("ConnectServer", () => {
       },
     ]).createApp();
 
+    await app.request("/api/connections/example", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ authType: "api_key", values: { apiKey: "example-key" } }),
+    });
+
     const response = await app.request("/v1/actions/example.echo", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ input: {} }),
+      body: JSON.stringify({ connectionName: "default", input: {} }),
     });
 
     expect(response.status).toBe(500);
@@ -503,6 +509,7 @@ describe("ConnectServer", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
+        connectionName: "default",
         input: {
           message: "secret-message",
           nested: {
@@ -562,10 +569,17 @@ describe("ConnectServer", () => {
       },
     ).createApp();
 
+    await app.request("/api/connections/example", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ authType: "api_key", values: { apiKey: "example-key" } }),
+    });
+
     const run = await app.request("/v1/actions/example.echo", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
+        connectionName: "default",
         input: {
           message: "secret-message",
         },
@@ -682,6 +696,16 @@ describe("ConnectServer", () => {
     expect(document.paths["/v1/proxy/{service}"]).toMatchObject({
       post: {
         summary: "Proxy one provider API request.",
+      },
+    });
+    expect(document.paths["/api/connections/{service}/{connectionName}"]).toMatchObject({
+      patch: {
+        summary: "Rename a provider account label.",
+      },
+    });
+    expect(document.paths["/api/workspace"]).toMatchObject({
+      delete: {
+        summary: "Archive a workspace for 14 days.",
       },
     });
   });
@@ -909,6 +933,7 @@ describe("ConnectServer", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
+        connectionName: "default",
         input: {
           query: longQuery,
           apiKey: "secret-key",
@@ -964,7 +989,7 @@ describe("ConnectServer", () => {
       const response = await app.request("/v1/actions/example.echo", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ input: {} }),
+        body: JSON.stringify({ connectionName: "default", input: {} }),
       });
 
       expect(response.status).toBe(200);
@@ -1041,6 +1066,76 @@ describe("ConnectServer", () => {
     });
   });
 
+  it("renames a named connection without changing its credential owner", async () => {
+    const app = createTestServer(
+      [
+        {
+          ...apiKeyProvider,
+          actions: [echoAction],
+        },
+      ],
+      { providerLoader: new EchoProviderLoader() },
+    ).createApp();
+
+    await app.request("/api/connections/example", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        authType: "api_key",
+        connectionName: "personal",
+        values: { apiKey: "personal-key" },
+      }),
+    });
+
+    const renamed = await app.request("/api/connections/example/personal", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ connectionName: "finance" }),
+    });
+
+    expect(renamed.status).toBe(200);
+    await expect(renamed.json()).resolves.toMatchObject({
+      service: "example",
+      connectionName: "finance",
+    });
+
+    const connections = await app.request("/api/connections");
+    await expect(connections.json()).resolves.toEqual(
+      expect.arrayContaining([expect.objectContaining({ service: "example", connectionName: "finance" })]),
+    );
+
+    const run = await app.request("/v1/actions/example.echo", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ connectionName: "finance", input: { message: "renamed" } }),
+    });
+    expect(run.status).toBe(200);
+  });
+
+  it("requires an explicit connection label for runtime action execution", async () => {
+    const app = createTestServer(
+      [
+        {
+          ...apiKeyProvider,
+          actions: [echoAction],
+        },
+      ],
+      { providerLoader: new EchoProviderLoader() },
+    ).createApp();
+
+    const response = await app.request("/v1/actions/example.echo", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ input: { message: "missing" } }),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      success: false,
+      errorCode: "connection_name_required",
+    });
+  });
+
   it("renders agent guides with current connection and provider permissions", async () => {
     const app = createTestServer(
       [
@@ -1070,7 +1165,8 @@ describe("ConnectServer", () => {
 
     expect(response.status).toBe(200);
     const markdown = await response.text();
-    expect(markdown).toContain("## Current Connection");
+    expect(markdown).toContain("## Available Connections");
+    expect(markdown).toContain('"connectionName":"YOUR_CONNECTION_LABEL"');
     expect(markdown).toContain("Example Account");
     expect(markdown).toContain("`example-account`");
     expect(markdown).toContain("`messages:read`");
@@ -1128,10 +1224,16 @@ describe("ConnectServer", () => {
       },
     ).createApp();
 
+    await app.request("/api/connections/example", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ authType: "api_key", values: { apiKey: "example-key" } }),
+    });
+
     const response = await app.request("/v1/actions/example.echo", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ input: {} }),
+      body: JSON.stringify({ connectionName: "default", input: {} }),
     });
 
     expect(response.status).toBe(400);
@@ -1288,7 +1390,7 @@ describe("ConnectServer", () => {
     const run = await app.request("/v1/actions/example.echo", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ input: { message: "hello" } }),
+      body: JSON.stringify({ connectionName: "default", input: { message: "hello" } }),
     });
     expect(run.status).toBe(200);
     expect(run.headers.get("cache-control")).toBe("no-store");
@@ -1427,7 +1529,7 @@ describe("ConnectServer", () => {
     const proxy = await app.request("/v1/proxy/example", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ endpoint: "/anything", method: "GET" }),
+      body: JSON.stringify({ connectionName: "default", endpoint: "/anything", method: "GET" }),
     });
     expect(proxy.status).toBe(501);
     await expect(proxy.json()).resolves.toMatchObject({
@@ -1490,7 +1592,7 @@ describe("ConnectServer", () => {
     const response = await app.request("/v1/proxy/example", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ endpoint: "https://evil.test/a", method: "GET" }),
+      body: JSON.stringify({ connectionName: "default", endpoint: "https://evil.test/a", method: "GET" }),
     });
 
     expect(response.status).toBe(400);
@@ -1512,10 +1614,16 @@ describe("ConnectServer", () => {
       })),
     }).createApp();
 
+    await app.request("/api/connections/example", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ authType: "api_key", values: { apiKey: "example-key" } }),
+    });
+
     const response = await app.request("/v1/proxy/example", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ endpoint: "/items", method: "GET" }),
+      body: JSON.stringify({ connectionName: "default", endpoint: "/items", method: "GET" }),
     });
 
     expect(response.status).toBe(403);
@@ -2001,6 +2109,14 @@ class MemoryRuntimeTokenStore implements IRuntimeTokenStore {
   async revokeByUser(workspaceId: string, userId: string): Promise<void> {
     for (const token of this.tokens.values()) {
       if (token.workspaceId === workspaceId && token.userId === userId) {
+        this.tokens.delete(token.id);
+      }
+    }
+  }
+
+  async revokeByWorkspace(workspaceId: string): Promise<void> {
+    for (const token of this.tokens.values()) {
+      if (token.workspaceId === workspaceId) {
         this.tokens.delete(token.id);
       }
     }

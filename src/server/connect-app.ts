@@ -17,6 +17,7 @@ import { ActionRunner } from "./actions/action-runner.ts";
 import { ConnectServer } from "./connect-server.ts";
 import { RuntimeTokenService } from "./storage/runtime-token-service.ts";
 import { WorkspaceControlService } from "./workspace-control-service.ts";
+import { WorkspaceLifecycleService } from "./workspace-lifecycle-service.ts";
 
 export interface ConnectAppOptions {
   catalog: CatalogStore;
@@ -94,6 +95,20 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
           }).actions,
       }),
       runtimeTokens: new RuntimeTokenService(stores.runtimeTokenStore),
+      lifecycle:
+        options.clerkSecretKey && options.runtimeDatabase.workspaceLifecycleStore
+          ? new WorkspaceLifecycleService(
+              options.runtimeDatabase.workspaceLifecycleStore,
+              runtimeTokens,
+              options.runtimeDatabase.workspaceControlStore,
+              workspace,
+              async () => {
+                const stored = await options.runtimeDatabase.workspaceStore.getById(workspace.workspaceId);
+                if (!stored) throw new Error("Workspace not found.");
+                return stored;
+              },
+            )
+          : undefined,
     };
   };
   const defaultServices = createWorkspaceServices({ workspaceId: "default", userId: "local-dev", role: "admin" });
@@ -129,8 +144,14 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
       runtimeTokenAuth: {
         runtimeTokens,
         memberships: options.runtimeDatabase.membershipStore,
+        workspaceStore: options.runtimeDatabase.workspaceStore,
       },
       createWorkspaceServices,
+      purgeExpiredWorkspaces: options.clerkSecretKey
+        ? async () => {
+            await options.runtimeDatabase.workspaceLifecycleStore?.purgeExpired(new Date().toISOString());
+          }
+        : undefined,
       actionPolicy: options.actionPolicy,
       logger: options.logger,
     }).createApp(),

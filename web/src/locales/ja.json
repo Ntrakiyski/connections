@@ -169,6 +169,12 @@
       "notUsed": "未使用"
     },
     "connection": "接続",
+    "connectedAccounts": "接続済みアカウント",
+    "selectConnection": "アカウントを選択",
+    "addConnection": "別のアカウントを接続",
+    "connectionLabel": "接続ラベル",
+    "connectionLabelHint": "ワークスペースで表示され、エージェントが選択できる明確な名前を使用してください。",
+    "connectionLabelRenameHint": "このアカウントは接続済みアカウントのメニューから名前を変更できます。",
     "connectionMethod": "接続方式",
     "connectionDescriptions": {
       "noSetup": "このプロバイダーはローカル認証情報なしで実行できます。",
@@ -205,7 +211,10 @@
       "failed": "接続に失敗しました。",
       "disconnecting": "切断中...",
       "disconnected": "切断しました。",
-      "disconnectFailed": "切断に失敗しました。"
+      "disconnectFailed": "切断に失敗しました。",
+      "renaming": "接続名を変更中...",
+      "renamed": "接続名を変更しました。",
+      "renameFailed": "接続名を変更できませんでした。"
     },
     "buttons": {
       "configureOAuthClient": "OAuth Client を設定",
@@ -216,6 +225,8 @@
       "manageConnection": "管理",
       "connectProvider": "{{name}} に接続",
       "reconnectProvider": "{{name}} に再接続",
+      "renameConnection": "名前を変更",
+      "saveConnectionName": "名前を保存",
       "disconnect": "切断",
       "saveOAuthClient": "OAuth Client を保存",
       "updateOAuthClient": "OAuth Client を更新",
@@ -241,6 +252,8 @@
     }
   },
   "actions": {
+    "connection": "接続",
+    "defaultConnection": "デフォルト",
     "searchPlaceholder": "名前、ID、プロバイダーでアクションを検索",
     "provider": "プロバイダー",
     "allProviders": "すべてのプロバイダー",

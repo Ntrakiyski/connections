@@ -43,6 +43,7 @@ export interface IRuntimeTokenStore {
   findByHash(tokenHash: string): Promise<RuntimeTokenRecord | undefined>;
   revoke(id: string): Promise<boolean>;
   revokeByUser(workspaceId: string, userId: string): Promise<void>;
+  revokeByWorkspace(workspaceId: string): Promise<void>;
   markUsed(id: string, workspaceId: string, usedAt: string): Promise<void>;
 }
 
@@ -89,6 +90,10 @@ export class RuntimeTokenService {
 
   async revokeTokensForUser(workspaceId: string, userId: string): Promise<void> {
     await this.store.revokeByUser(workspaceId, userId);
+  }
+
+  async revokeTokensForWorkspace(workspaceId: string): Promise<void> {
+    await this.store.revokeByWorkspace(workspaceId);
   }
 
   async verifyToken(token: string): Promise<RuntimeTokenContext | undefined> {

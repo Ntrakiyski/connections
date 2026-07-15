@@ -148,6 +148,7 @@ export function createOpenApiDocument(
       items: { $ref: "#/components/schemas/ConnectionSummary" },
     }),
     "/api/connections/{service}": createConnectionPath(),
+    "/api/connections/{service}/{connectionName}": createConnectionRenamePath(),
     "/api/oauth/configs": getOperation("OAuth", "List local OAuth client configurations.", {
       type: "array",
       items: { $ref: "#/components/schemas/OAuthClientConfigSummary" },
@@ -156,6 +157,8 @@ export function createOpenApiDocument(
     "/api/oauth/authorizations": createOAuthAuthorizationPath(),
     "/api/runtime-tokens": createRuntimeTokensPath(),
     "/api/runtime-tokens/{id}": createRuntimeTokenPath(),
+    "/api/workspace": createWorkspaceLifecyclePath(),
+    "/api/workspace/restore": createWorkspaceRestorePath(),
     "/api/files": createTransitFilesPath(),
     "/api/files/{fileId}": createTransitFilePath(),
     "/v1/actions/{actionId}": runPath,
@@ -183,6 +186,7 @@ export function createOpenApiDocument(
       { name: "Connections", description: "Local provider credentials and connection state." },
       { name: "OAuth", description: "Local OAuth client configuration and authorization flow." },
       { name: "Access", description: "Runtime bearer tokens for /v1 and MCP clients." },
+      { name: "Workspace", description: "Connections-owned workspace data lifecycle controls." },
       { name: "Files", description: "Local temporary file transit for provider actions." },
       { name: "Runs", description: "Local action execution and recent run history." },
       { name: "Proxy", description: "Provider API proxy requests through local credentials." },
@@ -239,9 +243,12 @@ export function createOpenApiDocument(
         ),
         ConnectionSummary: jsonSchema.object(
           {
+            id: jsonSchema.string({ description: "Stable connection identifier." }),
             service: jsonSchema.string({ description: "Provider service identifier." }),
+            connectionName: jsonSchema.string({ description: "Explicit account label selected for execution." }),
             authType: jsonSchema.string({ description: "Connection authentication type." }),
             configured: jsonSchema.boolean({ description: "Whether the provider is connected." }),
+            default: jsonSchema.boolean({ description: "Whether this is the legacy default account label." }),
             virtual: jsonSchema.boolean({
               description: "Whether the connection needs no stored secret.",
             }),
@@ -266,7 +273,7 @@ export function createOpenApiDocument(
             ),
           },
           {
-            required: ["service", "authType", "configured", "virtual", "profile"],
+            required: ["id", "service", "connectionName", "authType", "configured", "default", "virtual", "profile"],
             description: "Local provider connection summary.",
           },
         ),
@@ -598,10 +605,13 @@ function createRunPath(): Record<string, unknown> {
           "application/json": {
             schema: jsonSchema.object(
               {
+                connectionName: jsonSchema.string({
+                  description: "Required explicit connection label for the provider account to use.",
+                }),
                 input: jsonSchema.unknownObject("Action input matching the catalog schema."),
               },
               {
-                required: ["input"],
+                required: ["connectionName", "input"],
                 description: "Generic action run creation request.",
               },
             ),
@@ -655,11 +665,11 @@ function createProxyPath(): Record<string, unknown> {
                 },
                 body: jsonSchema.unknown("Provider request body."),
                 connectionName: jsonSchema.string({
-                  description: "Optional local connection name. Defaults to default.",
+                  description: "Required explicit connection label for the provider account to use.",
                 }),
               },
               {
-                required: ["endpoint", "method"],
+                required: ["connectionName", "endpoint", "method"],
                 description: "Provider proxy request.",
               },
             ),
@@ -743,6 +753,104 @@ function createConnectionPath(): Record<string, unknown> {
           ],
         }),
         404: jsonResponse({ $ref: "#/components/schemas/ErrorResponse" }),
+      },
+    },
+  };
+}
+
+function createConnectionRenamePath(): Record<string, unknown> {
+  return {
+    patch: {
+      tags: ["Connections"],
+      summary: "Rename a provider account label.",
+      description: "The new label becomes the explicit connectionName used by runtime and MCP action calls.",
+      parameters: [
+        {
+          name: "service",
+          in: "path",
+          required: true,
+          schema: jsonSchema.string({ description: "Provider service identifier." }),
+        },
+        {
+          name: "connectionName",
+          in: "path",
+          required: true,
+          schema: jsonSchema.string({ description: "Current provider account label." }),
+        },
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: jsonSchema.object(
+              {
+                connectionName: jsonSchema.string({ description: "New explicit provider account label." }),
+              },
+              { required: ["connectionName"], description: "Connection rename request." },
+            ),
+          },
+        },
+      },
+      responses: {
+        200: jsonResponse({ $ref: "#/components/schemas/ConnectionSummary" }),
+        400: jsonResponse({ $ref: "#/components/schemas/ErrorResponse" }),
+        404: jsonResponse({ $ref: "#/components/schemas/ErrorResponse" }),
+      },
+    },
+  };
+}
+
+function createWorkspaceLifecyclePath(): Record<string, unknown> {
+  return {
+    delete: {
+      tags: ["Workspace"],
+      summary: "Archive a workspace for 14 days.",
+      description:
+        "Revokes runtime tokens and immediately makes Connections data unavailable. Clerk continues to own the Organization profile and memberships.",
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: jsonSchema.object(
+              {
+                confirmation: jsonSchema.string({ description: "The current workspace name, typed exactly." }),
+              },
+              { required: ["confirmation"], description: "Workspace archive confirmation." },
+            ),
+          },
+        },
+      },
+      responses: {
+        200: jsonResponse(
+          jsonSchema.object(
+            {
+              deletedAt: jsonSchema.string({ description: "Archive timestamp." }),
+              purgeAt: jsonSchema.string({ description: "Irreversible purge timestamp." }),
+            },
+            { required: ["deletedAt", "purgeAt"], description: "Workspace archive result." },
+          ),
+        ),
+        400: jsonResponse({ $ref: "#/components/schemas/ErrorResponse" }),
+        403: jsonResponse({ $ref: "#/components/schemas/ErrorResponse" }),
+      },
+    },
+  };
+}
+
+function createWorkspaceRestorePath(): Record<string, unknown> {
+  return {
+    post: {
+      tags: ["Workspace"],
+      summary: "Restore an archived workspace before its purge timestamp.",
+      responses: {
+        200: jsonResponse(
+          jsonSchema.object(
+            { ok: jsonSchema.boolean() },
+            { required: ["ok"], description: "Workspace restore result." },
+          ),
+        ),
+        400: jsonResponse({ $ref: "#/components/schemas/ErrorResponse" }),
+        403: jsonResponse({ $ref: "#/components/schemas/ErrorResponse" }),
       },
     },
   };
@@ -882,10 +990,13 @@ function createConcreteRunOperation(action: ActionDefinition): Record<string, un
         "application/json": {
           schema: jsonSchema.object(
             {
+              connectionName: jsonSchema.string({
+                description: "Required explicit connection label for the provider account to use.",
+              }),
               input: action.inputSchema,
             },
             {
-              required: ["input"],
+              required: ["connectionName", "input"],
               description: `Run creation request for ${action.id}.`,
             },
           ),

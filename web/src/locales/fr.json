@@ -169,6 +169,12 @@
       "notUsed": "Non utilisé"
     },
     "connection": "Connexion",
+    "connectedAccounts": "Comptes connectés",
+    "selectConnection": "Sélectionner un compte",
+    "addConnection": "Connecter un autre compte",
+    "connectionLabel": "Libellé de connexion",
+    "connectionLabelHint": "Utilisez un nom clair, visible dans l’espace de travail et sélectionnable par les agents.",
+    "connectionLabelRenameHint": "Renommez ce compte depuis le menu des comptes connectés.",
     "connectionMethod": "Méthode de connexion",
     "connectionDescriptions": {
       "noSetup": "Ce fournisseur peut s’exécuter sans identifiants locaux.",
@@ -205,7 +211,10 @@
       "failed": "Échec de la connexion.",
       "disconnecting": "Déconnexion...",
       "disconnected": "Déconnecté.",
-      "disconnectFailed": "Échec de la déconnexion."
+      "disconnectFailed": "Échec de la déconnexion.",
+      "renaming": "Renommage de la connexion...",
+      "renamed": "Connexion renommée.",
+      "renameFailed": "Impossible de renommer la connexion."
     },
     "buttons": {
       "configureOAuthClient": "Configurer le client OAuth",
@@ -216,6 +225,8 @@
       "manageConnection": "Gérer",
       "connectProvider": "Connecter {{name}}",
       "reconnectProvider": "Reconnecter {{name}}",
+      "renameConnection": "Renommer",
+      "saveConnectionName": "Enregistrer le nom",
       "disconnect": "Déconnecter",
       "saveOAuthClient": "Enregistrer le client OAuth",
       "updateOAuthClient": "Mettre à jour le client OAuth",
@@ -241,6 +252,8 @@
     }
   },
   "actions": {
+    "connection": "Connexion",
+    "defaultConnection": "par défaut",
     "searchPlaceholder": "Rechercher des actions par nom, ID ou fournisseur",
     "provider": "Fournisseur",
     "allProviders": "Tous les fournisseurs",

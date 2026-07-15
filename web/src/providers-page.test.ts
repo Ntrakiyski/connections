@@ -140,6 +140,35 @@ describe("ProvidersPage route shell", () => {
     expect(markup).toContain("Scopes requested by this provider");
   });
 
+  it("shows the selected labeled account and the add-account control", () => {
+    const markup = renderProvidersPage(
+      {
+        ...providerData,
+        connections: [
+          {
+            service: "gmail",
+            connectionName: "personal",
+            authType: "oauth2",
+            metadata: {},
+            profile: { displayName: "Personal Gmail" },
+          },
+          {
+            service: "gmail",
+            connectionName: "finance",
+            authType: "oauth2",
+            metadata: {},
+            profile: { displayName: "Finance Gmail" },
+          },
+        ],
+      },
+      "/providers/gmail",
+    );
+
+    expect(markup).toContain("Connected accounts");
+    expect(markup).toContain("personal");
+    expect(markup).toContain("Connect another account");
+  });
+
   it("places provider connection status beside the detail title", () => {
     const markup = renderProvidersPage(providerData, "/providers/gmail");
 

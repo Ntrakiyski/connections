@@ -169,6 +169,12 @@
       "notUsed": "Не используется"
     },
     "connection": "Подключение",
+    "connectedAccounts": "Подключённые аккаунты",
+    "selectConnection": "Выберите аккаунт",
+    "addConnection": "Подключить другой аккаунт",
+    "connectionLabel": "Название подключения",
+    "connectionLabelHint": "Используйте понятное имя, видимое в рабочем пространстве и доступное агентам.",
+    "connectionLabelRenameHint": "Переименуйте аккаунт в меню подключённых аккаунтов.",
     "connectionMethod": "Способ подключения",
     "connectionDescriptions": {
       "noSetup": "Этот провайдер может работать без локальных учетных данных.",
@@ -205,7 +211,10 @@
       "failed": "Не удалось подключиться.",
       "disconnecting": "Отключение...",
       "disconnected": "Отключено.",
-      "disconnectFailed": "Не удалось отключиться."
+      "disconnectFailed": "Не удалось отключиться.",
+      "renaming": "Переименование подключения...",
+      "renamed": "Подключение переименовано.",
+      "renameFailed": "Не удалось переименовать подключение."
     },
     "buttons": {
       "configureOAuthClient": "Настроить OAuth Client",
@@ -216,6 +225,8 @@
       "manageConnection": "Управлять",
       "connectProvider": "Подключить {{name}}",
       "reconnectProvider": "Переподключить {{name}}",
+      "renameConnection": "Переименовать",
+      "saveConnectionName": "Сохранить имя",
       "disconnect": "Отключить",
       "saveOAuthClient": "Сохранить OAuth Client",
       "updateOAuthClient": "Обновить OAuth Client",
@@ -241,6 +252,8 @@
     }
   },
   "actions": {
+    "connection": "Подключение",
+    "defaultConnection": "по умолчанию",
     "searchPlaceholder": "Искать действия по имени, ID или провайдеру",
     "provider": "Провайдер",
     "allProviders": "Все провайдеры",

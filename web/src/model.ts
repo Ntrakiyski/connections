@@ -390,7 +390,10 @@ export function parameterSummaries(
 }
 
 export function buildActionExamples(action: ActionDefinition): { curl: string; typescript: string } {
-  const body = { input: JSON.parse(exampleInput(action.inputSchema)) as unknown };
+  const body = {
+    connectionName: "YOUR_CONNECTION_LABEL",
+    input: JSON.parse(exampleInput(action.inputSchema)) as unknown,
+  };
   const bodyText = JSON.stringify(body, null, 2);
   return {
     curl: [

@@ -25,13 +25,14 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
-import { apiDelete, apiPost, apiPut } from "./api";
+import { apiDelete, apiPatch, apiPost, apiPut } from "./api";
 import { credentialFieldsFor, filterProviders, resolveProviderConnectionStatus, sortProviders } from "./model";
 import { Badge, EmptyState, FormStatus, ProviderIcon, TagList } from "./shared-ui";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
@@ -43,6 +44,7 @@ interface ProvidersPageProps {
 interface ProviderDetailProps {
   provider: ProviderDefinition;
   connection?: AppData["connections"][number];
+  connections: AppData["connections"];
   connectionStatus: ProviderConnectionStatus;
   oauthConfig?: OAuthConfig;
   canManageProviders: boolean;
@@ -62,10 +64,12 @@ interface ConnectionFormProps {
   provider: ProviderDefinition;
   auth: AuthDefinition;
   connection?: AppData["connections"][number];
+  isNewConnection: boolean;
   oauthConfig?: OAuthConfig;
   onRefresh(): void;
   onConfigureOAuthClient(): void;
   canManageProviders: boolean;
+  onConnectionCreated(connectionName: string): void;
 }
 
 interface OAuthConfigFormProps {
@@ -112,6 +116,7 @@ export function ProvidersPage(props: ProvidersPageProps): ReactNode {
     <ProviderDetail
       provider={routeProvider}
       connection={connectionStatus.connection}
+      connections={props.data.connections.filter((connection) => connection.service === routeProvider.service)}
       connectionStatus={connectionStatus}
       oauthConfig={oauthConfigForProvider(props.data.oauthConfigs, routeProvider.service)}
       canManageProviders={props.data.role !== "member"}
@@ -453,7 +458,15 @@ function ProviderNotFound(props: { service: string }): ReactNode {
 function ProviderDetail(props: ProviderDetailProps): ReactNode {
   const t = useTranslate();
   const [selectedAuthType, setSelectedAuthType] = useState(() => initialAuthType(props.provider, props.connection));
+  const [selectedConnectionName, setSelectedConnectionName] = useState<string | undefined>(
+    props.connection?.connectionName,
+  );
+  const [isNewConnection, setIsNewConnection] = useState(() => !props.connection);
   const [oauthClientExpanded, setOAuthClientExpanded] = useState(false);
+  const selectedConnection = isNewConnection
+    ? undefined
+    : (props.connections.find((connection) => connection.connectionName === selectedConnectionName) ??
+      props.connection);
   const selectedAuth = props.provider.auth.find((auth) => auth.type === selectedAuthType) ?? props.provider.auth[0];
   const oauthAuth = props.provider.auth.find((auth) => auth.type === "oauth2");
   const hasMultipleAuthMethods = props.provider.auth.length > 1;
@@ -463,14 +476,19 @@ function ProviderDetail(props: ProviderDetailProps): ReactNode {
     : props.connectionStatus.noSetupRequired
       ? t("providers.connectionDescriptions.noSetup")
       : props.connectionStatus.connected
-        ? t("providers.connectionDescriptions.connected", { authType: props.connection?.authType ?? "" })
+        ? t("providers.connectionDescriptions.connected", { authType: selectedConnection?.authType ?? "" })
         : props.connectionStatus.oauthClientRequired
           ? t("providers.connectionDescriptions.oauthClientRequired", { name: props.provider.displayName })
           : t("providers.connectionDescriptions.notConnected", { name: props.provider.displayName });
 
   useEffect(() => {
-    setSelectedAuthType(initialAuthType(props.provider, props.connection));
-  }, [props.provider.service, props.connection?.authType]);
+    setSelectedAuthType(initialAuthType(props.provider, selectedConnection));
+  }, [props.provider.service, selectedConnection?.authType]);
+
+  useEffect(() => {
+    setSelectedConnectionName(props.connection?.connectionName);
+    setIsNewConnection(!props.connection);
+  }, [props.provider.service, props.connection?.connectionName]);
 
   useEffect(() => {
     setOAuthClientExpanded(false);
@@ -549,20 +567,46 @@ function ProviderDetail(props: ProviderDetailProps): ReactNode {
           {!locallyAvailable ? (
             <UnavailableProviderConnection
               provider={props.provider}
-              connection={props.connection}
+              connection={selectedConnection}
               onRefresh={props.onRefresh}
             />
           ) : selectedAuth ? (
-            <ConnectionForm
-              key={selectedAuth.type}
-              provider={props.provider}
-              auth={selectedAuth}
-              connection={props.connection}
-              oauthConfig={props.oauthConfig}
-              onRefresh={props.onRefresh}
-              onConfigureOAuthClient={() => setOAuthClientExpanded(true)}
-              canManageProviders={props.canManageProviders}
-            />
+            <>
+              {selectedAuth.type !== "no_auth" ? (
+                <ConnectionPicker
+                  connections={props.connections}
+                  selectedConnectionName={selectedConnection?.connectionName}
+                  isNewConnection={isNewConnection}
+                  onSelect={(connectionName) => {
+                    setSelectedConnectionName(connectionName);
+                    setIsNewConnection(false);
+                  }}
+                  onAddConnection={() => setIsNewConnection(true)}
+                  onRename={async (connectionName, nextConnectionName) => {
+                    await apiPatch(`/api/connections/${props.provider.service}/${encodeURIComponent(connectionName)}`, {
+                      connectionName: nextConnectionName,
+                    });
+                    setSelectedConnectionName(nextConnectionName);
+                    props.onRefresh();
+                  }}
+                />
+              ) : null}
+              <ConnectionForm
+                key={`${selectedAuth.type}:${selectedConnection?.connectionName ?? "new"}`}
+                provider={props.provider}
+                auth={selectedAuth}
+                connection={selectedConnection}
+                isNewConnection={isNewConnection}
+                oauthConfig={props.oauthConfig}
+                onRefresh={props.onRefresh}
+                onConfigureOAuthClient={() => setOAuthClientExpanded(true)}
+                canManageProviders={props.canManageProviders}
+                onConnectionCreated={(connectionName) => {
+                  setSelectedConnectionName(connectionName);
+                  setIsNewConnection(false);
+                }}
+              />
+            </>
           ) : (
             <EmptyState
               title={t("providers.noConnectionMethodTitle")}
@@ -729,6 +773,112 @@ function authTypeLabel(authType: string, t: (key: string) => string): string {
   return authType;
 }
 
+function ConnectionPicker(props: {
+  connections: AppData["connections"];
+  selectedConnectionName?: string;
+  isNewConnection: boolean;
+  onSelect(connectionName: string): void;
+  onAddConnection(): void;
+  onRename(connectionName: string, nextConnectionName: string): Promise<void>;
+}): ReactNode {
+  const t = useTranslate();
+  const [editing, setEditing] = useState(false);
+  const [nextConnectionName, setNextConnectionName] = useState("");
+  const [status, setStatus] = useState<string | null>(null);
+  const selectedConnection = props.connections.find(
+    (connection) => connection.connectionName === props.selectedConnectionName,
+  );
+
+  useEffect(() => {
+    setEditing(false);
+    setStatus(null);
+    setNextConnectionName(props.selectedConnectionName ?? "");
+  }, [props.selectedConnectionName]);
+
+  if (props.connections.length === 0) {
+    return null;
+  }
+
+  async function rename(): Promise<void> {
+    const currentConnectionName = selectedConnection?.connectionName;
+    const normalizedConnectionName = nextConnectionName.trim();
+    if (!currentConnectionName || !normalizedConnectionName) return;
+    setStatus(t("providers.connectionMessages.renaming"));
+    try {
+      await props.onRename(currentConnectionName, normalizedConnectionName);
+      setStatus(t("providers.connectionMessages.renamed"));
+      setEditing(false);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : t("providers.connectionMessages.renameFailed"));
+    }
+  }
+
+  return (
+    <div className="form-grid">
+      <Label className="field">
+        <span>{t("providers.connectedAccounts")}</span>
+        <Select
+          value={props.isNewConnection ? "__new_connection__" : (props.selectedConnectionName ?? "")}
+          onValueChange={(value) => {
+            if (value === "__new_connection__") {
+              props.onAddConnection();
+              return;
+            }
+            props.onSelect(value);
+          }}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder={t("providers.selectConnection")} />
+          </SelectTrigger>
+          <SelectContent>
+            {props.connections.map((connection) => (
+              <SelectItem
+                key={connection.connectionName ?? connection.id}
+                value={connection.connectionName ?? "default"}
+              >
+                {connection.connectionName ?? "default"} · {connectionDisplayName(connection)}
+              </SelectItem>
+            ))}
+            <SelectItem value="__new_connection__">{t("providers.addConnection")}</SelectItem>
+          </SelectContent>
+        </Select>
+      </Label>
+      {selectedConnection && !props.isNewConnection ? (
+        editing ? (
+          <div className="button-row">
+            <Input
+              value={nextConnectionName}
+              onChange={(event) => setNextConnectionName(event.target.value)}
+              aria-label={t("providers.connectionLabel")}
+            />
+            <Button type="button" onClick={() => void rename()} disabled={!nextConnectionName.trim()}>
+              {t("providers.buttons.saveConnectionName")}
+            </Button>
+            <Button variant="outline" type="button" onClick={() => setEditing(false)}>
+              {t("common.cancel")}
+            </Button>
+          </div>
+        ) : (
+          <div className="button-row">
+            <Button variant="outline" type="button" onClick={() => setEditing(true)}>
+              {t("providers.buttons.renameConnection")}
+            </Button>
+            <Button variant="outline" type="button" onClick={props.onAddConnection}>
+              {t("providers.addConnection")}
+            </Button>
+          </div>
+        )
+      ) : null}
+      {status ? <FormStatus message={status} /> : null}
+    </div>
+  );
+}
+
+function connectionDisplayName(connection: AppData["connections"][number]): string {
+  const displayName = connection.profile?.displayName;
+  return typeof displayName === "string" && displayName ? displayName : connection.authType;
+}
+
 function UnavailableProviderConnection(props: {
   provider: ProviderDefinition;
   connection?: AppData["connections"][number];
@@ -773,6 +923,7 @@ function UnavailableProviderConnection(props: {
 function ConnectionForm(props: ConnectionFormProps): ReactNode {
   const t = useTranslate();
   const [values, setValues] = useState<Record<string, string>>({});
+  const [connectionName, setConnectionName] = useState(() => props.connection?.connectionName ?? "default");
   const [status, setStatus] = useState<string | null>(null);
   const stopOAuthRefreshPolling = useRef<(() => void) | undefined>(undefined);
   const fields = credentialFieldsFor(props.auth);
@@ -810,11 +961,15 @@ function ConnectionForm(props: ConnectionFormProps): ReactNode {
     );
     try {
       if (props.auth.type === "no_auth") {
-        await apiPut(`/api/connections/${props.provider.service}`, { authType: "no_auth" });
+        await apiPut(`/api/connections/${props.provider.service}`, { authType: "no_auth", connectionName });
       } else if (props.auth.type === "api_key") {
-        await apiPut(`/api/connections/${props.provider.service}`, { authType: "api_key", values });
+        await apiPut(`/api/connections/${props.provider.service}`, { authType: "api_key", values, connectionName });
       } else if (props.auth.type === "custom_credential") {
-        await apiPut(`/api/connections/${props.provider.service}`, { authType: "custom_credential", values });
+        await apiPut(`/api/connections/${props.provider.service}`, {
+          authType: "custom_credential",
+          values,
+          connectionName,
+        });
       } else {
         if (!canSubmit) {
           setStatus(t("providers.connectionMessages.configureOAuthFirst"));
@@ -822,8 +977,10 @@ function ConnectionForm(props: ConnectionFormProps): ReactNode {
         }
         const result = await apiPost<{ authorizationUrl?: string }>(`/api/oauth/authorizations`, {
           service: props.provider.service,
+          connectionName,
         });
         if (result.authorizationUrl) {
+          props.onConnectionCreated(connectionName);
           window.open(
             result.authorizationUrl,
             "oomol_connect_oauth",
@@ -841,6 +998,7 @@ function ConnectionForm(props: ConnectionFormProps): ReactNode {
         return;
       }
       setStatus(t("providers.connectionMessages.updated"));
+      props.onConnectionCreated(connectionName);
       props.onRefresh();
     } catch (error) {
       setStatus(error instanceof Error ? error.message : t("providers.connectionMessages.failed"));
@@ -850,7 +1008,9 @@ function ConnectionForm(props: ConnectionFormProps): ReactNode {
   async function disconnect(): Promise<void> {
     setStatus(t("providers.connectionMessages.disconnecting"));
     try {
-      await apiDelete(`/api/connections/${props.provider.service}`);
+      await apiDelete(
+        `/api/connections/${props.provider.service}?connectionName=${encodeURIComponent(connectionName)}`,
+      );
       setStatus(t("providers.connectionMessages.disconnected"));
       props.onRefresh();
     } catch (error) {
@@ -877,6 +1037,21 @@ function ConnectionForm(props: ConnectionFormProps): ReactNode {
                 : t("providers.connectionMessages.connectOAuth", { name: props.provider.displayName })}
           </AlertDescription>
         </Alert>
+      ) : null}
+      {props.auth.type !== "no_auth" ? (
+        <Label className="field">
+          <span>{t("providers.connectionLabel")}</span>
+          <Input
+            value={connectionName}
+            onChange={(event) => setConnectionName(event.target.value)}
+            disabled={!props.isNewConnection}
+            required
+            aria-describedby="connection-name-hint"
+          />
+          <small id="connection-name-hint" className="muted-copy">
+            {props.isNewConnection ? t("providers.connectionLabelHint") : t("providers.connectionLabelRenameHint")}
+          </small>
+        </Label>
       ) : null}
       {fields.map((field) => (
         <CredentialInput

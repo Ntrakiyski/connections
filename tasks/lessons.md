@@ -27,3 +27,10 @@ Mistake: Used a broad InsForge project/config diagnostic that included the proje
 Why it happened: The diagnostic was treated as harmless metadata instead of as a credential-bearing configuration read.
 Rule for next time: Use targeted CLI queries and table checks; never print `.insforge/project.json` or broad project JSON output.
 Example check: Before running an InsForge command, confirm its output cannot include an app key, database URL, or other secret.
+
+## 2026-07-15 - Verify the linked InsForge project before migrations
+
+Mistake: Applied safe pending migrations while the CLI was linked to an empty stale branch rather than the Connections project.
+Why it happened: The linked context was assumed to match `.env.local` without checking the project name and deployment host first.
+Rule for next time: Before any InsForge mutation, compare the CLI project name and host with the non-secret database host configured for the app.
+Example check: `npx @insforge/cli current` must identify the expected project before `db migrations up` runs.

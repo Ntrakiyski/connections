@@ -82,6 +82,9 @@ describe("MCP server", () => {
         "get_action_guide",
         "execute_action",
       ]);
+      expect(result.tools.find((tool) => tool.name === "execute_action")?.inputSchema).toMatchObject({
+        required: expect.arrayContaining(["connectionName"]),
+      });
     });
   });
 
@@ -109,7 +112,7 @@ describe("MCP server", () => {
       });
       const run = await client.callTool({
         name: "execute_action",
-        arguments: { actionId: "example.echo", input: { message: "hello" } },
+        arguments: { actionId: "example.echo", connectionName: "default", input: { message: "hello" } },
       });
 
       expect(search.isError).toBeUndefined();
@@ -136,7 +139,7 @@ describe("MCP server", () => {
     await withMcpClient(async (client) => {
       const result = await client.callTool({
         name: "execute_action",
-        arguments: { actionId: "example.echo", input: {} },
+        arguments: { actionId: "example.echo", connectionName: "default", input: {} },
       });
 
       expect(result.isError).toBe(true);

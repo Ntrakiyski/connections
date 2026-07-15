@@ -54,6 +54,19 @@ describe("mapClerkRole", () => {
     await expect(memberships.getRole(workspace!.id, "user_1")).resolves.toBe("manager");
     expect(controls.events).toMatchObject([{ event: "membership.synced", userId: "user_1" }]);
 
+    const renamed = await app.request(
+      signedWebhook({
+        type: "organizationMembership.updated",
+        data: {
+          organization: { id: "org_1", name: "Workspace Renamed" },
+          public_user_data: { user_id: "user_1" },
+          role: "org:manager",
+        },
+      }),
+    );
+    expect(renamed.status).toBe(200);
+    await expect(workspaces.getByClerkOrgId("org_1")).resolves.toMatchObject({ name: "Workspace Renamed" });
+
     const removed = await app.request(
       signedWebhook({
         type: "organizationMembership.deleted",
@@ -102,6 +115,11 @@ class MemoryWorkspaceStore implements IWorkspaceStore {
 
   async create(workspace: Workspace): Promise<void> {
     this.workspaces.set(workspace.id, workspace);
+  }
+
+  async updateName(workspaceId: string, name: string, updatedAt: string): Promise<void> {
+    const workspace = this.workspaces.get(workspaceId);
+    if (workspace) this.workspaces.set(workspaceId, { ...workspace, name, updatedAt });
   }
 }
 
@@ -169,6 +187,8 @@ class MemoryRuntimeTokenStore implements IRuntimeTokenStore {
   }
 
   async revokeByUser(): Promise<void> {}
+
+  async revokeByWorkspace(): Promise<void> {}
 
   async markUsed(): Promise<void> {}
 }

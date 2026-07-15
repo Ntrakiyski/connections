@@ -1,4 +1,4 @@
-import type { IWorkspaceMembershipStore, IWorkspaceStore } from "../storage/runtime-database.ts";
+import type { IWorkspaceMembershipStore, IWorkspaceStore, Workspace } from "../storage/runtime-database.ts";
 import type { WorkspaceContext } from "../storage/runtime-token-service.ts";
 import type { Context, MiddlewareHandler } from "hono";
 
@@ -111,9 +111,16 @@ async function authenticateClerkRequest(context: Context, options: ClerkAuthOpti
   if (!role) {
     throw new HttpRequestError("workspace_forbidden", "You are not a member of the active workspace.", 403);
   }
+  if (workspace.deletedAt && !isWorkspaceRestoreRequest(context)) {
+    throw new HttpRequestError("workspace_deleted", "This workspace is archived and unavailable.", 403);
+  }
   const workspaceContext = { workspaceId: workspace.id, userId, role };
   context.set("workspace", workspaceContext);
   context.set("clerkSession", { ...workspaceContext, sessionClaims: claims });
+}
+
+function isWorkspaceRestoreRequest(context: Context): boolean {
+  return context.req.method === "POST" && context.req.path === "/api/workspace/restore";
 }
 
 async function findOrCreateWorkspace(
@@ -122,9 +129,15 @@ async function findOrCreateWorkspace(
   clerkOrgId: string,
   userId: string,
   clerkOrgRole: string | undefined,
-): Promise<{ id: string }> {
+): Promise<Workspace> {
   const existing = await options.workspaceStore.getByClerkOrgId(clerkOrgId);
   if (existing) {
+    const organizationName = readClaim(claims, "org_name");
+    if (organizationName && organizationName !== existing.name) {
+      const updatedAt = new Date().toISOString();
+      await options.workspaceStore.updateName(existing.id, organizationName, updatedAt);
+      return { ...existing, name: organizationName, updatedAt };
+    }
     return existing;
   }
 
