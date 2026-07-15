@@ -42,7 +42,9 @@
     "actions": "Actions",
     "runs": "Runs",
     "access": "API Key",
-    "docs": "Docs"
+    "docs": "Docs",
+    "members": "Members",
+    "settings": "Workspace settings"
   },
   "shell": {
     "invalidUnlockToken": "Enter a valid admin token to unlock the console.",
@@ -81,6 +83,14 @@
       "resources": {
         "title": "Resources",
         "subtitle": "Generated API references and tool metadata."
+      },
+      "members": {
+        "title": "Members",
+        "subtitle": "Manage workspace access."
+      },
+      "settings": {
+        "title": "Workspace settings",
+        "subtitle": "Manage the current workspace."
       }
     }
   },

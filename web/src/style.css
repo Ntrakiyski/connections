@@ -370,6 +370,81 @@ h3 {
   border-bottom: 1px solid var(--sidebar-border);
 }
 
+.workspace-selector {
+  position: relative;
+  padding: 10px 12px 0;
+}
+
+.workspace-selector-trigger {
+  width: 100%;
+  height: auto;
+  min-height: 48px;
+  justify-content: space-between;
+  padding: 8px;
+  border: 1px solid var(--sidebar-border);
+  color: inherit;
+}
+
+.workspace-selector-copy,
+.workspace-selector-item > span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  text-align: left;
+}
+
+.workspace-selector-copy strong,
+.workspace-selector-item strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-selector-menu {
+  position: absolute;
+  z-index: 20;
+  right: 12px;
+  left: 12px;
+  display: grid;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--popover);
+  box-shadow: var(--console-shadow-sm);
+}
+
+.workspace-selector-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--foreground);
+  cursor: pointer;
+}
+
+.workspace-selector-item:hover,
+.workspace-selector-item.active {
+  background: var(--accent);
+}
+
+.workspace-selector-item small,
+.workspace-selector-error,
+.shell-workspace-name,
+.table-subtitle,
+.workspace-resource-name {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.workspace-selector-error {
+  margin: 4px;
+}
+
 .sidebar-nav {
   display: grid;
   align-content: start;
@@ -1854,6 +1929,56 @@ h3 {
 .form-grid {
   display: grid;
   gap: 12px;
+}
+
+.workspace-page {
+  display: grid;
+  gap: 16px;
+  max-width: 900px;
+}
+
+.workspace-settings-panel,
+.workspace-members-panel,
+.workspace-invite-panel,
+.workspace-danger-zone {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+}
+
+.workspace-details {
+  display: flex;
+  gap: 24px;
+  margin: 0;
+}
+
+.workspace-details div {
+  display: grid;
+  gap: 3px;
+}
+
+.workspace-details dt,
+.workspace-details dd {
+  margin: 0;
+}
+
+.workspace-details dt {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.workspace-danger-zone {
+  border-color: color-mix(in srgb, var(--destructive) 35%, var(--border));
+}
+
+.workspace-invite-form {
+  grid-template-columns: minmax(0, 1fr) 180px auto;
+  align-items: end;
+}
+
+.table-subtitle {
+  display: block;
+  margin-top: 2px;
 }
 
 .oauth-client-settings {

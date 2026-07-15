@@ -1,132 +1,8 @@
-import { I18nProvider } from "@embra/i18n/react";
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
-import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createAppI18n } from "./i18n";
-import {
-  App,
-  loadRuntimeData,
-  nextAuthLoadState,
-  nextLogoutState,
-  subscribeToOAuthCompletions,
-  UnlockView,
-} from "./ui";
+import { subscribeToOAuthCompletions, subscribeToWorkspaceChanges, loadRuntimeData } from "./ui";
 
 afterEach(() => {
   vi.unstubAllGlobals();
-});
-
-describe("App", () => {
-  it("does not render the console shell before the initial auth check finishes", () => {
-    const markup = renderToStaticMarkup(
-      createElement(
-        I18nProvider,
-        { i18n: createAppI18n("en") },
-        createElement(MemoryRouter, { initialEntries: ["/"] }, createElement(App)),
-      ),
-    );
-
-    expect(markup).not.toContain("app-shell");
-    expect(markup).toContain("Loading runtime data");
-  });
-
-  it("does not reserve empty error space before loading starts", () => {
-    const markup = renderToStaticMarkup(
-      createElement(
-        I18nProvider,
-        { i18n: createAppI18n("en") },
-        createElement(UnlockView, {
-          loading: false,
-          message: null,
-          theme: "light",
-          onThemeChange: () => {},
-          onUnlock: () => {},
-        }),
-      ),
-    );
-
-    expect(markup).not.toContain("unlock-status");
-    expect(markup).toContain("unlock-button-spinner idle");
-  });
-
-  it("marks the unlock button loading state separately from disabled state", () => {
-    const markup = renderToStaticMarkup(
-      createElement(
-        I18nProvider,
-        { i18n: createAppI18n("en") },
-        createElement(UnlockView, {
-          loading: true,
-          message: null,
-          theme: "light",
-          onThemeChange: () => {},
-          onUnlock: () => {},
-        }),
-      ),
-    );
-
-    expect(markup).toContain('data-loading="true"');
-    expect(markup).toContain('aria-busy="true"');
-  });
-});
-
-describe("nextLogoutState", () => {
-  it("keeps the current auth state when logout fails", () => {
-    const state = {
-      authSession: { adminAuthConfigured: true, authenticated: true },
-    };
-
-    expect(nextLogoutState(state, false)).toBe(state);
-  });
-
-  it("clears the current auth state when logout succeeds", () => {
-    expect(
-      nextLogoutState(
-        {
-          authSession: { adminAuthConfigured: true, authenticated: true },
-        },
-        true,
-      ),
-    ).toEqual({
-      authSession: { adminAuthConfigured: true, authenticated: false },
-    });
-  });
-});
-
-describe("nextAuthLoadState", () => {
-  it("clears the pending unlock token after the session is authenticated", () => {
-    expect(
-      nextAuthLoadState(
-        {
-          pendingUnlockToken: "local-token",
-          authSession: { adminAuthConfigured: true, authenticated: false },
-          locked: true,
-        },
-        { adminAuthConfigured: true, authenticated: true },
-      ),
-    ).toEqual({
-      pendingUnlockToken: "",
-      authSession: { adminAuthConfigured: true, authenticated: true },
-      locked: false,
-    });
-  });
-
-  it("keeps the console locked while an unlock token is rejected", () => {
-    expect(
-      nextAuthLoadState(
-        {
-          pendingUnlockToken: "wrong-token",
-          authSession: { adminAuthConfigured: true, authenticated: false },
-          locked: true,
-        },
-        { adminAuthConfigured: true, authenticated: false },
-      ),
-    ).toEqual({
-      pendingUnlockToken: "wrong-token",
-      authSession: { adminAuthConfigured: true, authenticated: false },
-      locked: true,
-    });
-  });
 });
 
 describe("subscribeToOAuthCompletions", () => {
@@ -170,8 +46,21 @@ describe("subscribeToOAuthCompletions", () => {
   });
 });
 
+describe("subscribeToWorkspaceChanges", () => {
+  it("refreshes when Clerk changes the active organization", () => {
+    const refresh = vi.fn();
+    vi.stubGlobal("window", new EventTarget());
+    const unsubscribe = subscribeToWorkspaceChanges(refresh);
+
+    window.dispatchEvent(new Event("clerk:organization-change"));
+
+    expect(refresh).toHaveBeenCalledOnce();
+    unsubscribe();
+  });
+});
+
 describe("loadRuntimeData", () => {
-  it("uses the unlock token only when reading the auth session", async () => {
+  it("passes the Clerk token to all API calls", async () => {
     const calls: Array<{ path: string; headers: Headers }> = [];
     vi.stubGlobal(
       "fetch",
@@ -187,7 +76,7 @@ describe("loadRuntimeData", () => {
       }),
     );
 
-    await loadRuntimeData("local-token");
+    await loadRuntimeData("clerk-token");
 
     expect(calls.map((call) => call.path)).toEqual([
       "/api/auth/session",
@@ -196,10 +85,50 @@ describe("loadRuntimeData", () => {
       "/api/oauth/configs",
       "/api/runtime-tokens",
       "/api/runs",
+      "/api/auth/workspaces",
     ]);
-    expect(calls[0]?.headers.get("authorization")).toBe("Bearer local-token");
-    for (const call of calls.slice(1)) {
-      expect(call.headers.get("authorization")).toBeNull();
+    for (const call of calls) {
+      expect(call.headers.get("authorization")).toBe("Bearer clerk-token");
     }
+  });
+
+  it("works without a Clerk token (null)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: RequestInfo | URL) => {
+        if (path === "/api/auth/session") {
+          return Response.json({ adminAuthConfigured: true, authenticated: true });
+        }
+        if (path === "/api/runs") return Response.json({ items: [] });
+        return Response.json([]);
+      }),
+    );
+
+    const result = await loadRuntimeData(null);
+    expect(result.data.providers).toEqual([]);
+  });
+
+  it("keeps the active workspace usable when the optional workspace list route is unavailable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: RequestInfo | URL) => {
+        if (path === "/api/auth/session") {
+          return Response.json({
+            workspaceId: "workspace-1",
+            userId: "user-1",
+            role: "admin",
+            sessionClaims: { org_name: "Platform" },
+          });
+        }
+        if (path === "/api/runs") return Response.json({ items: [] });
+        if (path === "/api/auth/workspaces") return Response.json({ code: "not_found" }, { status: 404 });
+        return Response.json([]);
+      }),
+    );
+
+    const result = await loadRuntimeData("");
+
+    expect(result.data.workspaceName).toBe("Platform");
+    expect(result.workspaces).toEqual([{ workspaceId: "workspace-1", name: "Platform", role: "admin" }]);
   });
 });

@@ -6,10 +6,12 @@ import type {
   ProviderDefinition,
   RunLogPage,
   RuntimeTokenSummary,
+  WorkspaceRole,
 } from "./model";
 import type { ThemeMode } from "./theme";
-import type { FormEvent, ReactNode } from "react";
+import type { ReactNode } from "react";
 
+import { useAuth, SignIn, SignOutButton } from "@clerk/clerk-react";
 import { useI18n, useLang, useTranslate } from "@embra/i18n/react";
 import {
   Activity,
@@ -21,10 +23,12 @@ import {
   Monitor,
   Moon,
   RefreshCw,
+  Settings,
   Sun,
   TerminalSquare,
+  Users,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router";
 import { AccessPage } from "./access-page";
 import { ActionsPage } from "./actions-page";
@@ -38,19 +42,29 @@ import { ResourcesPage } from "./resources-page";
 import { RunsPage } from "./runs-page";
 import { InlineError, StatusDot } from "./shared-ui";
 import { useThemeMode } from "./theme";
+import { WorkspaceMembersPage } from "./workspace-members-page";
+import { WorkspaceSelector } from "./workspace-selector";
+import { WorkspaceSettingsPage } from "./workspace-settings-page";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-const navItems = [
+interface NavItem {
+  path: string;
+  labelKey: string;
+  icon: typeof Home;
+  roles?: readonly WorkspaceRole[];
+}
+
+const navItems: readonly NavItem[] = [
   { path: "/overview", labelKey: "nav.overview", icon: Home },
   { path: "/providers", labelKey: "nav.providers", icon: Cable },
   { path: "/actions", labelKey: "nav.actions", icon: TerminalSquare },
   { path: "/runs", labelKey: "nav.runs", icon: Activity },
   { path: "/access", labelKey: "nav.access", icon: KeyRound },
   { path: "/resources", labelKey: "nav.docs", icon: BookOpen },
-] as const;
+  { path: "/workspace/members", labelKey: "nav.members", icon: Users, roles: ["admin"] },
+  { path: "/workspace/settings", labelKey: "nav.settings", icon: Settings, roles: ["admin"] },
+];
 
 const oauthCompletionChannelName = "oomol-connect-oauth";
 const oauthCompletedType = "oauth.completed";
@@ -64,6 +78,11 @@ const themeOptions = [
 export interface AuthSession {
   adminAuthConfigured: boolean;
   authenticated: boolean;
+  workspaceId?: string;
+  workspaceName?: string;
+  role?: AppData["role"];
+  userId?: string;
+  sessionClaims?: Record<string, unknown>;
 }
 
 export interface OAuthCompletionMessage {
@@ -87,6 +106,13 @@ export function subscribeToOAuthCompletions(onComplete: (message: OAuthCompletio
   return () => channel.close();
 }
 
+/** Refreshes workspace-scoped console data after Clerk changes the active organization. */
+export function subscribeToWorkspaceChanges(onChange: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener("clerk:organization-change", onChange);
+  return () => window.removeEventListener("clerk:organization-change", onChange);
+}
+
 function isOAuthCompletionMessage(value: unknown): value is OAuthCompletionMessage {
   if (typeof value !== "object" || value === null) {
     return false;
@@ -95,49 +121,35 @@ function isOAuthCompletionMessage(value: unknown): value is OAuthCompletionMessa
   return message.type === oauthCompletedType && typeof message.service === "string";
 }
 
-export interface LogoutState {
-  authSession: AuthSession;
-}
-
-export function nextLogoutState(state: LogoutState, succeeded: boolean): LogoutState {
-  return succeeded
-    ? {
-        authSession: { ...state.authSession, authenticated: false },
-      }
-    : state;
-}
-
-export interface AuthLoadState {
-  pendingUnlockToken: string;
-  authSession: AuthSession;
-  locked: boolean;
-}
-
-export function nextAuthLoadState(state: AuthLoadState, session: AuthSession): AuthLoadState {
-  return {
-    pendingUnlockToken: session.authenticated ? "" : state.pendingUnlockToken,
-    authSession: session,
-    locked: !session.authenticated,
-  };
-}
-
 export interface RuntimeLoadResult {
   authSession: AuthSession;
   data: AppData;
+  workspaces: import("./model").WorkspaceSummary[];
 }
 
-export async function loadRuntimeData(unlockToken: string): Promise<RuntimeLoadResult> {
-  const authSession = await apiGet<AuthSession>("/api/auth/session", { bearerToken: unlockToken });
+export async function loadRuntimeData(clerkToken: string | null): Promise<RuntimeLoadResult> {
+  const bearerToken = clerkToken ?? undefined;
+  const rawSession = await apiGet<Partial<AuthSession>>("/api/auth/session", { bearerToken });
+  const authSession: AuthSession = {
+    adminAuthConfigured: rawSession.adminAuthConfigured ?? true,
+    authenticated: rawSession.authenticated ?? true,
+    workspaceId: rawSession.workspaceId,
+    workspaceName: rawSession.workspaceName ?? sessionClaim(rawSession.sessionClaims, "org_name"),
+    role: rawSession.role,
+    userId: rawSession.userId,
+    sessionClaims: rawSession.sessionClaims,
+  };
   if (!authSession.authenticated) {
-    return { authSession, data: emptyData };
+    return { authSession, data: emptyData, workspaces: [] };
   }
 
-  const [providers, connections, oauthConfigs, runtimeTokens, runPage] = await Promise.all([
-    apiGet<ProviderDefinition[]>("/api/providers"),
-    apiGet<ConnectionRecord[]>("/api/connections"),
-    apiGet<OAuthConfig[]>("/api/oauth/configs"),
-    apiGet<RuntimeTokenSummary[]>("/api/runtime-tokens"),
-    apiGet<RunLogPage>("/api/runs"),
+  const [providers, connections, oauthConfigs, runtimeTokens, runPage, workspaces] = await Promise.all([
+    apiGet<ProviderDefinition[]>("/api/providers", { bearerToken }),
+    apiGet<ConnectionRecord[]>("/api/connections", { bearerToken }),
+    apiGet<OAuthConfig[]>("/api/oauth/configs", { bearerToken }),
+    apiGet<RuntimeTokenSummary[]>("/api/runtime-tokens", { bearerToken }),
+    apiGet<RunLogPage>("/api/runs", { bearerToken }),
+    loadWorkspaceSummaries(authSession, bearerToken),
   ]);
 
   return {
@@ -149,20 +161,21 @@ export async function loadRuntimeData(unlockToken: string): Promise<RuntimeLoadR
       runtimeTokens,
       runs: runPage.items,
       runsNextCursor: runPage.nextCursor,
+      workspaceId: authSession.workspaceId,
+      workspaceName: authSession.workspaceName ?? "Workspace",
+      role: authSession.role ?? "member",
+      userId: authSession.userId,
     },
+    workspaces,
   };
 }
 
 export function App(): ReactNode {
   const t = useTranslate();
   const { theme, setTheme } = useThemeMode();
+  const { isSignedIn, getToken, signOut } = useAuth();
   const [data, setData] = useState<AppData>(emptyData);
-  const [authSession, setAuthSession] = useState<AuthSession>({
-    adminAuthConfigured: false,
-    authenticated: true,
-  });
-  const pendingUnlockToken = useRef("");
-  const [locked, setLocked] = useState(false);
+  const [workspaces, setWorkspaces] = useState<import("./model").WorkspaceSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [runtimeChecked, setRuntimeChecked] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -176,40 +189,22 @@ export function App(): ReactNode {
     [],
   );
 
+  useEffect(() => subscribeToWorkspaceChanges(() => setRefreshToken((value) => value + 1)), []);
+
   useEffect(() => {
     let cancelled = false;
-    const requestUnlockToken = pendingUnlockToken.current;
     setLoading(true);
-    loadRuntimeData(requestUnlockToken)
-      .then(({ authSession: session, data: nextData }) => {
+    (isSignedIn ? getToken() : Promise.resolve(null))
+      .then((clerkToken) => loadRuntimeData(clerkToken))
+      .then(({ data: nextData, workspaces: nextWorkspaces }) => {
         if (!cancelled) {
-          const nextAuth = nextAuthLoadState(
-            {
-              pendingUnlockToken: pendingUnlockToken.current,
-              authSession,
-              locked,
-            },
-            session,
-          );
-          pendingUnlockToken.current = nextAuth.pendingUnlockToken;
           setData(nextData);
-          setAuthSession(nextAuth.authSession);
-          setLocked(nextAuth.locked);
-          setError(session.authenticated ? null : requestUnlockToken.trim() ? t("shell.invalidUnlockToken") : null);
+          setWorkspaces(nextWorkspaces);
+          setError(null);
         }
       })
       .catch((caught: unknown) => {
-        if (cancelled) {
-          return;
-        }
-        if (caught instanceof ApiError && caught.status === 401) {
-          pendingUnlockToken.current = "";
-          setData(emptyData);
-          setAuthSession({ adminAuthConfigured: true, authenticated: false });
-          setLocked(true);
-          setError(requestUnlockToken.trim() ? t("shell.invalidUnlockToken") : null);
-          return;
-        }
+        if (cancelled) return;
         setError(caught instanceof Error ? caught.message : t("shell.loadRuntimeFailed"));
       })
       .finally(() => {
@@ -222,33 +217,28 @@ export function App(): ReactNode {
     return () => {
       cancelled = true;
     };
-  }, [refreshToken, t]);
+  }, [refreshToken, isSignedIn, getToken, t]);
 
   function refresh(): void {
     setRefreshToken((value) => value + 1);
   }
 
-  function unlock(token: string): void {
-    pendingUnlockToken.current = token;
-    setLoading(true);
+  function logout(): void {
+    void signOut().then(() => refresh());
+  }
+
+  async function switchWorkspace(workspaceId: string): Promise<void> {
+    const token = await getToken();
+    await apiPost("/api/auth/workspace/switch", { workspaceId }, { bearerToken: token ?? undefined });
     refresh();
   }
 
-  function logout(): void {
-    void apiPost("/api/auth/logout", {})
-      .then(() => {
-        const next = nextLogoutState({ authSession }, true);
-        setAuthSession(next.authSession);
-        setError(null);
-        refresh();
-      })
-      .catch((caught: unknown) => {
-        setError(caught instanceof Error ? caught.message : t("shell.logoutFailed"));
-      });
-  }
-
-  if (locked) {
-    return <UnlockView loading={loading} message={error} theme={theme} onThemeChange={setTheme} onUnlock={unlock} />;
+  if (!isSignedIn) {
+    return (
+      <main className="unlock-screen">
+        <SignIn />
+      </main>
+    );
   }
 
   if (!runtimeChecked) {
@@ -258,11 +248,12 @@ export function App(): ReactNode {
   return (
     <AppShell
       data={data}
-      showLogout={authSession.adminAuthConfigured && authSession.authenticated}
       loading={loading}
       error={error}
       theme={theme}
+      workspaces={workspaces}
       onRefresh={refresh}
+      onWorkspaceSwitch={switchWorkspace}
       onThemeChange={setTheme}
       onLogout={logout}
     />
@@ -284,11 +275,12 @@ function InitialLoadingView(): ReactNode {
 
 function AppShell(props: {
   data: AppData;
-  showLogout: boolean;
   loading: boolean;
   error: string | null;
   theme: ThemeMode;
+  workspaces: import("./model").WorkspaceSummary[];
   onRefresh(): void;
+  onWorkspaceSwitch(workspaceId: string): Promise<void>;
   onThemeChange(theme: ThemeMode): void;
   onLogout(): void;
 }): ReactNode {
@@ -301,7 +293,11 @@ function AppShell(props: {
   const mainClassName = [isBrowserPage ? "main main-browser" : "main", isOverviewPage ? "overview-main" : ""]
     .filter(Boolean)
     .join(" ");
-  const currentNavItem = navItems.find((item) => item.path.slice(1) === heading) ?? navItems[0];
+  const visibleNavItems = navItems.filter(
+    (item) => item.roles === undefined || item.roles.includes(props.data.role ?? "member"),
+  );
+  const currentNavItem =
+    visibleNavItems.find((item) => item.path.slice(1) === heading) ?? visibleNavItems[0] ?? navItems[0];
   const CurrentNavIcon = currentNavItem.icon;
 
   return (
@@ -315,8 +311,15 @@ function AppShell(props: {
           </div>
         </div>
 
+        <WorkspaceSelector
+          activeWorkspaceId={props.data.workspaceId ?? ""}
+          disabled={props.loading}
+          workspaces={props.workspaces}
+          onSwitch={props.onWorkspaceSwitch}
+        />
+
         <nav className="sidebar-nav" aria-label={t("shell.primaryNav")}>
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const Icon = item.icon;
             return (
               <NavLink
@@ -342,11 +345,11 @@ function AppShell(props: {
             <Button variant="outline" size="icon-sm" onClick={props.onRefresh} aria-label={t("shell.refreshData")}>
               {props.loading ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} />}
             </Button>
-            {props.showLogout ? (
-              <Button variant="outline" size="sm" onClick={props.onLogout}>
+            <SignOutButton>
+              <Button variant="outline" size="sm">
                 {t("shell.logout")}
               </Button>
-            ) : null}
+            </SignOutButton>
           </div>
         </div>
       </aside>
@@ -357,6 +360,7 @@ function AppShell(props: {
             <CurrentNavIcon size={16} />
             <h1>{t(`shell.headings.${heading}.title`)}</h1>
           </div>
+          {props.data.workspaceName ? <span className="shell-workspace-name">{props.data.workspaceName}</span> : null}
           {props.loading ? (
             <div className="loading-panel page-loading">
               <Loader2 className="spin" size={16} />
@@ -380,86 +384,44 @@ function AppShell(props: {
             <Route path="/actions/:actionId" element={<ActionsPage data={props.data} onRefresh={props.onRefresh} />} />
             <Route
               path="/runs"
-              element={<RunsPage initialRuns={props.data.runs} nextCursor={props.data.runsNextCursor} />}
+              element={
+                <RunsPage
+                  key={props.data.workspaceId}
+                  initialRuns={props.data.runs}
+                  nextCursor={props.data.runsNextCursor}
+                />
+              }
             />
             <Route
               path="/access"
               element={<AccessPage tokens={props.data.runtimeTokens} onRefresh={props.onRefresh} />}
             />
-            <Route path="/resources" element={<ResourcesPage />} />
+            <Route path="/resources" element={<ResourcesPage workspaceName={props.data.workspaceName} />} />
+            <Route
+              path="/workspace/members"
+              element={
+                props.data.role === "admin" ? (
+                  <WorkspaceMembersPage currentUserId={props.data.userId ?? ""} />
+                ) : (
+                  <Navigate to="/overview" replace />
+                )
+              }
+            />
+            <Route
+              path="/workspace/settings"
+              element={
+                props.data.role === "admin" ? (
+                  <WorkspaceSettingsPage onDeleted={props.onLogout} onRefresh={props.onRefresh} />
+                ) : (
+                  <Navigate to="/overview" replace />
+                )
+              }
+            />
             <Route path="*" element={<Navigate to="/overview" replace />} />
           </Routes>
         </main>
       </div>
     </div>
-  );
-}
-
-export interface UnlockViewProps {
-  loading: boolean;
-  message: string | null;
-  theme: ThemeMode;
-  onThemeChange(theme: ThemeMode): void;
-  onUnlock(token: string): void;
-}
-
-export function UnlockView(props: UnlockViewProps): ReactNode {
-  const t = useTranslate();
-  const [token, setToken] = useState("");
-
-  function submit(event: FormEvent): void {
-    event.preventDefault();
-    props.onUnlock(token.trim());
-  }
-
-  return (
-    <main className="unlock-screen">
-      <section className="unlock-panel">
-        <div className="brand">
-          <img className="brand-mark" src={oomolConnectLogoUrl} alt="" />
-          <div>
-            <div className="brand-name">OOMOL Connect</div>
-            <div className="brand-subtitle">{t("brand.adminAccess")}</div>
-          </div>
-        </div>
-        <LanguageSelect />
-        <ThemeControl theme={props.theme} onThemeChange={props.onThemeChange} />
-        <form className="form-grid" onSubmit={submit}>
-          <Label className="field">
-            <span>{t("unlock.token")}</span>
-            <Input
-              type="password"
-              value={token}
-              onChange={(event) => setToken(event.target.value)}
-              autoFocus
-              autoComplete="current-password"
-            />
-          </Label>
-          <Button
-            className="unlock-submit"
-            type="submit"
-            data-loading={props.loading}
-            aria-busy={props.loading}
-            disabled={!token.trim() || props.loading}
-          >
-            <span className="unlock-button-slot">
-              <Loader2
-                className={props.loading ? "unlock-button-spinner spin" : "unlock-button-spinner idle"}
-                size={16}
-                aria-hidden="true"
-              />
-            </span>
-            <span>{t("unlock.unlockConsole")}</span>
-            <span className="unlock-button-slot" aria-hidden="true" />
-          </Button>
-        </form>
-        {props.message ? (
-          <div className="unlock-status" aria-live="polite">
-            <InlineError message={props.message} />
-          </div>
-        ) : null}
-      </section>
-    </main>
   );
 }
 
@@ -524,20 +486,37 @@ function LanguageSelect(): ReactNode {
 
 function headingForPath(pathname: string): string {
   const section = pathname.split("/").filter(Boolean)[0];
-  if (section === "providers") {
-    return "providers";
-  }
-  if (section === "actions") {
-    return "actions";
-  }
-  if (section === "runs") {
-    return "runs";
-  }
-  if (section === "access") {
-    return "access";
-  }
-  if (section === "resources") {
-    return "resources";
-  }
+  if (section === "providers") return "providers";
+  if (section === "actions") return "actions";
+  if (section === "runs") return "runs";
+  if (section === "access") return "access";
+  if (section === "resources") return "resources";
+  if (section === "workspace") return pathname.endsWith("members") ? "members" : "settings";
   return "overview";
+}
+
+async function loadWorkspaceSummaries(
+  authSession: AuthSession,
+  bearerToken?: string,
+): Promise<import("./model").WorkspaceSummary[]> {
+  const fallback = authSession.workspaceId
+    ? [
+        {
+          workspaceId: authSession.workspaceId,
+          name: authSession.workspaceName ?? "Workspace",
+          role: authSession.role ?? "member",
+        },
+      ]
+    : [];
+  try {
+    return await apiGet<import("./model").WorkspaceSummary[]>("/api/auth/workspaces", { bearerToken });
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return fallback;
+    throw error;
+  }
+}
+
+function sessionClaim(claims: Record<string, unknown> | undefined, name: string): string | undefined {
+  const value = claims?.[name];
+  return typeof value === "string" && value ? value : undefined;
 }

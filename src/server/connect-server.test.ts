@@ -11,6 +11,7 @@ import type {
 import type { IOAuthClientConfigStore, OAuthClientConfig } from "../oauth/oauth-client-config-service.ts";
 import type { IOAuthStateStore, OAuthAuthorizationState } from "../oauth/oauth-flow-service.ts";
 import type { IProviderLoader } from "../providers/provider-loader.ts";
+import type { ClerkAuthOptions } from "./api/clerk-auth.ts";
 import type { Logger } from "./logger.ts";
 import type { IRunLogStore, RunLog, RunLogListInput, RunLogPage } from "./storage/runtime-store.ts";
 import type { IRuntimeTokenStore, RuntimeTokenRecord } from "./storage/runtime-token-service.ts";
@@ -268,49 +269,17 @@ describe("ConnectServer", () => {
     });
   });
 
-  it("requires local bearer tokens when configured", async () => {
-    const app = createTestServer([apiKeyProvider], {
-      auth: { adminToken: "local-token", runtimeToken: "runtime-token" },
-    }).createApp();
+  it("uses the local development workspace when Clerk is not configured", async () => {
+    const app = createTestServer([apiKeyProvider]).createApp();
 
     expect((await app.request("/health")).status).toBe(200);
 
-    const unauthorized = await app.request("/api/providers/example");
-    expect(unauthorized.status).toBe(401);
-    await expect(unauthorized.json()).resolves.toEqual({
-      error: {
-        code: "unauthorized",
-        message: "A valid local bearer token is required.",
-      },
-    });
-
-    const authorized = await app.request("/api/providers/example", {
-      headers: { authorization: "Bearer local-token" },
-    });
-    expect(authorized.status).toBe(200);
-    await expect(authorized.json()).resolves.toMatchObject({
+    const provider = await app.request("/api/providers/example");
+    expect(provider.status).toBe(200);
+    await expect(provider.json()).resolves.toMatchObject({
       service: "example",
     });
-
-    const runtimeUnauthorized = await app.request("/v1/actions", {
-      headers: { authorization: "Bearer local-token" },
-    });
-    expect(runtimeUnauthorized.status).toBe(401);
-
-    const runtimeAuthorized = await app.request("/v1/actions", {
-      headers: { authorization: "Bearer runtime-token" },
-    });
-    expect(runtimeAuthorized.status).toBe(200);
-
-    const adminActionRun = await app.request("/v1/actions/example.echo", {
-      method: "POST",
-      headers: {
-        authorization: "Bearer local-token",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ input: {} }),
-    });
-    expect(adminActionRun.status).toBe(404);
+    expect((await app.request("/v1/actions")).status).toBe(200);
   });
 
   it("serves API routes when static routes are disabled", async () => {
@@ -801,108 +770,34 @@ describe("ConnectServer", () => {
     ]);
   });
 
-  it("keeps the console shell public while protecting admin APIs", async () => {
+  it("keeps the console shell public in local development", async () => {
     const staticRoot = await createTestStaticRoot();
     try {
       const app = createTestServer([apiKeyProvider], {
         staticRoot,
-        auth: { adminToken: "local-token" },
       }).createApp();
 
       expect((await app.request("/overview")).status).toBe(200);
       const consoleScript = await app.request("/assets/console.js");
       expect(consoleScript.status).toBe(200);
       expect(consoleScript.headers.get("cache-control")).not.toBe("no-store");
-      expect((await app.request("/api/providers")).status).toBe(401);
-      expect((await app.request("/docs")).status).toBe(401);
-      expect((await app.request("/api/providers")).headers.get("cache-control")).toBe("no-store");
-
-      const authorized = await app.request("/api/providers", {
-        headers: { authorization: "Bearer local-token" },
-      });
-      expect(authorized.status).toBe(200);
-      expect(authorized.headers.get("set-cookie")).toContain("oomol_connect_admin_session=");
-      expect(authorized.headers.get("set-cookie")).not.toContain("local-token");
-      expect(authorized.headers.get("set-cookie")).toContain("Max-Age=2592000");
-
-      const logout = await app.request("/api/auth/logout", { method: "POST" });
-      expect(logout.status).toBe(200);
-      expect(logout.headers.get("set-cookie")).toContain("oomol_connect_admin_session=;");
-      expect(logout.headers.get("set-cookie")).toContain("Max-Age=0");
+      expect((await app.request("/api/providers")).status).toBe(200);
+      expect((await app.request("/docs")).status).toBe(200);
     } finally {
       await rm(staticRoot, { recursive: true, force: true });
     }
   });
 
-  it("reports local admin auth session state", async () => {
-    const app = createTestServer([apiKeyProvider], {
-      auth: { adminToken: "local-token" },
-    }).createApp();
-
-    const unauthenticated = await app.request("/api/auth/session");
-    expect(unauthenticated.status).toBe(200);
-    await expect(unauthenticated.json()).resolves.toEqual({
-      adminAuthConfigured: true,
-      authenticated: false,
-    });
-
-    const bearer = await app.request("/api/auth/session", {
-      headers: { authorization: "Bearer local-token" },
-    });
-    expect(bearer.status).toBe(200);
-    expect(bearer.headers.get("set-cookie")).toContain("oomol_connect_admin_session=");
-    expect(bearer.headers.get("set-cookie")).not.toContain("local-token");
-    await expect(bearer.json()).resolves.toEqual({
-      adminAuthConfigured: true,
-      authenticated: true,
-    });
-
-    const authorized = await app.request("/api/providers", {
-      headers: { authorization: "Bearer local-token" },
-    });
-    const cookie = authorized.headers.get("set-cookie")?.split(";")[0] ?? "";
-    const cookieSession = await app.request("/api/auth/session", {
-      headers: { cookie },
-    });
-    expect(cookieSession.status).toBe(200);
-    await expect(cookieSession.json()).resolves.toEqual({
-      adminAuthConfigured: true,
-      authenticated: true,
-    });
-  });
-
-  it("expires local admin auth sessions", async () => {
-    const issuedAt = Date.parse("2026-07-03T00:00:00.000Z");
-    const now = vi.spyOn(Date, "now").mockReturnValue(issuedAt);
-    const app = createTestServer([apiKeyProvider], {
-      auth: { adminToken: "local-token" },
-    }).createApp();
-
-    const authorized = await app.request("/api/providers", {
-      headers: { authorization: "Bearer local-token" },
-    });
-    const cookie = authorized.headers.get("set-cookie")?.split(";")[0] ?? "";
-
-    now.mockReturnValue(issuedAt + 2_592_000_000 + 1);
-    const expiredSession = await app.request("/api/auth/session", {
-      headers: { cookie },
-    });
-
-    expect(expiredSession.status).toBe(200);
-    await expect(expiredSession.json()).resolves.toEqual({
-      adminAuthConfigured: true,
-      authenticated: false,
-    });
-  });
-
-  it("reports no local admin auth requirement when no admin token is configured", async () => {
+  it("reports the default local Clerk session", async () => {
     const app = createTestServer([apiKeyProvider]).createApp();
 
     const response = await app.request("/api/auth/session");
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
-      adminAuthConfigured: false,
-      authenticated: true,
+      workspaceId: "default",
+      userId: "local-dev",
+      role: "admin",
+      sessionClaims: {},
     });
   });
 
@@ -927,7 +822,7 @@ describe("ConnectServer", () => {
     const adminTokenRuntimeCall = await app.request("/v1/actions", {
       headers: { authorization: "Bearer local-token" },
     });
-    expect(adminTokenRuntimeCall.status).toBe(401);
+    expect(adminTokenRuntimeCall.status).toBe(200);
 
     const runtimeTokenCall = await app.request("/v1/actions", {
       headers: { authorization: `Bearer ${createdBody.token}` },
@@ -935,7 +830,7 @@ describe("ConnectServer", () => {
     expect(runtimeTokenCall.status).toBe(200);
   });
 
-  it("manages runtime tokens and gates runtime API calls after one is created", async () => {
+  it("manages runtime tokens in local development", async () => {
     const runtimeTokens = new RuntimeTokenService(new MemoryRuntimeTokenStore());
     const app = createTestServer([apiKeyProvider], { runtimeTokens }).createApp();
 
@@ -964,8 +859,7 @@ describe("ConnectServer", () => {
       },
     ]);
 
-    const unauthorized = await app.request("/v1/actions");
-    expect(unauthorized.status).toBe(401);
+    expect((await app.request("/v1/actions")).status).toBe(200);
 
     const authorized = await app.request("/v1/actions", {
       headers: { authorization: `Bearer ${createdBody.token}` },
@@ -1680,11 +1574,10 @@ describe("ConnectServer", () => {
     }
   });
 
-  it("keeps transit file downloads public when admin auth is enabled", async () => {
+  it("keeps transit file downloads public in local development", async () => {
     const rootDir = await createTempDir();
     try {
       const app = createTestServer([apiKeyProvider], {
-        auth: { adminToken: "local-token" },
         transitFiles: createTestTransitFiles(rootDir),
       }).createApp();
       const form = new FormData();
@@ -1694,7 +1587,7 @@ describe("ConnectServer", () => {
         method: "POST",
         body: form,
       });
-      expect(unauthorizedUpload.status).toBe(401);
+      expect(unauthorizedUpload.status).toBe(200);
 
       const authorizedForm = new FormData();
       authorizedForm.set("file", new File(["download me"], "note.txt"));
@@ -1798,7 +1691,7 @@ describe("ConnectServer", () => {
 });
 
 interface CreateTestServerOptions {
-  auth?: { adminToken?: string; runtimeToken?: string };
+  auth?: ClerkAuthOptions & { adminToken?: string; runtimeToken?: string };
   actionPolicy?: ActionPolicyService;
   actionSearch?: ActionSearchIndexProvider;
   providerLoader?: IProviderLoader;
@@ -1860,11 +1753,7 @@ function createTestServer(providers: ProviderDefinition[], options: CreateTestSe
     transitFiles,
     runtimeTokens,
     registerStaticRoutes: staticRoot ? (app) => registerStaticRoutes(app, staticRoot) : undefined,
-    auth: {
-      ...options.auth,
-      hasRuntimeTokens: async () => (await runtimeTokens.listTokens()).length > 0,
-      verifyRuntimeToken: (token) => runtimeTokens.verifyToken(token),
-    },
+    auth: options.auth,
     actionPolicy: options.actionPolicy,
     actionSearch: options.actionSearch,
     logger: options.logger,
@@ -2088,11 +1977,15 @@ class MemoryRuntimeTokenStore implements IRuntimeTokenStore {
     );
   }
 
+  async findByHash(tokenHash: string): Promise<RuntimeTokenRecord | undefined> {
+    return [...this.tokens.values()].find((token) => token.tokenHash === tokenHash);
+  }
+
   async revoke(id: string): Promise<boolean> {
     return this.tokens.delete(id);
   }
 
-  async markUsed(id: string, usedAt: string): Promise<void> {
+  async markUsed(id: string, _workspaceId: string, usedAt: string): Promise<void> {
     const token = this.tokens.get(id);
     if (token) {
       this.tokens.set(id, { ...token, lastUsedAt: usedAt });
@@ -2128,6 +2021,8 @@ class MemoryRunLogStore implements IRunLogStore {
 function createRunLog(id: string, startedAt: string): RunLog {
   return {
     id,
+    workspaceId: "default",
+    userId: "local-dev",
     service: "example",
     actionId: "example.echo",
     caller: "web",

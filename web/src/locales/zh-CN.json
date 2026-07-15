@@ -42,7 +42,9 @@
     "actions": "操作",
     "runs": "运行记录",
     "access": "API Key",
-    "docs": "文档"
+    "docs": "文档",
+    "members": "成员",
+    "settings": "工作区设置"
   },
   "shell": {
     "invalidUnlockToken": "请输入有效的管理员 token 来解锁控制台。",
@@ -81,6 +83,14 @@
       "resources": {
         "title": "资源",
         "subtitle": "生成的 API 参考和工具元数据。"
+      },
+      "members": {
+        "title": "成员",
+        "subtitle": "管理工作区访问权限。"
+      },
+      "settings": {
+        "title": "工作区设置",
+        "subtitle": "管理当前工作区。"
       }
     }
   },

@@ -1,10 +1,12 @@
 import type { CatalogStore } from "../catalog-store.ts";
 import type { ActionPolicyService } from "../core/action-policy.ts";
 import type { IProviderLoader } from "../providers/provider-loader.ts";
+import type { WorkspaceServerServices } from "./connect-server.ts";
 import type { ITransitFileService } from "./files/transit-file-store.ts";
 import type { Logger } from "./logger.ts";
 import type { ISecretCodec } from "./secrets/secret-codec-core.ts";
 import type { RuntimeDatabase } from "./storage/runtime-database.ts";
+import type { WorkspaceContext } from "./storage/runtime-token-service.ts";
 import type { Hono } from "hono";
 
 import { ConnectionService } from "../connection-service.ts";
@@ -22,8 +24,9 @@ export interface ConnectAppOptions {
   transitFiles: ITransitFileService;
   publicOrigin: string;
   secretCodec: ISecretCodec;
-  adminToken?: string;
-  runtimeToken?: string;
+  clerkSecretKey?: string;
+  clerkPublishableKey?: string;
+  clerkOptional?: boolean;
   actionPolicy?: ActionPolicyService;
   registerStaticRoutes?: (app: Hono) => void;
   logger?: Logger;
@@ -38,54 +41,80 @@ export interface ConnectApp {
 export async function createConnectApp(options: ConnectAppOptions): Promise<ConnectApp> {
   const runtimeTokens = new RuntimeTokenService(options.runtimeDatabase.runtimeTokenStore);
   const hasStoredRuntimeTokens = async (): Promise<boolean> => (await runtimeTokens.listTokens()).length > 0;
-  const oauthClientConfigs = new OAuthClientConfigService({
-    catalog: options.catalog,
-    origin: options.publicOrigin,
-    store: options.runtimeDatabase.oauthClientConfigStore,
-  });
-  const connections = new ConnectionService({
-    catalog: options.catalog,
-    oauthCredentials: new OAuthCredentialRefreshService(oauthClientConfigs),
-    providerLoader: options.providerLoader,
-    store: options.runtimeDatabase.connectionStore,
-    logger: options.logger,
-  });
-  const actions = new ActionRunner({
-    catalog: options.catalog,
-    providerLoader: options.providerLoader,
-    connections,
-    runs: options.runtimeDatabase.runLogStore,
-    transitFiles: options.transitFiles,
-    actionPolicy: options.actionPolicy,
-    logger: options.logger,
-  });
-
-  return {
-    app: new ConnectServer({
+  const createWorkspaceServices = (workspace: WorkspaceContext): WorkspaceServerServices => {
+    const stores = options.runtimeDatabase.createScopedStores(workspace.workspaceId);
+    const oauthClientConfigs = new OAuthClientConfigService({
       catalog: options.catalog,
+      origin: options.publicOrigin,
+      store: stores.oauthClientConfigStore,
+    });
+    const connections = new ConnectionService({
+      catalog: options.catalog,
+      oauthCredentials: new OAuthCredentialRefreshService(oauthClientConfigs),
       providerLoader: options.providerLoader,
+      store: stores.connectionStore,
+      createWorkspaceService: (workspaceId) =>
+        createWorkspaceServices({
+          ...workspace,
+          workspaceId,
+        }).connections,
+      logger: options.logger,
+    });
+    return {
       connections,
       oauthClientConfigs,
       oauthFlow: new OAuthFlowService({
         clientConfigs: oauthClientConfigs,
         connections,
-        states: options.runtimeDatabase.oauthStateStore,
+        states: stores.oauthStateStore,
+        statePrefix: workspace.workspaceId,
       }),
-      actions,
+      actions: new ActionRunner({
+        catalog: options.catalog,
+        providerLoader: options.providerLoader,
+        connections,
+        runs: stores.runLogStore,
+        transitFiles: options.transitFiles,
+        actionPolicy: options.actionPolicy,
+        logger: options.logger,
+        workspace,
+        createWorkspaceRunner: (workspaceId) =>
+          createWorkspaceServices({
+            ...workspace,
+            workspaceId,
+          }).actions,
+      }),
+      runtimeTokens: new RuntimeTokenService(stores.runtimeTokenStore),
+    };
+  };
+  const defaultServices = createWorkspaceServices({ workspaceId: "default", userId: "local-dev", role: "admin" });
+
+  return {
+    app: new ConnectServer({
+      catalog: options.catalog,
+      providerLoader: options.providerLoader,
+      connections: defaultServices.connections,
+      oauthClientConfigs: defaultServices.oauthClientConfigs,
+      oauthFlow: defaultServices.oauthFlow,
+      actions: defaultServices.actions,
       transitFiles: options.transitFiles,
-      runtimeTokens,
+      runtimeTokens: defaultServices.runtimeTokens,
       registerStaticRoutes: options.registerStaticRoutes,
       auth: {
-        adminToken: options.adminToken,
-        runtimeToken: options.runtimeToken,
-        hasRuntimeTokens: hasStoredRuntimeTokens,
-        verifyRuntimeToken: (token) => runtimeTokens.verifyToken(token),
+        secretKey: options.clerkSecretKey,
+        publishableKey: options.clerkPublishableKey,
+        optional: options.clerkOptional,
+        workspaceStore: options.runtimeDatabase.workspaceStore,
+        membershipStore: options.runtimeDatabase.membershipStore,
       },
+      runtimeTokenAuth: {
+        runtimeTokens,
+        memberships: options.runtimeDatabase.membershipStore,
+      },
+      createWorkspaceServices,
       actionPolicy: options.actionPolicy,
       logger: options.logger,
     }).createApp(),
-    runtimeAuthConfigured:
-      Boolean(options.runtimeToken) ||
-      (options.computeRuntimeAuthConfigured === false ? false : await hasStoredRuntimeTokens()),
+    runtimeAuthConfigured: options.computeRuntimeAuthConfigured === false ? false : await hasStoredRuntimeTokens(),
   };
 }

@@ -1,7 +1,19 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
+export type WorkspaceRole = "member" | "manager" | "admin";
+
+/** Request context after token authentication and current-role resolution. */
+export interface WorkspaceContext {
+  workspaceId: string;
+  userId: string;
+  role: WorkspaceRole;
+  tokenId?: string;
+}
+
 export interface RuntimeTokenRecord {
   id: string;
+  workspaceId: string;
+  userId: string;
   name: string;
   tokenHash: string;
   createdAt: string;
@@ -23,8 +35,9 @@ export interface RuntimeTokenCreation {
 export interface IRuntimeTokenStore {
   add(record: RuntimeTokenRecord): Promise<void>;
   list(): Promise<RuntimeTokenRecord[]>;
+  findByHash(tokenHash: string): Promise<RuntimeTokenRecord | undefined>;
   revoke(id: string): Promise<boolean>;
-  markUsed(id: string, usedAt: string): Promise<void>;
+  markUsed(id: string, workspaceId: string, usedAt: string): Promise<void>;
 }
 
 const tokenPrefix = "oct_";
@@ -36,11 +49,13 @@ export class RuntimeTokenService {
     this.store = store;
   }
 
-  async createToken(name: string): Promise<RuntimeTokenCreation> {
+  async createToken(workspaceId: string, userId: string, name: string): Promise<RuntimeTokenCreation> {
     const token = `${tokenPrefix}${randomBytes(32).toString("base64url")}`;
     const now = new Date().toISOString();
     const record: RuntimeTokenRecord = {
       id: randomUUID(),
+      workspaceId,
+      userId,
       name: name.trim(),
       tokenHash: hashRuntimeToken(token),
       createdAt: now,
@@ -57,16 +72,26 @@ export class RuntimeTokenService {
     return this.store.revoke(id);
   }
 
-  async verifyToken(token: string): Promise<boolean> {
+  async verifyToken(token: string): Promise<RuntimeTokenContext | undefined> {
     const tokenHash = hashRuntimeToken(token);
-    const matched = (await this.store.list()).find((record) => equalHashes(record.tokenHash, tokenHash));
+    const matched = await this.store.findByHash(tokenHash);
     if (!matched) {
-      return false;
+      return undefined;
     }
 
-    await this.store.markUsed(matched.id, new Date().toISOString());
-    return true;
+    if (!equalHashes(matched.tokenHash, tokenHash)) {
+      return undefined;
+    }
+
+    await this.store.markUsed(matched.id, matched.workspaceId, new Date().toISOString());
+    return { workspaceId: matched.workspaceId, userId: matched.userId, tokenId: matched.id };
   }
+}
+
+export interface RuntimeTokenContext {
+  workspaceId: string;
+  userId: string;
+  tokenId: string;
 }
 
 export function hashRuntimeToken(token: string): string {

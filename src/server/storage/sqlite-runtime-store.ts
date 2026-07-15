@@ -3,9 +3,16 @@ import type { ResolvedCredential } from "../../core/types.ts";
 import type { IOAuthClientConfigStore, OAuthClientConfig } from "../../oauth/oauth-client-config-service.ts";
 import type { IOAuthStateStore, OAuthAuthorizationState } from "../../oauth/oauth-flow-service.ts";
 import type { ISecretCodec } from "../secrets/secret-codec-core.ts";
-import type { RuntimeDatabase } from "./runtime-database.ts";
+import type {
+  IWorkspaceMembershipStore,
+  IWorkspaceStore,
+  RuntimeDatabase,
+  Workspace,
+  WorkspaceMember,
+  WorkspaceScopedStores,
+} from "./runtime-database.ts";
 import type { IRunLogStore, RunLog, RunLogListInput, RunLogPage } from "./runtime-store.ts";
-import type { IRuntimeTokenStore, RuntimeTokenRecord } from "./runtime-token-service.ts";
+import type { IRuntimeTokenStore, RuntimeTokenRecord, WorkspaceRole } from "./runtime-token-service.ts";
 
 import { readFileSync, readdirSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
@@ -13,7 +20,6 @@ import { PlainTextSecretCodec } from "../secrets/secret-codec-core.ts";
 import { decodeRunLogCursor, encodeRunLogCursor } from "./runtime-store.ts";
 
 type RuntimeRow = Record<string, unknown>;
-type SecretJsonTable = "oauth_client_configs";
 const migrationDirectory = new URL("../../../migrations/", import.meta.url);
 
 export interface SqliteRuntimeDatabaseOptions {
@@ -21,61 +27,44 @@ export interface SqliteRuntimeDatabaseOptions {
   secretCodec?: ISecretCodec;
 }
 
-interface ConnectionJsonInput {
-  database: DatabaseSync;
-  secretCodec: ISecretCodec;
-  service: string;
-  connectionName: string;
-}
-
-interface SetConnectionJsonInput extends ConnectionJsonInput {
-  value: unknown;
-}
-
-interface SecretJsonInput {
-  database: DatabaseSync;
-  secretCodec: ISecretCodec;
-  table: SecretJsonTable;
-  service: string;
-}
-
-interface SetServiceJsonInput extends SecretJsonInput {
-  value: unknown;
-}
-
-interface RotatedConnectionSecret {
-  service: string;
-  connectionName: string;
-  value: string;
-}
-
-interface RotatedServiceSecret {
-  service: string;
-  value: string;
-}
-
-/**
- * Shared SQLite connection for local runtime state.
- */
+/** Shared SQLite runtime state with workspace-scoped store factories. */
 export class SqliteRuntimeDatabase implements RuntimeDatabase {
   readonly connectionStore: SqliteConnectionStore;
   readonly oauthClientConfigStore: SqliteOAuthClientConfigStore;
   readonly oauthStateStore: SqliteOAuthStateStore;
   readonly runtimeTokenStore: SqliteRuntimeTokenStore;
   readonly runLogStore: SqliteRunLogStore;
+  readonly workspaceStore: SqliteWorkspaceStore;
+  readonly membershipStore: SqliteWorkspaceMembershipStore;
 
   private readonly database: DatabaseSync;
   private readonly secretCodec: ISecretCodec;
+  private readonly runLimit: number;
 
   constructor(filename: string, options: SqliteRuntimeDatabaseOptions = {}) {
     this.database = new DatabaseSync(filename);
     this.secretCodec = options.secretCodec ?? new PlainTextSecretCodec();
+    this.runLimit = options.runLimit ?? 100;
     this.initialize();
-    this.connectionStore = new SqliteConnectionStore(this.database, this.secretCodec);
-    this.oauthClientConfigStore = new SqliteOAuthClientConfigStore(this.database, this.secretCodec);
-    this.oauthStateStore = new SqliteOAuthStateStore(this.database);
+    const defaults = this.createScopedStores("default");
+    this.connectionStore = defaults.connectionStore as SqliteConnectionStore;
+    this.oauthClientConfigStore = defaults.oauthClientConfigStore as SqliteOAuthClientConfigStore;
+    this.oauthStateStore = defaults.oauthStateStore as SqliteOAuthStateStore;
+    this.runLogStore = defaults.runLogStore as SqliteRunLogStore;
+    // Token verification starts from a token hash, before its workspace is known.
     this.runtimeTokenStore = new SqliteRuntimeTokenStore(this.database);
-    this.runLogStore = new SqliteRunLogStore(this.database, options.runLimit ?? 100);
+    this.workspaceStore = new SqliteWorkspaceStore(this.database);
+    this.membershipStore = new SqliteWorkspaceMembershipStore(this.database);
+  }
+
+  createScopedStores(workspaceId: string): WorkspaceScopedStores {
+    return {
+      connectionStore: new SqliteConnectionStore(this.database, this.secretCodec, workspaceId),
+      oauthClientConfigStore: new SqliteOAuthClientConfigStore(this.database, this.secretCodec, workspaceId),
+      oauthStateStore: new SqliteOAuthStateStore(this.database, workspaceId),
+      runtimeTokenStore: new SqliteRuntimeTokenStore(this.database, workspaceId),
+      runLogStore: new SqliteRunLogStore(this.database, workspaceId, this.runLimit),
+    };
   }
 
   close(): void {
@@ -83,17 +72,44 @@ export class SqliteRuntimeDatabase implements RuntimeDatabase {
   }
 
   async rotateSecretCodec(nextSecretCodec: ISecretCodec): Promise<void> {
-    const connections = await readRotatedConnectionSecrets(this.database, this.secretCodec, nextSecretCodec);
-    const oauthConfigs = await readRotatedServiceSecrets(
-      this.database,
-      this.secretCodec,
-      nextSecretCodec,
-      "oauth_client_configs",
+    const connectionRows = this.database
+      .prepare("select workspace_id, service, connection_name, value from connections")
+      .all();
+    const oauthRows = this.database.prepare("select workspace_id, service, value from oauth_client_configs").all();
+    const connections = await Promise.all(
+      connectionRows.map(async (row) => ({
+        workspaceId: readString(row, "workspace_id"),
+        service: readString(row, "service"),
+        connectionName: readString(row, "connection_name"),
+        value: await nextSecretCodec.encode(await this.secretCodec.decode(readString(row, "value"))),
+      })),
     );
-    runInTransaction(this.database, () => {
-      writeRotatedConnectionSecrets(this.database, connections);
-      writeRotatedServiceSecrets(this.database, "oauth_client_configs", oauthConfigs);
-    });
+    const configs = await Promise.all(
+      oauthRows.map(async (row) => ({
+        workspaceId: readString(row, "workspace_id"),
+        service: readString(row, "service"),
+        value: await nextSecretCodec.encode(await this.secretCodec.decode(readString(row, "value"))),
+      })),
+    );
+    this.database.exec("begin immediate");
+    try {
+      const updateConnection = this.database.prepare(
+        "update connections set value = ? where workspace_id = ? and service = ? and connection_name = ?",
+      );
+      for (const connection of connections) {
+        updateConnection.run(connection.value, connection.workspaceId, connection.service, connection.connectionName);
+      }
+      const updateConfig = this.database.prepare(
+        "update oauth_client_configs set value = ? where workspace_id = ? and service = ?",
+      );
+      for (const config of configs) {
+        updateConfig.run(config.value, config.workspaceId, config.service);
+      }
+      this.database.exec("commit");
+    } catch (error) {
+      this.database.exec("rollback");
+      throw error;
+    }
   }
 
   resetRuntimeData(): void {
@@ -115,41 +131,52 @@ export class SqliteRuntimeDatabase implements RuntimeDatabase {
 export class SqliteConnectionStore implements IConnectionStore {
   private readonly database: DatabaseSync;
   private readonly secretCodec: ISecretCodec;
-
-  constructor(database: DatabaseSync, secretCodec: ISecretCodec) {
+  private readonly workspaceId: string;
+  constructor(database: DatabaseSync, secretCodec: ISecretCodec, workspaceId: string) {
     this.database = database;
     this.secretCodec = secretCodec;
+    this.workspaceId = workspaceId;
   }
 
   async get(service: string, connectionName: string): Promise<ResolvedCredential | undefined> {
-    return await getConnectionJson<ResolvedCredential>({
-      database: this.database,
-      secretCodec: this.secretCodec,
-      service,
-      connectionName,
-    });
+    const row = this.database
+      .prepare("select value from connections where workspace_id = ? and service = ? and connection_name = ?")
+      .get(this.workspaceId, service, connectionName);
+    return row ? parseJson<ResolvedCredential>(await this.secretCodec.decode(readString(row, "value"))) : undefined;
   }
 
   async set(service: string, connectionName: string, credential: ResolvedCredential): Promise<void> {
-    await setConnectionJson({
-      database: this.database,
-      secretCodec: this.secretCodec,
-      service,
-      connectionName,
-      value: credential,
-    });
+    this.database
+      .prepare(
+        `
+          insert into connections (workspace_id, service, connection_name, label, value, created_by, updated_at)
+          values (?, ?, ?, '', ?, '', ?)
+          on conflict(workspace_id, service, connection_name) do update set
+            value = excluded.value,
+            updated_at = excluded.updated_at
+        `,
+      )
+      .run(
+        this.workspaceId,
+        service,
+        connectionName,
+        await this.secretCodec.encode(JSON.stringify(credential)),
+        new Date().toISOString(),
+      );
   }
 
   async delete(service: string, connectionName: string): Promise<void> {
     this.database
-      .prepare("delete from connections where service = ? and connection_name = ?")
-      .run(service, connectionName);
+      .prepare("delete from connections where workspace_id = ? and service = ? and connection_name = ?")
+      .run(this.workspaceId, service, connectionName);
   }
 
   async list(): Promise<Array<{ service: string; connectionName: string; credential: ResolvedCredential }>> {
     const rows = this.database
-      .prepare("select service, connection_name, value from connections order by service, connection_name")
-      .all();
+      .prepare(
+        "select service, connection_name, value from connections where workspace_id = ? order by service, connection_name",
+      )
+      .all(this.workspaceId);
     return await Promise.all(
       rows.map(async (row) => ({
         service: readString(row, "service"),
@@ -163,189 +190,228 @@ export class SqliteConnectionStore implements IConnectionStore {
 export class SqliteOAuthClientConfigStore implements IOAuthClientConfigStore {
   private readonly database: DatabaseSync;
   private readonly secretCodec: ISecretCodec;
-
-  constructor(database: DatabaseSync, secretCodec: ISecretCodec) {
+  private readonly workspaceId: string;
+  constructor(database: DatabaseSync, secretCodec: ISecretCodec, workspaceId: string) {
     this.database = database;
     this.secretCodec = secretCodec;
+    this.workspaceId = workspaceId;
   }
 
   async get(service: string): Promise<OAuthClientConfig | undefined> {
-    return await getSecretJson<OAuthClientConfig>({
-      database: this.database,
-      secretCodec: this.secretCodec,
-      table: "oauth_client_configs",
-      service,
-    });
+    const row = this.database
+      .prepare("select value from oauth_client_configs where workspace_id = ? and service = ?")
+      .get(this.workspaceId, service);
+    return row ? parseJson<OAuthClientConfig>(await this.secretCodec.decode(readString(row, "value"))) : undefined;
   }
 
   async set(config: OAuthClientConfig): Promise<void> {
-    await setServiceJson({
-      database: this.database,
-      secretCodec: this.secretCodec,
-      table: "oauth_client_configs",
-      service: config.service,
-      value: config,
-    });
+    this.database
+      .prepare(
+        `
+          insert into oauth_client_configs (workspace_id, service, value, created_by, updated_at)
+          values (?, ?, ?, '', ?)
+          on conflict(workspace_id, service) do update set value = excluded.value, updated_at = excluded.updated_at
+        `,
+      )
+      .run(
+        this.workspaceId,
+        config.service,
+        await this.secretCodec.encode(JSON.stringify(config)),
+        new Date().toISOString(),
+      );
   }
 
   async delete(service: string): Promise<void> {
-    this.database.prepare("delete from oauth_client_configs where service = ?").run(service);
+    this.database
+      .prepare("delete from oauth_client_configs where workspace_id = ? and service = ?")
+      .run(this.workspaceId, service);
   }
 
   async list(): Promise<OAuthClientConfig[]> {
-    const rows = this.database.prepare("select value from oauth_client_configs order by service").all();
+    const rows = this.database
+      .prepare("select value from oauth_client_configs where workspace_id = ? order by service")
+      .all(this.workspaceId);
     return await Promise.all(
-      rows.map(async (row) => parseJson<OAuthClientConfig>(await this.secretCodec.decode(readString(row, "value")))),
+      rows.map(async (row) => parseJson(await this.secretCodec.decode(readString(row, "value")))),
     );
   }
 }
 
 export class SqliteOAuthStateStore implements IOAuthStateStore {
   private readonly database: DatabaseSync;
-
-  constructor(database: DatabaseSync) {
+  private readonly workspaceId: string;
+  constructor(database: DatabaseSync, workspaceId: string) {
     this.database = database;
+    this.workspaceId = workspaceId;
   }
 
   async set(state: OAuthAuthorizationState): Promise<void> {
     this.database
       .prepare(
         `
-        insert into oauth_states (state, value, created_at)
-        values (?, ?, ?)
-        on conflict(state) do update set value = excluded.value, created_at = excluded.created_at
-      `,
+          insert into oauth_states (workspace_id, state, value, created_at)
+          values (?, ?, ?, ?)
+          on conflict(workspace_id, state) do update set value = excluded.value, created_at = excluded.created_at
+        `,
       )
-      .run(state.state, JSON.stringify(state), state.createdAt);
+      .run(this.workspaceId, state.state, JSON.stringify(state), state.createdAt);
   }
 
   async take(state: string): Promise<OAuthAuthorizationState | undefined> {
-    const pending = getJson<OAuthAuthorizationState>(this.database, "oauth_states", "state", state);
-    this.database.prepare("delete from oauth_states where state = ?").run(state);
-    return pending;
+    const row = this.database
+      .prepare("select value from oauth_states where workspace_id = ? and state = ?")
+      .get(this.workspaceId, state);
+    this.database.prepare("delete from oauth_states where workspace_id = ? and state = ?").run(this.workspaceId, state);
+    return row ? parseJson<OAuthAuthorizationState>(readString(row, "value")) : undefined;
   }
 }
 
 export class SqliteRuntimeTokenStore implements IRuntimeTokenStore {
   private readonly database: DatabaseSync;
-
-  constructor(database: DatabaseSync) {
+  private readonly workspaceId: string | undefined;
+  constructor(database: DatabaseSync, workspaceId?: string) {
     this.database = database;
+    this.workspaceId = workspaceId;
   }
 
   async add(record: RuntimeTokenRecord): Promise<void> {
+    this.assertWorkspace(record.workspaceId);
     this.database
       .prepare(
         `
-        insert into runtime_tokens (id, name, token_hash, created_at, last_used_at)
-        values (?, ?, ?, ?, ?)
-      `,
+          insert into runtime_tokens (id, workspace_id, user_id, name, token_hash, created_at, last_used_at)
+          values (?, ?, ?, ?, ?, ?, ?)
+        `,
       )
-      .run(record.id, record.name, record.tokenHash, record.createdAt, record.lastUsedAt ?? null);
+      .run(
+        record.id,
+        record.workspaceId,
+        record.userId,
+        record.name,
+        record.tokenHash,
+        record.createdAt,
+        record.lastUsedAt ?? null,
+      );
   }
 
   async list(): Promise<RuntimeTokenRecord[]> {
-    return this.database
+    const rows = this.workspaceId
+      ? this.database
+          .prepare(
+            `
+              select id, workspace_id, user_id, name, token_hash, created_at, last_used_at
+              from runtime_tokens where workspace_id = ? and revoked_at is null order by created_at desc, id desc
+            `,
+          )
+          .all(this.workspaceId)
+      : this.database
+          .prepare(
+            `
+              select id, workspace_id, user_id, name, token_hash, created_at, last_used_at
+              from runtime_tokens where revoked_at is null order by created_at desc, id desc
+            `,
+          )
+          .all();
+    return rows.map(readRuntimeTokenRow);
+  }
+
+  async findByHash(tokenHash: string): Promise<RuntimeTokenRecord | undefined> {
+    const row = this.database
       .prepare(
-        `
-        select id, name, token_hash, created_at, last_used_at
-        from runtime_tokens
-        where revoked_at is null
-        order by created_at desc, id desc
-      `,
+        "select id, workspace_id, user_id, name, token_hash, created_at, last_used_at from runtime_tokens where token_hash = ? and revoked_at is null",
       )
-      .all()
-      .map((row) => ({
-        id: readString(row, "id"),
-        name: readString(row, "name"),
-        tokenHash: readString(row, "token_hash"),
-        createdAt: readString(row, "created_at"),
-        lastUsedAt: readOptionalString(row, "last_used_at"),
-      }));
+      .get(tokenHash);
+    const record = row ? readRuntimeTokenRow(row) : undefined;
+    return record && (!this.workspaceId || record.workspaceId === this.workspaceId) ? record : undefined;
   }
 
   async revoke(id: string): Promise<boolean> {
-    const result = this.database.prepare("delete from runtime_tokens where id = ?").run(id);
+    const result = this.workspaceId
+      ? this.database.prepare("delete from runtime_tokens where workspace_id = ? and id = ?").run(this.workspaceId, id)
+      : this.database.prepare("delete from runtime_tokens where id = ?").run(id);
     return result.changes > 0;
   }
 
-  async markUsed(id: string, usedAt: string): Promise<void> {
+  async markUsed(id: string, workspaceId: string, usedAt: string): Promise<void> {
+    this.assertWorkspace(workspaceId);
     this.database
-      .prepare("update runtime_tokens set last_used_at = ? where id = ? and revoked_at is null")
-      .run(usedAt, id);
+      .prepare("update runtime_tokens set last_used_at = ? where workspace_id = ? and id = ? and revoked_at is null")
+      .run(usedAt, workspaceId, id);
+  }
+
+  private assertWorkspace(workspaceId: string): void {
+    if (this.workspaceId && this.workspaceId !== workspaceId) {
+      throw new Error("Runtime token workspace does not match its scoped store.");
+    }
   }
 }
 
 export class SqliteRunLogStore implements IRunLogStore {
   private readonly database: DatabaseSync;
+  private readonly workspaceId: string;
   private readonly limit: number;
-
-  constructor(database: DatabaseSync, limit: number) {
+  constructor(database: DatabaseSync, workspaceId: string, limit: number) {
     this.database = database;
+    this.workspaceId = workspaceId;
     this.limit = limit;
   }
 
   async add(run: RunLog): Promise<void> {
-    insertRun(this.database, run);
-
+    if (run.workspaceId !== this.workspaceId) {
+      throw new Error("Run workspace does not match its scoped store.");
+    }
     this.database
       .prepare(
         `
-        delete from runs
-        where id in (
-          select id from runs
-          order by started_at desc, id desc
-          limit -1 offset ?
-        )
-      `,
+          insert into runs (id, workspace_id, user_id, service, action_id, started_at, completed_at, ok, value)
+          values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          on conflict(workspace_id, id) do update set
+            user_id = excluded.user_id, service = excluded.service, action_id = excluded.action_id,
+            started_at = excluded.started_at, completed_at = excluded.completed_at, ok = excluded.ok, value = excluded.value
+        `,
       )
-      .run(this.limit);
+      .run(
+        run.id,
+        this.workspaceId,
+        run.userId,
+        run.service,
+        run.actionId,
+        run.startedAt,
+        run.completedAt,
+        run.ok ? 1 : 0,
+        JSON.stringify(run),
+      );
+    this.database
+      .prepare(
+        `
+          delete from runs where workspace_id = ? and id in (
+            select id from runs where workspace_id = ? order by started_at desc, id desc limit -1 offset ?
+          )
+        `,
+      )
+      .run(this.workspaceId, this.workspaceId, this.limit);
   }
 
   async list(input: RunLogListInput = {}): Promise<RunLogPage> {
     const limit = Math.max(1, Math.min(input.limit ?? this.limit, this.limit));
     const cursor = decodeRunLogCursor(input.cursor);
-    const rows =
-      cursor && input.service
-        ? this.database
-            .prepare(
-              `
-              select service, value from runs
-              where (started_at < ? or (started_at = ? and id < ?))
-                and service = ?
-              order by started_at desc, id desc
-              limit ?
-            `,
-            )
-            .all(cursor.startedAt, cursor.startedAt, cursor.id, input.service, limit + 1)
-        : cursor
-          ? this.database
-              .prepare(
-                `
-                select service, value from runs
-                where started_at < ? or (started_at = ? and id < ?)
-                order by started_at desc, id desc
-                limit ?
-              `,
-              )
-              .all(cursor.startedAt, cursor.startedAt, cursor.id, limit + 1)
-          : input.service
-            ? this.database
-                .prepare(
-                  `
-                  select service, value from runs
-                  where service = ?
-                  order by started_at desc, id desc
-                  limit ?
-                `,
-                )
-                .all(input.service, limit + 1)
-            : this.database
-                .prepare("select service, value from runs order by started_at desc, id desc limit ?")
-                .all(limit + 1);
+    const filters = ["workspace_id = ?"];
+    const values: Array<string | number | bigint | null | Uint8Array> = [this.workspaceId];
+    if (input.service) {
+      filters.push("service = ?");
+      values.push(input.service);
+    }
+    if (cursor) {
+      filters.push("(started_at < ? or (started_at = ? and id < ?))");
+      values.push(cursor.startedAt, cursor.startedAt, cursor.id);
+    }
+    const rows = this.database
+      .prepare(
+        `select service, value from runs where ${filters.join(" and ")} order by started_at desc, id desc limit ?`,
+      )
+      .all(...values, limit + 1);
     const runs = rows.map(readRunLogRow);
     const items = runs.slice(0, limit);
-
     return {
       items,
       nextCursor: runs.length > limit && items.length > 0 ? encodeRunLogCursor(items[items.length - 1]) : undefined,
@@ -353,22 +419,105 @@ export class SqliteRunLogStore implements IRunLogStore {
   }
 }
 
-function insertRun(database: DatabaseSync, run: RunLog): void {
-  database
-    .prepare(
-      `
-      insert into runs (id, service, action_id, started_at, completed_at, ok, value)
-      values (?, ?, ?, ?, ?, ?, ?)
-      on conflict(id) do update set
-        service = excluded.service,
-        action_id = excluded.action_id,
-        started_at = excluded.started_at,
-        completed_at = excluded.completed_at,
-        ok = excluded.ok,
-        value = excluded.value
-    `,
-    )
-    .run(run.id, run.service, run.actionId, run.startedAt, run.completedAt, run.ok ? 1 : 0, JSON.stringify(run));
+class SqliteWorkspaceStore implements IWorkspaceStore {
+  private readonly database: DatabaseSync;
+  constructor(database: DatabaseSync) {
+    this.database = database;
+  }
+
+  async getByClerkOrgId(clerkOrgId: string): Promise<Workspace | undefined> {
+    const row = this.database
+      .prepare("select id, clerk_org_id, name, created_at, updated_at from workspaces where clerk_org_id = ?")
+      .get(clerkOrgId);
+    return row ? readWorkspace(row) : undefined;
+  }
+
+  async getById(id: string): Promise<Workspace | undefined> {
+    const row = this.database
+      .prepare("select id, clerk_org_id, name, created_at, updated_at from workspaces where id = ?")
+      .get(id);
+    return row ? readWorkspace(row) : undefined;
+  }
+
+  async create(workspace: Workspace): Promise<void> {
+    this.database
+      .prepare("insert into workspaces (id, clerk_org_id, name, created_at, updated_at) values (?, ?, ?, ?, ?)")
+      .run(workspace.id, workspace.clerkOrgId, workspace.name, workspace.createdAt, workspace.updatedAt);
+  }
+}
+
+class SqliteWorkspaceMembershipStore implements IWorkspaceMembershipStore {
+  private readonly database: DatabaseSync;
+  constructor(database: DatabaseSync) {
+    this.database = database;
+  }
+
+  async getRole(workspaceId: string, userId: string): Promise<WorkspaceRole | undefined> {
+    const row = this.database
+      .prepare("select role from workspace_memberships where workspace_id = ? and user_id = ?")
+      .get(workspaceId, userId);
+    return row ? readWorkspaceRole(row) : undefined;
+  }
+
+  async setRole(workspaceId: string, userId: string, role: WorkspaceRole): Promise<void> {
+    const now = new Date().toISOString();
+    this.database
+      .prepare(
+        `
+          insert into workspace_memberships (workspace_id, user_id, role, created_at, updated_at)
+          values (?, ?, ?, ?, ?)
+          on conflict(workspace_id, user_id) do update set role = excluded.role, updated_at = excluded.updated_at
+        `,
+      )
+      .run(workspaceId, userId, role, now, now);
+  }
+
+  async listMembers(workspaceId: string): Promise<WorkspaceMember[]> {
+    return this.database
+      .prepare(
+        "select workspace_id, user_id, role, created_at, updated_at from workspace_memberships where workspace_id = ?",
+      )
+      .all(workspaceId)
+      .map(readWorkspaceMember);
+  }
+
+  async removeMember(workspaceId: string, userId: string): Promise<void> {
+    this.database
+      .prepare("delete from workspace_memberships where workspace_id = ? and user_id = ?")
+      .run(workspaceId, userId);
+  }
+}
+
+function runSqliteMigrations(database: DatabaseSync): void {
+  database.exec("create table if not exists runtime_migrations (name text primary key, applied_at text not null);");
+  const applied = new Set(
+    database
+      .prepare("select name from runtime_migrations")
+      .all()
+      .map((row) => readString(row, "name")),
+  );
+  for (const file of readdirSync(migrationDirectory)
+    .filter((name) => /^\d+_.*\.sql$/.test(name))
+    .sort()) {
+    if (!applied.has(file)) {
+      database.exec(readFileSync(new URL(file, migrationDirectory), "utf8"));
+      database
+        .prepare("insert into runtime_migrations (name, applied_at) values (?, ?)")
+        .run(file, new Date().toISOString());
+    }
+  }
+}
+
+function readRuntimeTokenRow(row: unknown): RuntimeTokenRecord {
+  return {
+    id: readString(row, "id"),
+    workspaceId: readString(row, "workspace_id"),
+    userId: readString(row, "user_id"),
+    name: readString(row, "name"),
+    tokenHash: readString(row, "token_hash"),
+    createdAt: readString(row, "created_at"),
+    lastUsedAt: readOptionalString(row, "last_used_at"),
+  };
 }
 
 function readRunLogRow(row: unknown): RunLog {
@@ -376,178 +525,50 @@ function readRunLogRow(row: unknown): RunLog {
   return { ...run, service: readString(row, "service") };
 }
 
-function runSqliteMigrations(database: DatabaseSync): void {
-  database.exec(`
-    create table if not exists runtime_migrations (
-      name text primary key,
-      applied_at text not null
-    );
-  `);
-  const applied = new Set(
-    database
-      .prepare("select name from runtime_migrations")
-      .all()
-      .map((row) => readString(row, "name")),
-  );
-  const migrationFiles = readdirSync(migrationDirectory)
-    .filter((name) => /^\d+_.*\.sql$/.test(name))
-    .sort();
+function readWorkspace(row: unknown): Workspace {
+  return {
+    id: readString(row, "id"),
+    clerkOrgId: readString(row, "clerk_org_id"),
+    name: readString(row, "name"),
+    createdAt: readString(row, "created_at"),
+    updatedAt: readString(row, "updated_at"),
+  };
+}
 
-  for (const file of migrationFiles) {
-    if (applied.has(file)) {
-      continue;
-    }
+function readWorkspaceMember(row: unknown): WorkspaceMember {
+  return {
+    workspaceId: readString(row, "workspace_id"),
+    userId: readString(row, "user_id"),
+    role: readWorkspaceRole(row),
+    createdAt: readString(row, "created_at"),
+    updatedAt: readString(row, "updated_at"),
+  };
+}
 
-    database.exec(readFileSync(new URL(file, migrationDirectory), "utf8"));
-    database
-      .prepare("insert into runtime_migrations (name, applied_at) values (?, ?)")
-      .run(file, new Date().toISOString());
+function readWorkspaceRole(row: unknown): WorkspaceRole {
+  const role = readString(row, "role");
+  if (role === "member" || role === "manager" || role === "admin") {
+    return role;
   }
-}
-
-async function readRotatedConnectionSecrets(
-  database: DatabaseSync,
-  currentCodec: ISecretCodec,
-  nextCodec: ISecretCodec,
-): Promise<RotatedConnectionSecret[]> {
-  const rows = database.prepare("select service, connection_name, value from connections").all();
-  return await Promise.all(
-    rows.map(async (row) => ({
-      service: readString(row, "service"),
-      connectionName: readString(row, "connection_name"),
-      value: await nextCodec.encode(await currentCodec.decode(readString(row, "value"))),
-    })),
-  );
-}
-
-function writeRotatedConnectionSecrets(database: DatabaseSync, connections: RotatedConnectionSecret[]): void {
-  const statement = database.prepare("update connections set value = ? where service = ? and connection_name = ?");
-  for (const connection of connections) {
-    statement.run(connection.value, connection.service, connection.connectionName);
-  }
-}
-
-async function readRotatedServiceSecrets(
-  database: DatabaseSync,
-  currentCodec: ISecretCodec,
-  nextCodec: ISecretCodec,
-  table: SecretJsonTable,
-): Promise<RotatedServiceSecret[]> {
-  const rows = database.prepare(`select service, value from ${table}`).all();
-  return await Promise.all(
-    rows.map(async (row) => ({
-      service: readString(row, "service"),
-      value: await nextCodec.encode(await currentCodec.decode(readString(row, "value"))),
-    })),
-  );
-}
-
-function writeRotatedServiceSecrets(
-  database: DatabaseSync,
-  table: SecretJsonTable,
-  services: RotatedServiceSecret[],
-): void {
-  const statement = database.prepare(`update ${table} set value = ? where service = ?`);
-  for (const service of services) {
-    statement.run(service.value, service.service);
-  }
-}
-
-function runInTransaction(database: DatabaseSync, work: () => void): void {
-  database.exec("begin immediate");
-  try {
-    work();
-    database.exec("commit");
-  } catch (error) {
-    database.exec("rollback");
-    throw error;
-  }
-}
-
-function getJson<T>(database: DatabaseSync, table: "oauth_states", keyColumn: "state", key: string): T | undefined {
-  const row = database.prepare(`select value from ${table} where ${keyColumn} = ?`).get(key) as RuntimeRow | undefined;
-  return row ? parseJson<T>(readString(row, "value")) : undefined;
-}
-
-async function getSecretJson<T>(input: SecretJsonInput): Promise<T | undefined> {
-  const stored = getStoredValue(input.database, input.table, "service", input.service);
-  return stored ? parseJson<T>(await input.secretCodec.decode(stored)) : undefined;
-}
-
-async function getConnectionJson<T>(input: ConnectionJsonInput): Promise<T | undefined> {
-  const row = input.database
-    .prepare("select value from connections where service = ? and connection_name = ?")
-    .get(input.service, input.connectionName) as RuntimeRow | undefined;
-  return row ? parseJson<T>(await input.secretCodec.decode(readString(row, "value"))) : undefined;
-}
-
-function getStoredValue(
-  database: DatabaseSync,
-  table: SecretJsonTable,
-  keyColumn: "service",
-  key: string,
-): string | undefined {
-  const row = database.prepare(`select value from ${table} where ${keyColumn} = ?`).get(key) as RuntimeRow | undefined;
-  return row ? readString(row, "value") : undefined;
-}
-
-async function setConnectionJson(input: SetConnectionJsonInput): Promise<void> {
-  input.database
-    .prepare(
-      `
-      insert into connections (service, connection_name, value, updated_at)
-      values (?, ?, ?, ?)
-      on conflict(service, connection_name) do update set
-        value = excluded.value,
-        updated_at = excluded.updated_at
-    `,
-    )
-    .run(
-      input.service,
-      input.connectionName,
-      await input.secretCodec.encode(JSON.stringify(input.value)),
-      new Date().toISOString(),
-    );
-}
-
-async function setServiceJson(input: SetServiceJsonInput): Promise<void> {
-  input.database
-    .prepare(
-      `
-      insert into ${input.table} (service, value, updated_at)
-      values (?, ?, ?)
-      on conflict(service) do update set value = excluded.value, updated_at = excluded.updated_at
-    `,
-    )
-    .run(input.service, await input.secretCodec.encode(JSON.stringify(input.value)), new Date().toISOString());
+  throw new Error(`Invalid workspace role: ${role}`);
 }
 
 function readString(row: unknown, key: string): string {
-  if (typeof row !== "object" || row == null) {
-    throw new Error(`Expected SQLite row for ${key}.`);
-  }
-
-  const value = (row as Record<string, unknown>)[key];
+  const value = (row as RuntimeRow)[key];
   if (typeof value !== "string") {
     throw new Error(`Expected SQLite column ${key} to be a string.`);
   }
-
   return value;
 }
 
 function readOptionalString(row: unknown, key: string): string | undefined {
-  if (typeof row !== "object" || row == null) {
-    throw new Error(`Expected SQLite row for ${key}.`);
-  }
-
-  const value = (row as Record<string, unknown>)[key];
+  const value = (row as RuntimeRow)[key];
   if (value == null) {
     return undefined;
   }
   if (typeof value !== "string") {
     throw new Error(`Expected SQLite column ${key} to be a string.`);
   }
-
   return value;
 }
 

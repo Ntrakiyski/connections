@@ -5,6 +5,7 @@ import type { ActionSearchIndexProvider } from "./core/action-search.ts";
 import type { JsonSchema, ProviderDefinition } from "./core/types.ts";
 import type { IProviderLoader } from "./providers/provider-loader.ts";
 import type { ActionRunner } from "./server/actions/action-runner.ts";
+import type { WorkspaceContext } from "./server/storage/runtime-token-service.ts";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -22,6 +23,7 @@ export interface IMcpServerOptions {
   actions: ActionRunner;
   actionPolicy?: ActionPolicyService;
   actionSearch?: ActionSearchIndexProvider;
+  workspaceContext?: WorkspaceContext;
 }
 
 /**
@@ -63,6 +65,7 @@ const mcpServerInstructions = [
   "Check returned capability, policy, connection, scopes, and permissions before execution.",
   "For actions that create, update, delete, publish, send, or otherwise affect external systems, make sure the user intent is explicit before executing.",
   "Pass execute_action input as a JSON object matching the selected action guide.",
+  "Your actions are scoped to your current workspace. You can only access connections configured in this workspace.",
 ].join("\n");
 
 /**

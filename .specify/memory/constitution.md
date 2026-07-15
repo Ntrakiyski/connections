@@ -14,6 +14,7 @@ Sync Impact Report
   ✅ .specify/templates/commands/ (not present; no command templates to review)
 - Deferred TODOs: original ratification date was not recorded.
 -->
+
 # Connections Constitution
 
 ## Core Principles

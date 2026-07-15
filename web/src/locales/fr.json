@@ -42,7 +42,9 @@
     "actions": "Actions",
     "runs": "Exécutions",
     "access": "API Key",
-    "docs": "Docs"
+    "docs": "Docs",
+    "members": "Membres",
+    "settings": "Paramètres de l’espace"
   },
   "shell": {
     "invalidUnlockToken": "Saisissez un token administrateur valide pour déverrouiller la console.",
@@ -81,6 +83,14 @@
       "resources": {
         "title": "Ressources",
         "subtitle": "Références d’API générées et métadonnées d’outils."
+      },
+      "members": {
+        "title": "Membres",
+        "subtitle": "Gérez les accès à l’espace."
+      },
+      "settings": {
+        "title": "Paramètres de l’espace",
+        "subtitle": "Gérez l’espace actuel."
       }
     }
   },

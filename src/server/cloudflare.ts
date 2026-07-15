@@ -74,8 +74,9 @@ async function createCloudflareApp(env: CloudflareEnv, publicOrigin: string): Pr
     })(),
     publicOrigin,
     secretCodec,
-    adminToken: env.OOMOL_CONNECT_ADMIN_TOKEN,
-    runtimeToken: env.OOMOL_CONNECT_RUNTIME_TOKEN,
+    clerkSecretKey: env.CLERK_SECRET_KEY,
+    clerkPublishableKey: env.CLERK_PUBLISHABLE_KEY,
+    clerkOptional: !env.CLERK_SECRET_KEY,
     actionPolicy: new ActionPolicyService({
       allowedActions: parseActionPolicyList(env.OOMOL_CONNECT_ALLOWED_ACTIONS),
       blockedActions: parseActionPolicyList(env.OOMOL_CONNECT_BLOCKED_ACTIONS),
@@ -123,8 +124,8 @@ function createSecretCodec(encryptionKey: string | undefined): Promise<ISecretCo
 function createCacheKey(env: CloudflareEnv, publicOrigin: string): string {
   return JSON.stringify({
     publicOrigin,
-    adminToken: env.OOMOL_CONNECT_ADMIN_TOKEN ?? "",
-    runtimeToken: env.OOMOL_CONNECT_RUNTIME_TOKEN ?? "",
+    clerkSecretKey: env.CLERK_SECRET_KEY ?? "",
+    clerkPublishableKey: env.CLERK_PUBLISHABLE_KEY ?? "",
     encryptionKey: env.OOMOL_CONNECT_ENCRYPTION_KEY ?? "",
     allowedActions: env.OOMOL_CONNECT_ALLOWED_ACTIONS ?? "",
     blockedActions: env.OOMOL_CONNECT_BLOCKED_ACTIONS ?? "",

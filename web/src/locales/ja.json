@@ -42,7 +42,9 @@
     "actions": "アクション",
     "runs": "実行履歴",
     "access": "API Key",
-    "docs": "ドキュメント"
+    "docs": "ドキュメント",
+    "members": "メンバー",
+    "settings": "ワークスペース設定"
   },
   "shell": {
     "invalidUnlockToken": "有効な管理者 token を入力してコンソールをロック解除してください。",
@@ -81,6 +83,14 @@
       "resources": {
         "title": "リソース",
         "subtitle": "生成された API reference と tool metadata です。"
+      },
+      "members": {
+        "title": "メンバー",
+        "subtitle": "ワークスペースのアクセスを管理します。"
+      },
+      "settings": {
+        "title": "ワークスペース設定",
+        "subtitle": "現在のワークスペースを管理します。"
       }
     }
   },

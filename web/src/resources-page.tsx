@@ -13,7 +13,7 @@ interface DocCardProps {
   href: string;
 }
 
-export function ResourcesPage(): ReactNode {
+export function ResourcesPage(props: { workspaceName?: string }): ReactNode {
   const t = useTranslate();
   const endpointClipboard = useClipboard();
   const configClipboard = useClipboard();
@@ -42,6 +42,7 @@ export function ResourcesPage(): ReactNode {
             <div>
               <h2>{t("resources.mcp.title")}</h2>
               <p>{t("resources.mcp.description")}</p>
+              {props.workspaceName ? <p className="workspace-resource-name">{props.workspaceName}</p> : null}
             </div>
           </div>
 

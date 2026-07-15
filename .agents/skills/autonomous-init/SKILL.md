@@ -42,6 +42,7 @@ Set up durable Harness state without replacing the repository's existing truth.
 
    Replace the timestamp token with the actual current time. If `.specify/`
    exists, set `spec_kit_initialized` to `true`.
+
 8. Report whether `.specify/` exists and the framework handoff. Do not create,
    edit, move, or copy `.specify/`: `autonomous-spec` is blocked until Spec Kit
    initializes it.

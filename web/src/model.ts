@@ -123,6 +123,30 @@ export interface RuntimeActionResponse {
   errorCode?: string;
 }
 
+export type WorkspaceRole = "member" | "manager" | "admin";
+
+export interface WorkspaceSummary {
+  workspaceId: string;
+  name: string;
+  role: WorkspaceRole;
+}
+
+export interface WorkspaceSettings {
+  workspaceId: string;
+  name: string;
+  clerkOrgId: string;
+  createdAt: string;
+  memberCount: number;
+}
+
+export interface WorkspaceMember {
+  userId: string;
+  name?: string;
+  email?: string;
+  role: WorkspaceRole;
+  joinedAt: string;
+}
+
 export interface AppData {
   providers: ProviderDefinition[];
   connections: ConnectionRecord[];
@@ -130,6 +154,10 @@ export interface AppData {
   runtimeTokens: RuntimeTokenSummary[];
   runs: RunLog[];
   runsNextCursor?: string;
+  workspaceId?: string;
+  workspaceName?: string;
+  role?: WorkspaceRole;
+  userId?: string;
 }
 
 export interface OverviewSummary {
@@ -212,6 +240,10 @@ export const emptyData: AppData = {
   oauthConfigs: [],
   runtimeTokens: [],
   runs: [],
+  workspaceId: "",
+  workspaceName: "",
+  role: "member",
+  userId: "",
 };
 
 export function createOverviewSummary(data: AppData): OverviewSummary {

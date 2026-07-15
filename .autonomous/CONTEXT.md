@@ -13,18 +13,18 @@
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
-| Runtime | Node.js (native TS), TypeScript 7 |
-| Server | Hono 4 |
-| Frontend | Vite + React + Radix UI (`web/`) |
-| Database | SQLite (local) / Cloudflare D1 (production) |
-| File storage | Local disk / Cloudflare KV, R2 (transit files) |
-| MCP | `@modelcontextprotocol/sdk` v1.29+ |
-| OAuth | Custom OAuth flow service (no third-party library) |
-| Testing | Vitest 4 |
-| Lint/Format | oxlint, oxfmt (no Prettier) |
-| Deployment | Wrangler (Cloudflare Workers) |
+| Layer        | Technology                                         |
+| ------------ | -------------------------------------------------- |
+| Runtime      | Node.js (native TS), TypeScript 7                  |
+| Server       | Hono 4                                             |
+| Frontend     | Vite + React + Radix UI (`web/`)                   |
+| Database     | SQLite (local) / Cloudflare D1 (production)        |
+| File storage | Local disk / Cloudflare KV, R2 (transit files)     |
+| MCP          | `@modelcontextprotocol/sdk` v1.29+                 |
+| OAuth        | Custom OAuth flow service (no third-party library) |
+| Testing      | Vitest 4                                           |
+| Lint/Format  | oxlint, oxfmt (no Prettier)                        |
+| Deployment   | Wrangler (Cloudflare Workers)                      |
 
 ## Architecture Layers
 
@@ -51,6 +51,7 @@ web/                   Vite React console (separate workspace)
 ## Key Modules
 
 ### Core (`src/core/`)
+
 - `types.ts` — `JsonSchema`, `AuthType`, `ProviderDefinition`, `ActionDefinition`,
   `CredentialDefinition`, `RuntimeLogger`
 - `guarded-fetch.ts` — SSRF-safe fetch: validates URLs, follows redirects
@@ -64,6 +65,7 @@ web/                   Vite React console (separate workspace)
 - `cast.ts` — generic low-level casting/reading helpers
 
 ### Server (`src/server/`)
+
 - `connect-app.ts` — assembles the full application (services, routes, MCP)
 - `connect-server.ts` — Hono route definitions: `/v1/` API, OAuth, MCP, Scalar
   docs, static assets
@@ -74,27 +76,29 @@ web/                   Vite React console (separate workspace)
 - `secrets/` — AES-GCM encryption codec for stored credentials
 
 ### OAuth (`src/oauth/`)
+
 - `oauth-flow-service.ts` — OAuth 2.0 authorization code flow
 - `oauth-client-config-service.ts` — per-provider OAuth client ID/secret management
 - `oauth-credential-refresh-service.ts` — token refresh lifecycle
 
 ### MCP (`src/mcp.ts`)
+
 - Creates an MCP server from the provider catalog
 - Each provider becomes an MCP server; each action becomes a tool
 - Searchable tool index for agent discovery
 
 ## Domain Vocabulary
 
-| Term | Meaning |
-|------|---------|
-| Provider | A third-party service integration (e.g. Gmail, GitHub) |
-| Action | A single operation a provider supports (e.g. `send_email`) |
-| Connection | A labeled, configured provider account (OAuth or API key) |
-| Workspace | An isolated team environment (one Clerk Organization) |
-| Runtime token | An opaque, revocable secret for MCP/API access |
-| Transit file | Temporary file uploaded during action execution |
-| Catalog | Generated JSON describing all providers and their actions |
-| Approval policy | Per-action `Require approval` boolean setting |
+| Term            | Meaning                                                    |
+| --------------- | ---------------------------------------------------------- |
+| Provider        | A third-party service integration (e.g. Gmail, GitHub)     |
+| Action          | A single operation a provider supports (e.g. `send_email`) |
+| Connection      | A labeled, configured provider account (OAuth or API key)  |
+| Workspace       | An isolated team environment (one Clerk Organization)      |
+| Runtime token   | An opaque, revocable secret for MCP/API access             |
+| Transit file    | Temporary file uploaded during action execution            |
+| Catalog         | Generated JSON describing all providers and their actions  |
+| Approval policy | Per-action `Require approval` boolean setting              |
 
 ## Known Constraints
 

@@ -1,0 +1,28 @@
+{
+  "ticket_id": "phase-3",
+  "status": "done",
+  "changed_files": [
+    "src/server/api/auth.ts",
+    "src/server/api/auth.test.ts",
+    "src/server/storage/runtime-database.ts",
+    "src/server/storage/runtime-token-service.ts",
+    "src/server/storage/sqlite-runtime-store.test.ts",
+    "src/server/storage/d1-runtime-store.test.ts",
+    "src/connection-service.ts",
+    "src/connection-service.test.ts",
+    "src/server/actions/action-runner.ts",
+    "src/server/connect-app.ts",
+    "src/server/connect-server.ts",
+    "src/mcp.ts",
+    "src/mcp.test.ts"
+  ],
+  "tests_run": 489,
+  "tests_passed": 487,
+  "decisions": [
+    "Runtime-token roles are resolved from current workspace membership on every request instead of being persisted on tokens.",
+    "The existing pre-scoped store factory remains the runtime implementation; the new workspace store interfaces describe the same workspace-addressed contracts."
+  ],
+  "blockers": ["Two JumpServer tests cannot bind 127.0.0.1 in this sandbox (EPERM)."],
+  "needs_review": true,
+  "evidence_paths": [".autonomous/evidence/phase-3-result.md", ".autonomous/evidence/phase-3-handoff.json"]
+}

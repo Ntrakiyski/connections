@@ -1,6 +1,7 @@
 import { serve } from "@hono/node-server";
 import { access, mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import pg from "pg";
 import { loadCatalog } from "../catalog-store.ts";
 import { ActionPolicyService, parseActionPolicyList } from "../core/action-policy.ts";
 import { parsePrivateNetworkAccessFlag, setPrivateNetworkAccessAllowed } from "../core/request.ts";
@@ -11,6 +12,7 @@ import { createConnectApp } from "./connect-app.ts";
 import { TransitFileService } from "./files/transit-files.ts";
 import { logger } from "./logger.ts";
 import { createSecretCodec } from "./secrets/secret-codec.ts";
+import { PostgresRuntimeDatabase } from "./storage/postgres-runtime-store.ts";
 import { SqliteRuntimeDatabase } from "./storage/sqlite-runtime-store.ts";
 
 const port = Number(process.env.PORT ?? 3000);
@@ -20,8 +22,9 @@ const dataDir = process.env.OOMOL_CONNECT_DATA_DIR ?? join(process.cwd(), "data"
 const transitFileTtlSeconds = readPositiveIntegerEnv("OOMOL_CONNECT_TRANSIT_FILE_TTL_SECONDS", 86_400);
 const transitFileMaxBytes = readPositiveIntegerEnv("OOMOL_CONNECT_TRANSIT_FILE_MAX_BYTES", 100 * 1024 * 1024);
 const secretCodec = createSecretCodec(process.env.OOMOL_CONNECT_ENCRYPTION_KEY);
-const adminToken = process.env.OOMOL_CONNECT_ADMIN_TOKEN;
-const runtimeToken = process.env.OOMOL_CONNECT_RUNTIME_TOKEN;
+const clerkSecretKey = process.env.CLERK_SECRET_KEY;
+const clerkPublishableKey = process.env.CLERK_PUBLISHABLE_KEY;
+const clerkOptional = !clerkSecretKey;
 const actionPolicy = new ActionPolicyService({
   allowedActions: parseActionPolicyList(process.env.OOMOL_CONNECT_ALLOWED_ACTIONS),
   blockedActions: parseActionPolicyList(process.env.OOMOL_CONNECT_BLOCKED_ACTIONS),
@@ -36,9 +39,9 @@ const catalog = await loadCatalog(undefined, {
   executableActionIds: Object.values(executableActionIds).flat(),
 });
 const providerLoader = new ProviderLoader(executorModules);
-const runtimeDatabase = new SqliteRuntimeDatabase(join(dataDir, "connect.sqlite"), {
-  secretCodec,
-});
+const runtimeDatabase = process.env.DATABASE_URL
+  ? new PostgresRuntimeDatabase(new pg.Pool({ connectionString: process.env.DATABASE_URL }), secretCodec)
+  : new SqliteRuntimeDatabase(join(dataDir, "connect.sqlite"), { secretCodec });
 const transitFiles = new TransitFileService({
   rootDir: join(dataDir, "files"),
   publicOrigin,
@@ -53,19 +56,20 @@ const { app, runtimeAuthConfigured } = await createConnectApp({
   transitFiles,
   publicOrigin,
   secretCodec,
-  adminToken,
-  runtimeToken,
+  clerkSecretKey,
+  clerkPublishableKey,
+  clerkOptional,
   actionPolicy,
   registerStaticRoutes: (app) => registerStaticRoutes(app, staticRoot),
   logger,
 });
 
 process.once("SIGINT", () => {
-  runtimeDatabase.close();
+  void runtimeDatabase.close();
   process.exit(0);
 });
 process.once("SIGTERM", () => {
-  runtimeDatabase.close();
+  void runtimeDatabase.close();
   process.exit(0);
 });
 
@@ -78,13 +82,11 @@ serve(
   (info) => {
     logger.info({ url: `http://${hostname}:${info.port}` }, "connect server listening");
     logger.info({ dataDir }, "runtime data directory");
-    if (!adminToken) {
-      logger.warn("local admin authentication is disabled; set OOMOL_CONNECT_ADMIN_TOKEN to require bearer tokens");
+    if (clerkOptional) {
+      logger.warn("Clerk authentication is disabled; running in local dev mode.");
     }
     if (!runtimeAuthConfigured) {
-      logger.warn(
-        "runtime API authentication is disabled; create a runtime token in the web console or set OOMOL_CONNECT_RUNTIME_TOKEN",
-      );
+      logger.warn("runtime API authentication is disabled; create a runtime token in the web console.");
     }
     if (!secretCodec.encrypted) {
       logger.warn(

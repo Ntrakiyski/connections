@@ -7,7 +7,6 @@ metadata:
   source: "templates/commands/converge.md"
 ---
 
-
 ## User Input
 
 ```text
@@ -99,10 +98,10 @@ Run `.specify/scripts/bash/check-prerequisites.sh --json --require-tasks --inclu
 - PLAN = FEATURE_DIR/plan.md
 - TASKS = FEATURE_DIR/tasks.md
 - CONSTITUTION = `.specify/memory/constitution.md` (if present)
-If `spec.md`, `plan.md`, or `tasks.md` is missing, STOP with a clear, actionable message naming the
-prerequisite command to run (`/speckit-specify` for a missing spec, `/speckit-plan` for a missing plan,
-`/speckit-tasks` for missing tasks). Do not produce partial output.
-For single quotes in args like "I'm Groot", use escape syntax: e.g 'I'\''m Groot' (or double-quote if possible: "I'm Groot").
+  If `spec.md`, `plan.md`, or `tasks.md` is missing, STOP with a clear, actionable message naming the
+  prerequisite command to run (`/speckit-specify` for a missing spec, `/speckit-plan` for a missing plan,
+  `/speckit-tasks` for missing tasks). Do not produce partial output.
+  For single quotes in args like "I'm Groot", use escape syntax: e.g 'I'\''m Groot' (or double-quote if possible: "I'm Groot").
 
 ### 2. Load Artifacts (Progressive Disclosure)
 
@@ -183,9 +182,9 @@ Before appending anything, output a compact, severity-graded summary (no file wr
 
 ## Convergence Findings
 
-| ID | Gap Type | Severity | Source | Evidence | Remaining Work |
-|----|----------|----------|--------|----------|----------------|
-| F1 | missing  | HIGH     | FR-008 | Example: no append-only guard detected in path/to/module.py when writing tasks.md | Add append-only enforcement |
+| ID  | Gap Type | Severity | Source | Evidence                                                                          | Remaining Work              |
+| --- | -------- | -------- | ------ | --------------------------------------------------------------------------------- | --------------------------- |
+| F1  | missing  | HIGH     | FR-008 | Example: no append-only guard detected in path/to/module.py when writing tasks.md | Add append-only enforcement |
 
 **Summary metrics:**
 
@@ -218,6 +217,7 @@ Append to the **end** of `tasks.md`, per the append contract:
 
    Constitution-violation tasks MUST be emitted first and described as
    `CRITICAL`.
+
 4. Never reuse or renumber existing IDs. If a prior Convergence phase exists, add a new,
    separately-numbered one below it — do not touch the old one.
 

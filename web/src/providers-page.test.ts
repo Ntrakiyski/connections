@@ -114,6 +114,13 @@ describe("ProvidersPage OAuth client settings", () => {
 
     expect(markup).toContain("Reset OAuth Client");
   });
+
+  it("hides workspace provider configuration from members", () => {
+    const markup = renderProvidersPage({ ...providerData, role: "member" }, "/providers/gmail");
+
+    expect(markup).not.toContain("Reset OAuth Client");
+    expect(markup).not.toContain("Configure OAuth Client");
+  });
 });
 
 describe("ProvidersPage route shell", () => {

@@ -17,6 +17,14 @@ export interface OAuthAuthorizationStartInput {
   connectionName?: string;
 }
 
+export interface OAuthFlowServiceOptions {
+  clientConfigs: OAuthClientConfigService;
+  connections: ConnectionService;
+  states: IOAuthStateStore;
+  stateMaxAgeMs?: number;
+  statePrefix?: string;
+}
+
 export interface OAuthAuthorizationCompleteInput {
   state: string;
   code: string;
@@ -49,17 +57,14 @@ export class OAuthFlowService {
   private readonly connections: ConnectionService;
   private readonly states: IOAuthStateStore;
   private readonly stateMaxAgeMs: number;
+  private readonly statePrefix: string | undefined;
 
-  constructor(input: {
-    clientConfigs: OAuthClientConfigService;
-    connections: ConnectionService;
-    states: IOAuthStateStore;
-    stateMaxAgeMs?: number;
-  }) {
+  constructor(input: OAuthFlowServiceOptions) {
     this.clientConfigs = input.clientConfigs;
     this.connections = input.connections;
     this.states = input.states;
     this.stateMaxAgeMs = input.stateMaxAgeMs ?? 15 * 60 * 1000;
+    this.statePrefix = input.statePrefix;
   }
 
   async startAuthorization(input: OAuthAuthorizationStartInput): Promise<OAuthAuthorizationStart> {
@@ -71,7 +76,7 @@ export class OAuthFlowService {
       throw new OAuthFlowError("oauth_client_config_required", `Configure an OAuth client for ${service} first.`);
     }
 
-    const state = crypto.randomUUID();
+    const state = this.statePrefix ? `${this.statePrefix}.${crypto.randomUUID()}` : crypto.randomUUID();
     const pkceCodeVerifier = auth.pkce ? createPkceCodeVerifier() : undefined;
     await this.states.set({
       service,

@@ -11,6 +11,7 @@
     "format:fix": "oxfmt ."
   },
   "dependencies": {
+    "@clerk/clerk-react": "^5.61.9",
     "@embra/i18n": "^0.0.10",
     "@embra/reactivity": "^0.0.8",
     "@radix-ui/react-dialog": "^1.1.18",

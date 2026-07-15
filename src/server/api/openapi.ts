@@ -94,18 +94,18 @@ export function createOpenApiDocument(
 
   const paths: Record<string, unknown> = {
     "/health": getOperation("System", "Runtime health check.", { ok: jsonSchema.boolean() }),
-    "/api/auth/session": getOperation("System", "Read local admin auth session state.", {
-      $ref: "#/components/schemas/LocalAuthSession",
+    "/api/auth/session": getOperation("System", "Read the active Clerk workspace session.", {
+      $ref: "#/components/schemas/ClerkAuthSession",
     }),
     "/api/auth/logout": {
       post: {
         tags: ["System"],
-        summary: "Clear the local admin auth cookie.",
+        summary: "Clear the Clerk session cookie.",
         responses: {
           200: jsonResponse(
             jsonSchema.object(
               { ok: jsonSchema.boolean() },
-              { required: ["ok"], description: "Local auth logout response." },
+              { required: ["ok"], description: "Clerk logout response." },
             ),
           ),
         },
@@ -192,18 +192,16 @@ export function createOpenApiDocument(
     components: {
       schemas: {
         ActionDefinition: jsonSchema.unknownObject("Public action catalog definition with runtime execution status."),
-        LocalAuthSession: jsonSchema.object(
+        ClerkAuthSession: jsonSchema.object(
           {
-            adminAuthConfigured: jsonSchema.boolean({
-              description: "Whether the local admin API requires an admin bearer token.",
-            }),
-            authenticated: jsonSchema.boolean({
-              description: "Whether this request is authenticated for local admin APIs.",
-            }),
+            userId: jsonSchema.string({ description: "Clerk user ID." }),
+            workspaceId: jsonSchema.string({ description: "Connections workspace ID." }),
+            role: jsonSchema.string({ description: "Effective Connections workspace role." }),
+            sessionClaims: jsonSchema.unknownObject("Verified Clerk session claims."),
           },
           {
-            required: ["adminAuthConfigured", "authenticated"],
-            description: "Local web console admin authentication state.",
+            required: ["userId", "workspaceId", "role", "sessionClaims"],
+            description: "Authenticated Clerk workspace session.",
           },
         ),
         ActionSearchResult: jsonSchema.object(

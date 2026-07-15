@@ -20,6 +20,27 @@ afterEach(async () => {
 });
 
 describe("SqliteRuntimeDatabase", () => {
+  it("keeps scoped connections isolated between workspaces", async () => {
+    const databasePath = await createDatabasePath();
+    const database = new SqliteRuntimeDatabase(databasePath);
+    const first = database.createScopedStores("workspace-a");
+    const second = database.createScopedStores("workspace-b");
+
+    await first.connectionStore.set("github", "default", {
+      authType: "api_key",
+      apiKey: "workspace-a-token",
+      values: { apiKey: "workspace-a-token" },
+      profile: githubProfile,
+      metadata: {},
+    });
+
+    await expect(second.connectionStore.get("github", "default")).resolves.toBeUndefined();
+    await expect(first.connectionStore.get("github", "default")).resolves.toMatchObject({
+      apiKey: "workspace-a-token",
+    });
+    database.close();
+  });
+
   it("persists local runtime state across database instances", async () => {
     const databasePath = await createDatabasePath();
     const first = new SqliteRuntimeDatabase(databasePath, { runLimit: 2 });
@@ -45,6 +66,8 @@ describe("SqliteRuntimeDatabase", () => {
     });
     await first.runLogStore.add({
       id: "run-1",
+      workspaceId: "default",
+      userId: "local-dev",
       service: "hackernews",
       actionId: "hackernews.get_top_stories",
       caller: "http",
@@ -71,10 +94,12 @@ describe("SqliteRuntimeDatabase", () => {
       state: "state-1",
     });
     await expect(second.oauthStateStore.take("state-1")).resolves.toBeUndefined();
-    await expect(second.runLogStore.list()).resolves.toEqual({
+    await expect(second.runLogStore.list()).resolves.toMatchObject({
       items: [
         {
           id: "run-1",
+          workspaceId: "default",
+          userId: "local-dev",
           service: "hackernews",
           actionId: "hackernews.get_top_stories",
           caller: "http",
@@ -206,13 +231,17 @@ describe("SqliteRuntimeDatabase", () => {
     const database = new SqliteRuntimeDatabase(databasePath);
     const tokens = new RuntimeTokenService(database.runtimeTokenStore);
 
-    const created = await tokens.createToken("Claude Desktop");
+    const created = await tokens.createToken("default", "local-dev", "Claude Desktop");
     expect(created.token).toMatch(/^oct_/);
     expect(created.record.name).toBe("Claude Desktop");
     expect(created.record.tokenHash).not.toBe(created.token);
     await expectDatabaseDirectoryNotToContain(databasePath, created.token);
 
-    await expect(tokens.verifyToken(created.token)).resolves.toBe(true);
+    await expect(tokens.verifyToken(created.token)).resolves.toEqual({
+      workspaceId: "default",
+      userId: "local-dev",
+      tokenId: created.record.id,
+    });
     const [listed] = await tokens.listTokens();
     expect(listed).toMatchObject({
       id: created.record.id,
@@ -223,7 +252,7 @@ describe("SqliteRuntimeDatabase", () => {
 
     await expect(tokens.revokeToken(created.record.id)).resolves.toBe(true);
     await expect(tokens.listTokens()).resolves.toEqual([]);
-    await expect(tokens.verifyToken(created.token)).resolves.toBe(false);
+    await expect(tokens.verifyToken(created.token)).resolves.toBeUndefined();
     await expect(tokens.revokeToken(created.record.id)).resolves.toBe(false);
     database.close();
   });
@@ -253,7 +282,7 @@ describe("SqliteRuntimeDatabase", () => {
       secretCodec: new AesGcmSecretCodec("old-key"),
     });
     const tokens = new RuntimeTokenService(database.runtimeTokenStore);
-    const token = await tokens.createToken("Claude Desktop");
+    const token = await tokens.createToken("default", "local-dev", "Claude Desktop");
     await database.connectionStore.set("github", "default", {
       authType: "api_key",
       apiKey: "github-token",
@@ -303,6 +332,8 @@ async function createDatabasePath(): Promise<string> {
 function createRun(id: string, startedAt: string, actionId = "hackernews.get_top_stories", service = "hackernews") {
   return {
     id,
+    workspaceId: "default",
+    userId: "local-dev",
     service,
     actionId,
     caller: "http" as const,

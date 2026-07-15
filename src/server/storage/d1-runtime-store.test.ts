@@ -14,6 +14,25 @@ const githubProfile = {
 };
 
 describe("D1RuntimeDatabase", () => {
+  it("keeps scoped connections isolated between workspaces", async () => {
+    const database = new D1RuntimeDatabase(new SqliteD1Database());
+    const first = database.createScopedStores("workspace-a");
+    const second = database.createScopedStores("workspace-b");
+
+    await first.connectionStore.set("github", "default", {
+      authType: "api_key",
+      apiKey: "workspace-a-token",
+      values: { apiKey: "workspace-a-token" },
+      profile: githubProfile,
+      metadata: {},
+    });
+
+    await expect(second.connectionStore.get("github", "default")).resolves.toBeUndefined();
+    await expect(first.connectionStore.get("github", "default")).resolves.toMatchObject({
+      apiKey: "workspace-a-token",
+    });
+  });
+
   it("stores connections and OAuth client configs through the secret codec", async () => {
     const d1 = new SqliteD1Database();
     const database = new D1RuntimeDatabase(d1, {
@@ -78,11 +97,15 @@ describe("D1RuntimeDatabase", () => {
     const database = new D1RuntimeDatabase(new SqliteD1Database());
     const tokens = new RuntimeTokenService(database.runtimeTokenStore);
 
-    const created = await tokens.createToken("Claude Desktop");
+    const created = await tokens.createToken("default", "local-dev", "Claude Desktop");
     expect(created.token).toMatch(/^oct_/);
     expect(created.record.tokenHash).not.toBe(created.token);
 
-    await expect(tokens.verifyToken(created.token)).resolves.toBe(true);
+    await expect(tokens.verifyToken(created.token)).resolves.toEqual({
+      workspaceId: "default",
+      userId: "local-dev",
+      tokenId: created.record.id,
+    });
     const [listed] = await tokens.listTokens();
     expect(listed).toMatchObject({
       id: created.record.id,
@@ -92,7 +115,7 @@ describe("D1RuntimeDatabase", () => {
 
     await expect(tokens.revokeToken(created.record.id)).resolves.toBe(true);
     await expect(tokens.listTokens()).resolves.toEqual([]);
-    await expect(tokens.verifyToken(created.token)).resolves.toBe(false);
+    await expect(tokens.verifyToken(created.token)).resolves.toBeUndefined();
     await expect(tokens.revokeToken(created.record.id)).resolves.toBe(false);
   });
 
@@ -144,6 +167,8 @@ describe("D1RuntimeDatabase", () => {
 function createRun(id: string, startedAt: string, actionId = "hackernews.get_top_stories", service = "hackernews") {
   return {
     id,
+    workspaceId: "default",
+    userId: "local-dev",
     service,
     actionId,
     caller: "http" as const,
@@ -160,6 +185,7 @@ class SqliteD1Database implements D1DatabaseBinding {
   constructor() {
     this.database.exec(readFileSync(new URL("../../../migrations/0001_runtime.sql", import.meta.url), "utf8"));
     this.database.exec(readFileSync(new URL("../../../migrations/0002_run_service.sql", import.meta.url), "utf8"));
+    this.database.exec(readFileSync(new URL("../../../migrations/0003_workspaces.sql", import.meta.url), "utf8"));
   }
 
   prepare(query: string): D1PreparedStatementBinding {

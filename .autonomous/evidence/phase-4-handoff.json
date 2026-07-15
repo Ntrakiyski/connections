@@ -1,0 +1,31 @@
+{
+  "ticket_id": "phase-4",
+  "status": "done",
+  "changed_files": [
+    "web/src/model.ts",
+    "web/src/ui.tsx",
+    "web/src/workspace-selector.tsx",
+    "web/src/workspace-settings-page.tsx",
+    "web/src/workspace-members-page.tsx",
+    "web/src/providers-page.tsx",
+    "web/src/resources-page.tsx",
+    "web/src/style.css",
+    "web/src/locales/en.json",
+    "web/src/locales/fr.json",
+    "web/src/locales/ja.json",
+    "web/src/locales/ru.json",
+    "web/src/locales/zh-CN.json"
+  ],
+  "tests_run": 48,
+  "tests_passed": 48,
+  "decisions": [
+    "The console follows the Phase 4 workspace API contract without adding a Clerk browser SDK dependency.",
+    "A missing workspace-list route falls back to the active workspace so local single-workspace development remains usable.",
+    "Only admins receive workspace settings/member routes; provider OAuth configuration remains visible to managers and admins."
+  ],
+  "blockers": [
+    "The documented workspace list, switch, settings, and member-management API routes are absent from the current server tree, so their browser interactions could not be verified end to end."
+  ],
+  "needs_review": true,
+  "evidence_paths": [".autonomous/evidence/phase-4-result.md"]
+}

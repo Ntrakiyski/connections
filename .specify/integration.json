@@ -1,9 +1,7 @@
 {
   "version": "0.11.2",
   "integration_state_schema": 1,
-  "installed_integrations": [
-    "codex"
-  ],
+  "installed_integrations": ["codex"],
   "integration_settings": {
     "codex": {
       "script": "sh",

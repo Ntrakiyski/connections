@@ -45,6 +45,7 @@ interface ProviderDetailProps {
   connection?: AppData["connections"][number];
   connectionStatus: ProviderConnectionStatus;
   oauthConfig?: OAuthConfig;
+  canManageProviders: boolean;
   onRefresh(): void;
 }
 
@@ -64,6 +65,7 @@ interface ConnectionFormProps {
   oauthConfig?: OAuthConfig;
   onRefresh(): void;
   onConfigureOAuthClient(): void;
+  canManageProviders: boolean;
 }
 
 interface OAuthConfigFormProps {
@@ -112,6 +114,7 @@ export function ProvidersPage(props: ProvidersPageProps): ReactNode {
       connection={connectionStatus.connection}
       connectionStatus={connectionStatus}
       oauthConfig={oauthConfigForProvider(props.data.oauthConfigs, routeProvider.service)}
+      canManageProviders={props.data.role !== "member"}
       onRefresh={props.onRefresh}
     />
   );
@@ -558,6 +561,7 @@ function ProviderDetail(props: ProviderDetailProps): ReactNode {
               oauthConfig={props.oauthConfig}
               onRefresh={props.onRefresh}
               onConfigureOAuthClient={() => setOAuthClientExpanded(true)}
+              canManageProviders={props.canManageProviders}
             />
           ) : (
             <EmptyState
@@ -565,7 +569,7 @@ function ProviderDetail(props: ProviderDetailProps): ReactNode {
               description={t("providers.noConnectionMethodDescription")}
             />
           )}
-          {locallyAvailable && oauthAuth && selectedAuth?.type === "oauth2" ? (
+          {props.canManageProviders && locallyAvailable && oauthAuth && selectedAuth?.type === "oauth2" ? (
             <div className="provider-inline-oauth-settings">
               <h3>{t("providers.oauthClient")}</h3>
               <OAuthClientSettings
@@ -884,7 +888,7 @@ function ConnectionForm(props: ConnectionFormProps): ReactNode {
       ))}
       {showActions ? (
         <div className="button-row">
-          {needsOAuthClient ? (
+          {needsOAuthClient && props.canManageProviders ? (
             <Button type="button" onClick={props.onConfigureOAuthClient}>
               <Settings size={16} />
               {t("providers.buttons.configureOAuthClient")}

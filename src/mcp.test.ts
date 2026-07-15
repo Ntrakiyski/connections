@@ -39,6 +39,39 @@ const exampleProvider: ProviderDefinition = {
 };
 
 describe("MCP server", () => {
+  it("returns the action runner bound to the requested workspace", () => {
+    const catalog = createCatalogStore([exampleProvider], {
+      executableActionIds: ["example.echo"],
+    });
+    const providerLoader = new EchoProviderLoader();
+    const workspaceRunner = new ActionRunner({
+      catalog,
+      providerLoader,
+      connections: new ConnectionService({
+        catalog,
+        providerLoader,
+        store: new MemoryConnectionStore(),
+      }),
+      runs: new MemoryRunLogStore(),
+    });
+    const runner = new ActionRunner({
+      catalog,
+      providerLoader,
+      connections: new ConnectionService({
+        catalog,
+        providerLoader,
+        store: new MemoryConnectionStore(),
+      }),
+      runs: new MemoryRunLogStore(),
+      createWorkspaceRunner: (workspaceId) => {
+        expect(workspaceId).toBe("workspace-b");
+        return workspaceRunner;
+      },
+    });
+
+    expect(runner.forWorkspace("workspace-b")).toBe(workspaceRunner);
+  });
+
   it("lists the discovery tools through the MCP protocol", async () => {
     await withMcpClient(async (client) => {
       const result = await client.listTools();
@@ -59,6 +92,12 @@ describe("MCP server", () => {
       expect(instructions).toBeTypeOf("string");
       expect(instructions).toContain("Start with list_apps or search_actions.");
       expect(instructions).toContain("Call get_action_guide before execute_action");
+    });
+  });
+
+  it("tells workspace-scoped MCP clients about their connection boundary", async () => {
+    await withMcpClient(async (client) => {
+      expect(client.getInstructions()).toContain("current workspace");
     });
   });
 

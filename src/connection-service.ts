@@ -49,6 +49,7 @@ export interface ConnectionServiceOptions {
   oauthCredentials?: IOAuthCredentialRefresher;
   providerLoader: IProviderLoader;
   store: IConnectionStore;
+  createWorkspaceService?(workspaceId: string): ConnectionService;
   logger?: RuntimeLogger;
 }
 
@@ -111,6 +112,7 @@ export class ConnectionService {
   private readonly oauthCredentials?: IOAuthCredentialRefresher;
   private readonly providerLoader: IProviderLoader;
   private readonly store: IConnectionStore;
+  private readonly createWorkspaceService?: (workspaceId: string) => ConnectionService;
   private readonly logger?: RuntimeLogger;
 
   constructor(input: ConnectionServiceOptions) {
@@ -118,7 +120,13 @@ export class ConnectionService {
     this.oauthCredentials = input.oauthCredentials;
     this.providerLoader = input.providerLoader;
     this.store = input.store;
+    this.createWorkspaceService = input.createWorkspaceService;
     this.logger = input.logger;
+  }
+
+  /** Returns the workspace-bound service when the runtime provides scoped stores. */
+  forWorkspace(workspaceId: string): ConnectionService {
+    return this.createWorkspaceService?.(workspaceId) ?? this;
   }
 
   async listConnections(): Promise<ConnectionSummary[]> {

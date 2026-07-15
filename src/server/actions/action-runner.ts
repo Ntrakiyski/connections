@@ -17,6 +17,13 @@ export interface ActionRunnerOptions {
   transitFiles?: TransitFileWriter;
   actionPolicy?: ActionPolicyService;
   logger?: Logger;
+  workspace?: ActionRunnerWorkspace;
+  createWorkspaceRunner?(workspaceId: string): ActionRunner;
+}
+
+export interface ActionRunnerWorkspace {
+  workspaceId: string;
+  userId: string;
 }
 
 export interface RunActionInput {
@@ -39,6 +46,11 @@ export class ActionRunner {
 
   constructor(options: ActionRunnerOptions) {
     this.options = options;
+  }
+
+  /** Returns the workspace-bound runner when the runtime provides scoped stores. */
+  forWorkspace(workspaceId: string): ActionRunner {
+    return this.options.createWorkspaceRunner?.(workspaceId) ?? this;
   }
 
   async run(input: RunActionInput): Promise<ActionRunResult | undefined> {
@@ -85,6 +97,8 @@ export class ActionRunner {
 
     await this.options.runs.add({
       id: executionId,
+      workspaceId: this.options.workspace?.workspaceId ?? "default",
+      userId: this.options.workspace?.userId ?? "local-dev",
       service: action.service,
       actionId: input.actionId,
       caller: input.caller,

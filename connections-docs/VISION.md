@@ -28,11 +28,11 @@ Connection labels are visible to the workspace so people and agents can choose d
 
 Clerk establishes identity and Organization membership. Connections owns the effective workspace role used by authorization.
 
-| Role | What it can do |
-| --- | --- |
-| Member | Use and manage only their own connections, tokens, and runs. |
+| Role    | What it can do                                                                                          |
+| ------- | ------------------------------------------------------------------------------------------------------- |
+| Member  | Use and manage only their own connections, tokens, and runs.                                            |
 | Manager | See and use all workspace connections and runs; enable/configure providers and their available actions. |
-| Admin | Has manager capabilities plus member invitations, removals, and role changes. |
+| Admin   | Has manager capabilities plus member invitations, removals, and role changes.                           |
 
 The workspace creator is the first admin, and a workspace must always retain at least one admin.
 

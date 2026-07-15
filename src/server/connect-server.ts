@@ -3,11 +3,13 @@ import type { ConnectionService } from "../connection-service.ts";
 import type { ActionPolicyService } from "../core/action-policy.ts";
 import type { ActionSearchIndexProvider, ActionSearchResult } from "../core/action-search.ts";
 import type { IProviderLoader } from "../providers/provider-loader.ts";
-import type { LocalAuthOptions } from "./api/auth.ts";
+import type { ClerkAuthOptions } from "./api/clerk-auth.ts";
+import type { RuntimeTokenAuthOptions } from "./api/runtime-token-auth.ts";
 import type { ITransitFileService } from "./files/transit-file-store.ts";
 import type { Logger } from "./logger.ts";
 import type { RunLogListInput } from "./storage/runtime-store.ts";
 import type { RuntimeTokenService } from "./storage/runtime-token-service.ts";
+import type { WorkspaceContext } from "./storage/runtime-token-service.ts";
 import type { Context } from "hono";
 
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
@@ -21,8 +23,9 @@ import { OAuthClientConfigError, OAuthClientConfigService } from "../oauth/oauth
 import { OAuthFlowError, OAuthFlowService } from "../oauth/oauth-flow-service.ts";
 import { ActionRunner } from "./actions/action-runner.ts";
 import { renderActionMarkdown } from "./api/action-markdown.ts";
-import { clearLocalAuthCookie, createLocalAuthMiddleware, readLocalAuthSession } from "./api/auth.ts";
 import { getResponseCachePolicy } from "./api/cache-policy.ts";
+import { createClerkAuthMiddleware } from "./api/clerk-auth.ts";
+import { registerClerkRoutes } from "./api/clerk-routes.ts";
 import { HttpRequestError, internalError, jsonError, notFound, readJsonBody } from "./api/http-utils.ts";
 import { renderOAuthCompletionPage } from "./api/oauth-completion-page.ts";
 import { createOpenApiDocument } from "./api/openapi.ts";
@@ -36,9 +39,19 @@ import {
   writeRuntimeFailure,
   writeRuntimeSuccess,
 } from "./api/runtime-api.ts";
+import { createRuntimeTokenAuthMiddleware } from "./api/runtime-token-auth.ts";
+import { getWorkspaceContext } from "./api/workspace-helpers.ts";
 import { createTransitFileResponse, TransitFileError } from "./files/transit-file-store.ts";
 import { ProxyRunner } from "./proxy/proxy-runner.ts";
 import { decodeRunLogCursor } from "./storage/runtime-store.ts";
+
+export interface WorkspaceServerServices {
+  connections: ConnectionService;
+  oauthClientConfigs: OAuthClientConfigService;
+  oauthFlow: OAuthFlowService;
+  runtimeTokens: RuntimeTokenService;
+  actions: ActionRunner;
+}
 
 /**
  * Dependencies required to construct the local connector server.
@@ -53,7 +66,9 @@ export interface IConnectServerOptions {
   actions: ActionRunner;
   transitFiles: ITransitFileService;
   staticRoot?: string;
-  auth?: LocalAuthOptions;
+  auth?: ClerkAuthOptions;
+  runtimeTokenAuth?: RuntimeTokenAuthOptions;
+  createWorkspaceServices?(workspace: WorkspaceContext): WorkspaceServerServices;
   actionPolicy?: ActionPolicyService;
   actionSearch?: ActionSearchIndexProvider;
   registerStaticRoutes?: (app: Hono) => void;
@@ -67,18 +82,10 @@ export interface IConnectServerOptions {
 export class ConnectServer {
   private readonly options: IConnectServerOptions;
   private readonly actionSearch: ActionSearchIndexProvider;
-  private readonly proxyRunner: ProxyRunner;
 
   constructor(options: IConnectServerOptions) {
     this.options = options;
     this.actionSearch = options.actionSearch ?? createActionSearchIndexProvider(options.catalog.actions);
-    this.proxyRunner = new ProxyRunner({
-      catalog: options.catalog,
-      providerLoader: options.providerLoader,
-      connections: options.connections,
-      actionPolicy: options.actionPolicy,
-      logger: options.logger,
-    });
   }
 
   createApp(): Hono {
@@ -99,7 +106,13 @@ export class ConnectServer {
       }
     });
     app.get("/health", (context) => context.json({ ok: true }));
-    app.use("*", createLocalAuthMiddleware(auth));
+    app.use("*", createClerkAuthMiddleware(auth));
+    if (this.options.runtimeTokenAuth) {
+      const runtimeTokenAuth = createRuntimeTokenAuthMiddleware(this.options.runtimeTokenAuth);
+      app.use("/v1/*", runtimeTokenAuth);
+      app.use("/mcp", runtimeTokenAuth);
+      app.use("/mcp/*", runtimeTokenAuth);
+    }
     app.get("/v1/health", (context) => writeRuntimeSuccess(context, { ok: true, runtime: "oomol-connect" }));
     app.get("/v1/providers", (context) => this.listRuntimeProviders(context));
     app.get("/v1/actions", (context) => this.listRuntimeActions(context));
@@ -146,11 +159,7 @@ export class ConnectServer {
       this.getActionMarkdown(context, context.req.param("actionId")),
     );
     app.get("/api/actions/:actionId", (context) => this.getAction(context, context.req.param("actionId")));
-    app.get("/api/auth/session", async (context) => context.json(await readLocalAuthSession(context, auth)));
-    app.post("/api/auth/logout", (context) => {
-      clearLocalAuthCookie(context);
-      return context.json({ ok: true });
-    });
+    registerClerkRoutes(app, auth);
 
     app.get("/api/connections", (context) => this.listConnections(context));
     app.put("/api/connections/:service", (context) => this.upsertConnection(context, context.req.param("service")));
@@ -178,7 +187,7 @@ export class ConnectServer {
     this.options.registerStaticRoutes?.(app);
     app.onError((error, context) => {
       if (error instanceof HttpRequestError) {
-        return jsonError(context, 400, error.code, error.message);
+        return jsonError(context, error.status, error.code, error.message);
       }
       this.options.logger?.error(
         {
@@ -192,6 +201,23 @@ export class ConnectServer {
     });
 
     return app;
+  }
+
+  private services(context: Context): WorkspaceServerServices {
+    return this.workspaceServices(getWorkspaceContext(context));
+  }
+
+  private workspaceServices(workspace: WorkspaceContext): WorkspaceServerServices {
+    if (this.options.createWorkspaceServices) {
+      return this.options.createWorkspaceServices(workspace);
+    }
+    return {
+      connections: this.options.connections,
+      oauthClientConfigs: this.options.oauthClientConfigs,
+      oauthFlow: this.options.oauthFlow,
+      runtimeTokens: this.options.runtimeTokens,
+      actions: this.options.actions,
+    };
   }
 
   private getProvider(context: Context, service: string): Response {
@@ -261,7 +287,7 @@ export class ConnectServer {
       return jsonError(context, 400, "invalid_input", query.message);
     }
 
-    return context.json(await this.options.actions.listRuns(query.input));
+    return context.json(await this.services(context).actions.listRuns(query.input));
   }
 
   private async searchApiActions(context: Context): Promise<Response> {
@@ -273,6 +299,7 @@ export class ConnectServer {
     const index = await this.actionSearch.get();
     return context.json(
       await this.serializeSearchResults(
+        context,
         searchActions(index, query.q, {
           service: query.service,
           limit: query.limit,
@@ -289,7 +316,10 @@ export class ConnectServer {
 
     return context.text(
       renderActionMarkdown(action, {
-        connection: await this.options.connections.getConnectionSummary(action.service, readConnectionName(context)),
+        connection: await this.services(context).connections.getConnectionSummary(
+          action.service,
+          readConnectionName(context),
+        ),
         providerPermissions: action.providerPermissions,
       }),
       200,
@@ -345,12 +375,17 @@ export class ConnectServer {
       service: query.service,
       limit: query.limit,
     });
-    return writeRuntimeSuccess(context, await this.serializeSearchResults(results));
+    return writeRuntimeSuccess(context, await this.serializeSearchResults(context, results));
   }
 
-  private async serializeSearchResults(results: ActionSearchResult[]): Promise<RuntimeActionSearchResult[]> {
+  private async serializeSearchResults(
+    context: Context,
+    results: ActionSearchResult[],
+  ): Promise<RuntimeActionSearchResult[]> {
     const authenticated = new Set(
-      await this.options.connections.listAuthenticatedServices([...new Set(results.map((result) => result.service))]),
+      await this.services(context).connections.listAuthenticatedServices([
+        ...new Set(results.map((result) => result.service)),
+      ]),
     );
     return results.flatMap((result) => {
       const action = this.options.catalog.actionsById.get(result.id);
@@ -387,7 +422,7 @@ export class ConnectServer {
 
     const body = await readJsonBody(context);
     try {
-      const run = await this.options.actions.run({
+      const run = await this.services(context).actions.run({
         actionId,
         input: body.input ?? {},
         caller: "http",
@@ -434,7 +469,13 @@ export class ConnectServer {
       throw error;
     }
 
-    const result = await this.proxyRunner.run({
+    const result = await new ProxyRunner({
+      catalog: this.options.catalog,
+      providerLoader: this.options.providerLoader,
+      connections: this.services(context).connections,
+      actionPolicy: this.options.actionPolicy,
+      logger: this.options.logger,
+    }).run({
       service,
       input: body,
       connectionName: readConnectionName(context, body),
@@ -455,7 +496,7 @@ export class ConnectServer {
   private async listRuntimeApps(context: Context): Promise<Response> {
     return writeRuntimeSuccess(
       context,
-      (await this.options.connections.listConnections()).map(serializeRuntimeConnectedApp),
+      (await this.services(context).connections.listConnections()).map(serializeRuntimeConnectedApp),
     );
   }
 
@@ -463,7 +504,7 @@ export class ConnectServer {
     try {
       return writeRuntimeSuccess(
         context,
-        (await this.options.connections.listConnectionsByService(service)).map(serializeRuntimeConnectedApp),
+        (await this.services(context).connections.listConnectionsByService(service)).map(serializeRuntimeConnectedApp),
       );
     } catch (error) {
       if (error instanceof ConnectionError) {
@@ -481,10 +522,12 @@ export class ConnectServer {
 
   private async listAuthenticatedRuntimeApps(context: Context): Promise<Response> {
     const services = context.req.queries("service") ?? [];
-    return writeRuntimeSuccess(context, await this.options.connections.listAuthenticatedServices(services));
+    return writeRuntimeSuccess(context, await this.services(context).connections.listAuthenticatedServices(services));
   }
 
   private async handleMcp(context: Context): Promise<Response> {
+    const workspace = getWorkspaceContext(context);
+    const services = this.services(context);
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
@@ -492,10 +535,11 @@ export class ConnectServer {
     const server = createMcpServer({
       catalog: this.options.catalog,
       providerLoader: this.options.providerLoader,
-      connections: this.options.connections,
-      actions: this.options.actions,
+      connections: services.connections.forWorkspace(workspace.workspaceId),
+      actions: services.actions.forWorkspace(workspace.workspaceId),
       actionPolicy: this.options.actionPolicy,
       actionSearch: this.actionSearch,
+      workspaceContext: workspace,
     });
 
     await server.connect(transport);
@@ -521,7 +565,7 @@ export class ConnectServer {
   }
 
   private async listConnections(context: Context): Promise<Response> {
-    return context.json(await this.options.connections.listConnections());
+    return context.json(await this.services(context).connections.listConnections());
   }
 
   private async upsertConnection(context: Context, service: string): Promise<Response> {
@@ -552,7 +596,7 @@ export class ConnectServer {
       this.options.logger?.info(logContext, "connection started");
       return this.writeConnectionResult(
         context,
-        this.options.connections.connectWithoutAuth(service, { connectionName }),
+        this.services(context).connections.connectWithoutAuth(service, { connectionName }),
         logContext,
       );
     }
@@ -560,7 +604,7 @@ export class ConnectServer {
       this.options.logger?.info(logContext, "connection started");
       return this.writeConnectionResult(
         context,
-        this.options.connections.connectWithApiKey(service, { values, connectionName }),
+        this.services(context).connections.connectWithApiKey(service, { values, connectionName }),
         logContext,
       );
     }
@@ -568,7 +612,7 @@ export class ConnectServer {
       this.options.logger?.info(logContext, "connection started");
       return this.writeConnectionResult(
         context,
-        this.options.connections.connectWithCustomCredential(service, { values, connectionName }),
+        this.services(context).connections.connectWithCustomCredential(service, { values, connectionName }),
         logContext,
       );
     }
@@ -595,7 +639,7 @@ export class ConnectServer {
     this.options.logger?.info(logContext, "connection disconnect started");
     return this.writeConnectionResult(
       context,
-      this.options.connections.disconnect(service, connectionName),
+      this.services(context).connections.disconnect(service, connectionName),
       logContext,
     );
   }
@@ -617,7 +661,7 @@ export class ConnectServer {
       };
       this.options.logger?.info(logContext, "oauth authorization started");
 
-      const authorization = await this.options.oauthFlow.startAuthorization({ service, connectionName });
+      const authorization = await this.services(context).oauthFlow.startAuthorization({ service, connectionName });
       const authorizationUrl = new URL(authorization.authorizationUrl);
       this.options.logger?.info(
         {
@@ -647,7 +691,7 @@ export class ConnectServer {
   }
 
   private async listRuntimeTokens(context: Context): Promise<Response> {
-    return context.json(await this.options.runtimeTokens.listTokens());
+    return context.json(await this.services(context).runtimeTokens.listTokens());
   }
 
   private async createRuntimeToken(context: Context): Promise<Response> {
@@ -657,7 +701,12 @@ export class ConnectServer {
       return jsonError(context, 400, "invalid_input", "name is required.");
     }
 
-    const created = await this.options.runtimeTokens.createToken(name);
+    const workspace = getWorkspaceContext(context);
+    const created = await this.services(context).runtimeTokens.createToken(
+      workspace.workspaceId,
+      workspace.userId,
+      name,
+    );
     return context.json({
       token: created.token,
       record: {
@@ -669,7 +718,7 @@ export class ConnectServer {
   }
 
   private async revokeRuntimeToken(context: Context, id: string): Promise<Response> {
-    if (!(await this.options.runtimeTokens.revokeToken(id))) {
+    if (!(await this.services(context).runtimeTokens.revokeToken(id))) {
       return jsonError(context, 404, "runtime_token_not_found", `Runtime token not found: ${id}.`);
     }
 
@@ -677,14 +726,14 @@ export class ConnectServer {
   }
 
   private async listOAuthConfigs(context: Context): Promise<Response> {
-    return context.json(await this.options.oauthClientConfigs.listConfigs());
+    return context.json(await this.services(context).oauthClientConfigs.listConfigs());
   }
 
   private async upsertOAuthConfig(context: Context, service: string): Promise<Response> {
     const body = await readJsonBody(context);
     return this.writeOAuthResult(
       context,
-      this.options.oauthClientConfigs.upsertConfig({
+      this.services(context).oauthClientConfigs.upsertConfig({
         service,
         clientId: optionalString(body.clientId) ?? "",
         clientSecret: optionalString(body.clientSecret) ?? "",
@@ -695,7 +744,7 @@ export class ConnectServer {
   }
 
   private async deleteOAuthConfig(context: Context, service: string): Promise<Response> {
-    return this.writeOAuthResult(context, this.options.oauthClientConfigs.deleteConfig(service));
+    return this.writeOAuthResult(context, this.services(context).oauthClientConfigs.deleteConfig(service));
   }
 
   private async completeOAuth(context: Context): Promise<Response> {
@@ -720,7 +769,11 @@ export class ConnectServer {
 
     let service: string;
     try {
-      service = (await this.options.oauthFlow.completeAuthorization({ state, code })).service;
+      const workspaceId = readWorkspaceIdFromOAuthState(state);
+      const oauthFlow = workspaceId
+        ? this.workspaceServices({ workspaceId, userId: "oauth-callback", role: "member" }).oauthFlow
+        : this.options.oauthFlow;
+      service = (await oauthFlow.completeAuthorization({ state, code })).service;
       this.options.logger?.info(
         {
           ...logContext,
@@ -810,6 +863,11 @@ function readConnectionName(context: Context, body?: Record<string, unknown>): s
     optionalString(context.req.query("connectionName")) ??
     optionalString(context.req.query("alias"))
   );
+}
+
+function readWorkspaceIdFromOAuthState(state: string): string | undefined {
+  const separator = state.indexOf(".");
+  return separator > 0 ? state.slice(0, separator) : undefined;
 }
 
 type SearchQuery =

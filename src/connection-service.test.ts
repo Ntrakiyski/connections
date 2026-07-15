@@ -131,6 +131,21 @@ afterEach(() => {
 });
 
 describe("ConnectionService", () => {
+  it("returns the service bound to the requested workspace", () => {
+    const workspaceService = createService([hackernewsProvider]);
+    const service = new ConnectionService({
+      catalog: createCatalogStore([hackernewsProvider]),
+      providerLoader: new FakeProviderLoader(),
+      store: new MemoryConnectionStore(),
+      createWorkspaceService: (workspaceId) => {
+        expect(workspaceId).toBe("workspace-b");
+        return workspaceService;
+      },
+    });
+
+    expect(service.forWorkspace("workspace-b")).toBe(workspaceService);
+  });
+
   it("rejects connections for providers unavailable in the current runtime", async () => {
     const service = createService([catalogOnlyProvider]);
 

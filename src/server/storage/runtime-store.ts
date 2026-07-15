@@ -7,6 +7,8 @@ export type RunLogCaller = "http" | "mcp" | "web";
  */
 export type RunLog = {
   id: string;
+  workspaceId: string;
+  userId: string;
   service: string;
   actionId: string;
   caller: RunLogCaller;
