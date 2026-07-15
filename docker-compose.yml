@@ -1,16 +1,17 @@
-# Runs the prebuilt image published to GHCR. To build from source instead, add
-# the build overlay: docker compose -f docker-compose.yml -f docker-compose.build.yml up --build
 services:
   connector:
-    image: ghcr.io/oomol-lab/open-connector:latest
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
     volumes:
       - connector-data:/app/data
     environment:
       OOMOL_CONNECT_DATA_DIR: /app/data
-      OOMOL_CONNECT_ORIGIN:
+      OOMOL_CONNECT_ORIGIN: https://connections.fractals-solutions.com
       OOMOL_CONNECT_ENCRYPTION_KEY:
-      OOMOL_CONNECT_ADMIN_TOKEN:
-      OOMOL_CONNECT_RUNTIME_TOKEN:
+      CLERK_SECRET_KEY:
+      CLERK_PUBLISHABLE_KEY:
+      DATABASE_URL:
       OOMOL_CONNECT_ALLOWED_ACTIONS:
       OOMOL_CONNECT_BLOCKED_ACTIONS:
       OOMOL_CONNECT_ALLOWED_PROXIES:
