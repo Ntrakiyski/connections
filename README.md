@@ -128,6 +128,7 @@ npm run build --workspace web
 
 - [Product vision](connections-docs/VISION.md)
 - [Locked product and architecture decisions](connections-docs/LOCKED.md)
+- [Deployment, debugging, and database operations](connections-docs/OPERATIONS.md)
 - [InsForge schema](connections-docs/insforge-schema.sql)
 - [Contributing](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)

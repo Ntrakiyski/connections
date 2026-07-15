@@ -33,8 +33,8 @@
 
 - **Member:** sees and chats only with their own connections.
 - **Manager:** sees, chats with, and can select all workspace connections and providers; configures provider OAuth apps, provider availability, and the actions shared with the team.
-- **Admin:** has the same provider/connection visibility and chat access as a manager in v1; the role is reserved for future administrative capabilities.
-- Only admins invite/remove members and assign Member, Manager, and Admin roles.
+- **Admin:** has manager capabilities plus archive and restore of Connections workspace data.
+- Clerk's Organization UI owns invitations, member removal, and role assignment.
 - Members cannot change workspace configuration.
 - Clerk's Organization roles map to Connections roles until Connections needs product-specific roles beyond Clerk's membership model.
 
@@ -57,10 +57,10 @@
 
 ## Workspace lifecycle
 
-- Any admin can delete a workspace after a clear destructive confirmation.
-- Deletion immediately makes the workspace, its members, runtime tokens, provider connections, and files unavailable.
-- The complete workspace is retained as an encrypted backup for 14 days, during which an admin may restore it.
-- After 14 days, the workspace backup and its credentials/files are permanently erased.
+- Any admin can archive a workspace after a clear destructive confirmation.
+- Archiving immediately makes Connections-owned workspace data, runtime tokens, provider connections, and files unavailable.
+- Connections retains archived data for 14 days, during which an admin may restore it.
+- After 14 days, Connections permanently erases the archived data, credentials, and files.
 
 ## Visibility and audit
 

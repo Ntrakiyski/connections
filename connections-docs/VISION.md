@@ -32,9 +32,9 @@ Clerk establishes identity and Organization membership. Connections owns the eff
 | ------- | ------------------------------------------------------------------------------------------------------- |
 | Member  | Use and manage only their own connections, tokens, and runs.                                            |
 | Manager | See and use all workspace connections and runs; enable/configure providers and their available actions. |
-| Admin   | Has manager capabilities plus member invitations, removals, and role changes.                           |
+| Admin   | Has manager capabilities plus archive and restore of Connections workspace data.                        |
 
-The workspace creator is the first admin, and a workspace must always retain at least one admin.
+Clerk's Organization UI owns invitations, removals, and role changes. The workspace creator is the first admin, and a workspace must always retain at least one admin.
 
 ## Providers and approval
 
@@ -64,7 +64,7 @@ Members can see only their own runs. Managers and admins can inspect workspace-w
 
 Removing a member immediately revokes their tokens and disconnects their provider accounts. Historical run logs may remain visible to managers and admins.
 
-An admin can delete a workspace after a clear destructive confirmation. Deletion makes it unavailable immediately, retains an encrypted restorable backup for 14 days, and then permanently erases that backup, its credentials, and its files.
+An admin can archive a workspace after a clear destructive confirmation. Archiving makes Connections-owned data unavailable immediately, retains it for a 14-day restore window, and then permanently erases its credentials, files, and other scoped records.
 
 ## Decision rule
 

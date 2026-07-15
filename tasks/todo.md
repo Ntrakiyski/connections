@@ -51,3 +51,62 @@ Release evidence: implementation commit `fe97863` was pushed to `origin/main`. F
 MCP isolation audit: runtime-token authentication resolves only the token hash to its stored workspace and user, checks the current membership role and archived state, then constructs workspace-scoped connection, OAuth, token, run, and control stores before MCP is created. The MCP protocol accepts no workspace selector. A new end-to-end `/mcp` regression test creates two workspaces with different opaque runtime keys and connection labels: each key discovers only its own label, and using the other workspace's label returns structured `connection_not_found`. Existing storage, membership-removal, lifecycle, and transit-file tests cover the related revocation and scoped-data paths. The MCP boundary now normalizes this denied connection lookup into the structured tool error rather than returning raw transport text. The README was rewritten for the current Connections product, deployment, architecture, and security model. Verification passed `npm run fix-check`, all 55 test files / 420 tests, the web build, and `git diff --check`.
 
 Release evidence: the isolation test, structured MCP error response, and README update were pushed to `origin/main` in `577aaeb`.
+
+---
+
+# Task Plan
+
+## Goal
+
+Explain the upstream-fork relationship, the three InsForge database branches, and the app's current debugging-log retention without changing production state.
+
+## Constraints
+
+- Read-only inspection except the two preview-branch deletions explicitly authorized by the user.
+- Do not expose credentials or user data.
+
+## Steps
+
+- [x] Inspect the documented product/database branch history and application logging code.
+- [x] Confirm where product run/audit logs persist and where container logs live.
+- [x] Confirm the status and purpose of the two InsForge preview branches.
+- [x] Delete both unneeded preview branches at the user's request.
+
+## Verification
+
+- [x] Source of application logging reviewed.
+- [x] Source of persisted product runs/audit events reviewed.
+- [x] InsForge branch status confirmed without mutation.
+- [x] InsForge accepted deletion of both preview branches.
+
+## Review
+
+`Main` is the production InsForge database used by the deployed app. `workspace-security-controls` was a merged, dormant schema-only preview branch; `seed-workspace-providers` was an unmerged, isolated schema-only preview with no production effect. At the user's request, InsForge deleted both (`branch delete … -y` followed by `branch not found` confirmation); Main was not modified. The console stores product execution records in the production `runs` table and security/configuration history in `audit_events`; the separate Pino service logs go to stdout/Coolify and are not currently centralized or retained by this repository. Exact InsForge platform-log retention is not exposed by the CLI.
+
+---
+
+# Task Plan
+
+## Goal
+
+Close the Connections development handoff in durable product documentation rather than workflow metadata.
+
+## Constraints
+
+- Keep operational facts accurate to the deployed architecture.
+- Do not put credentials, source paths, or temporary workflow state in the handoff.
+
+## Steps
+
+- [x] Create an operator-facing deployment and debugging guide under `connections-docs`.
+- [x] Link the guide from the repository README.
+- [x] Cold-read the guide for a new operator and review the final diff.
+
+## Verification
+
+- [x] Deployment, workspace, logging, and database-branch instructions are actionable.
+- [x] Documentation is discoverable from the README.
+
+## Review
+
+Created a concise Operations guide for deployers: it distinguishes Clerk, Connections, InsForge, and Coolify boundaries; gives a deployment and MCP-isolation check; maps symptoms to the right log source; and records safe InsForge preview-branch hygiene. It is linked from the README. The vision and locked decisions now agree with the deployed model: Clerk owns Organization membership management, while a Connections admin archives/restores Connections data. Cold-read and `git diff --check` passed.
