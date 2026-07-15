@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "harness": {
+    "initialized_at": "2026-07-15T14:44:28Z",
+    "skills_version": "0.1.0",
+    "spec_kit_initialized": true
+  },
+  "project": {
+    "status": "initialized",
+    "active_milestone": null,
+    "milestones": []
+  }
+}
