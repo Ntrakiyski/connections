@@ -110,3 +110,31 @@ Close the Connections development handoff in durable product documentation rathe
 ## Review
 
 Created a concise Operations guide for deployers: it distinguishes Clerk, Connections, InsForge, and Coolify boundaries; gives a deployment and MCP-isolation check; maps symptoms to the right log source; and records safe InsForge preview-branch hygiene. It is linked from the README. The vision and locked decisions now agree with the deployed model: Clerk owns Organization membership management, while a Connections admin archives/restores Connections data. Cold-read and `git diff --check` passed.
+
+---
+
+# Task Plan
+
+## Goal
+
+Add a clear top-of-README value proposition for teams evaluating Connections.
+
+## Constraints
+
+- Describe only implemented workspace, role, credential, and MCP behavior.
+- Keep the new section short and lead into the existing capability details.
+
+## Steps
+
+- [x] Define the reader-facing value proposition and placement.
+- [x] Add the README section.
+- [x] Cold-read and verify the final documentation diff.
+
+## Verification
+
+- [x] A first-time reader can understand why a team would use Connections.
+- [x] No claim expands the current product boundary.
+
+## Review
+
+Added a short **Why Connections?** section directly below the product introduction. It explains the value in terms of shared, governed account access; bounded MCP tokens; and strict Organization isolation, then leads into the concrete feature list. Cold-read and `git diff --check` passed.

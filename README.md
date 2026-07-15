@@ -4,6 +4,16 @@ Connections is a shared SaaS for workspace-scoped provider connections and MCP a
 
 People connect their work accounts once, then approved AI agents use those accounts through MCP or the runtime API. Provider credentials stay on the server; agents receive only safe account metadata, action schemas, and execution results.
 
+## Why Connections?
+
+Teams should not have to share credentials, recreate integrations for every teammate, or give an AI agent a blanket key to everything. Connections turns individual provider accounts into a shared, governed workspace capability.
+
+- **Connect once; collaborate intentionally.** Each person connects the accounts they own. Managers and admins can select and use every permitted account in their workspace without ever seeing its raw credentials.
+- **Give agents useful access, not unlimited access.** An MCP client receives a revocable token and must choose an explicit, labelled connection for each action.
+- **Keep every team private by design.** Organizations are isolated workspaces: their people, accounts, tokens, runs, files, and provider configuration never cross into another Organization.
+
+The result is a single connection layer for people and AI: team-wide when authorized, account-specific when executing, and safe to operate across multiple teams.
+
 ## What works today
 
 - Clerk sign-in, organization switching, organization profile, invitations, and membership management.
