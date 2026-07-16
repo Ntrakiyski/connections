@@ -369,15 +369,21 @@ function AppShell(props: {
             <CurrentNavIcon size={16} />
             <h1>{t(`shell.headings.${heading}.title`)}</h1>
           </div>
-          <Button variant="ghost" size="icon-sm" onClick={() => openUserProfile()} aria-label={t("shell.openProfile")}>
-            <UserRound size={17} />
-          </Button>
           {props.loading ? (
             <div className="loading-panel page-loading">
               <Loader2 className="spin" size={16} />
               {t("common.loadingRuntimeData")}
             </div>
-          ) : null}
+          ) : (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => openUserProfile()}
+              aria-label={t("shell.openProfile")}
+            >
+              <UserRound size={17} />
+            </Button>
+          )}
         </header>
 
         <main className={mainClassName}>
