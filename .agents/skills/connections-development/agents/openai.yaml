@@ -1,0 +1,4 @@
+interface:
+  display_name: "Connections Development"
+  short_description: "Develop and debug the Connections SaaS"
+  default_prompt: "Use $connections-development to implement and verify this change in the Connections app."
