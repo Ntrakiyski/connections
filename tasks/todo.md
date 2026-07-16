@@ -302,3 +302,33 @@ Make the Actions browser start with actions from connected providers only, while
 ## Review
 
 The Actions browser now begins with only providers that have an active, non-virtual credential connection. Its provider dropdown is a multi-select: people can add or remove providers for the current browser session, while the Clear control and a browser refresh return to the connected-provider default. Search, pagination, and action deep links remain intact. The approval default now also recognizes the catalog's full mutation-verb set, including camel-case action names; stored workspace policies still override the default. Focused tests, the web production build, `npm run fix-check`, the full Vitest suite (56 files / 426 tests), and `git diff --check` passed.
+
+---
+
+# Task Plan
+
+## Goal
+
+Expose Clerk's hosted user-profile management UI inside the Connections console.
+
+## Constraints
+
+- Reuse Clerk's prebuilt profile component; do not duplicate profile fields, account security, or identity storage in Connections.
+- Keep Clerk's hash routing isolated from the application's React Router paths.
+
+## Steps
+
+- [x] Confirm the installed Clerk React component and routing options.
+- [x] Add the Profile navigation route and render the hosted Clerk user profile.
+- [x] Update the product documentation and navigation translations.
+- [x] Build and regression-test the console.
+
+## Verification
+
+- [x] The Profile route renders Clerk's prebuilt user-profile surface.
+- [x] Profile navigation does not interfere with existing workspace routes.
+- [x] Web build, project checks, tests, and diff validation pass.
+
+## Review
+
+The sidebar now includes Profile. It renders Clerk's prebuilt `UserProfile` component at `/profile` using hash routing, so its internal account and security pages cannot conflict with Connections routes. No user data, settings, or custom profile UI was added to Connections. The web build, focused UI/i18n tests, `npm run fix-check`, the full Vitest suite (56 files / 426 tests), and `git diff --check` passed.

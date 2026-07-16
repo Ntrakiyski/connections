@@ -18,7 +18,7 @@ Each workspace is isolated: its members, providers, OAuth configuration, connect
 
 ## Workspace experience
 
-The console uses Clerk's workspace selector in the sidebar. Clerk provides organization creation, switching, profile management, invitations, and membership management. Connections uses that active organization as its workspace boundary and focuses its own console on provider connections, runtime tokens, and execution.
+The console uses Clerk's workspace selector and profile screen in the sidebar. Clerk provides personal profile management, organization creation, switching, profile management, invitations, and membership management. Connections uses that active organization as its workspace boundary and focuses its own console on provider connections, runtime tokens, and execution.
 
 Within a workspace, the provider page shows only providers the workspace has enabled. A member can connect one or more labeled accounts for an enabled provider. For example, after Gmail is enabled and configured, a member selects **Connect Gmail**, chooses a Google account, and completes OAuth.
 

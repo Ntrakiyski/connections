@@ -11,7 +11,7 @@ import type {
 import type { ThemeMode } from "./theme";
 import type { ReactNode } from "react";
 
-import { OrganizationSwitcher, SignIn, SignOutButton, useAuth } from "@clerk/clerk-react";
+import { OrganizationSwitcher, SignIn, SignOutButton, UserProfile, useAuth } from "@clerk/clerk-react";
 import { useI18n, useLang, useTranslate } from "@embra/i18n/react";
 import {
   Activity,
@@ -25,6 +25,7 @@ import {
   RefreshCw,
   Sun,
   TerminalSquare,
+  UserRound,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router";
@@ -57,6 +58,7 @@ const navItems: readonly NavItem[] = [
   { path: "/runs", labelKey: "nav.runs", icon: Activity },
   { path: "/access", labelKey: "nav.access", icon: KeyRound },
   { path: "/resources", labelKey: "nav.docs", icon: BookOpen },
+  { path: "/profile", labelKey: "nav.profile", icon: UserRound },
 ];
 
 const oauthCompletionChannelName = "oomol-connect-oauth";
@@ -404,6 +406,7 @@ function AppShell(props: {
               element={<AccessPage tokens={props.data.runtimeTokens} onRefresh={props.onRefresh} />}
             />
             <Route path="/resources" element={<ResourcesPage workspaceName={props.data.workspaceName} />} />
+            <Route path="/profile" element={<UserProfile routing="hash" />} />
             <Route path="*" element={<Navigate to="/overview" replace />} />
           </Routes>
         </main>
@@ -478,6 +481,7 @@ function headingForPath(pathname: string): string {
   if (section === "runs") return "runs";
   if (section === "access") return "access";
   if (section === "resources") return "resources";
+  if (section === "profile") return "profile";
   if (section === "workspace") return pathname.endsWith("members") ? "members" : "settings";
   return "overview";
 }

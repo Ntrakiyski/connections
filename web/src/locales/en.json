@@ -43,6 +43,7 @@
     "runs": "Runs",
     "access": "API Key",
     "docs": "Docs",
+    "profile": "Profile",
     "members": "Members",
     "settings": "Workspace settings"
   },
@@ -83,6 +84,10 @@
       "resources": {
         "title": "Resources",
         "subtitle": "Generated API references and tool metadata."
+      },
+      "profile": {
+        "title": "Profile",
+        "subtitle": "Manage your account and security settings."
       },
       "members": {
         "title": "Members",
