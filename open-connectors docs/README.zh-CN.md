@@ -114,16 +114,10 @@ secret，然后运行 `npm run deploy:cloudflare`。
 
 ## 快速开始
 
-使用 Docker Compose 从发布的镜像启动运行时：
+使用 Docker Compose 从当前仓库源码构建并启动运行时：
 
 ```bash
-docker compose up
-```
-
-这会拉取 `ghcr.io/oomol-lab/open-connector:latest`。想改为从源码构建：
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.build.yml up --build
+docker compose up --build
 ```
 
 打开本地控制台和生成的 API 文档：

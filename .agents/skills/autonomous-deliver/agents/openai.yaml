@@ -1,4 +1,0 @@
-interface:
-  display_name: "Autonomous Deliver"
-  short_description: "Execute one approved feature safely"
-  default_prompt: "Use $autonomous-deliver to implement the active approved Spec Kit feature."

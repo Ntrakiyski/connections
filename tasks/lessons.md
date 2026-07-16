@@ -1,5 +1,40 @@
 # Lessons
 
+## 2026-07-16 - Separate binary cleanup from text patches
+
+Mistake: Included PNG assets in a generated `apply_patch` deletion set, which failed because the patch tool reads deleted files as UTF-8.
+Why it happened: The cleanup set was generated from tracked paths without classifying binary files first.
+Rule for next time: Before bulk deletion through `apply_patch`, classify paths with `git diff --numstat` or `file` and keep binary deletion in a separately reviewed operation.
+Example check: Confirm the generated patch contains only text files before calling `apply_patch`.
+
+## 2026-07-16 - Run the repository formatter on generated skill references
+
+Mistake: Validated skill structure before checking the generated Markdown references with the repository formatter.
+Why it happened: Skill validation checks metadata and naming, not project-specific Markdown formatting.
+Rule for next time: After writing a repository-local skill, run `oxfmt` on the skill folder before the final validator and diff check.
+Example check: `npx oxfmt .agents/skills/<skill> && npx oxfmt --check .agents/skills/<skill>`.
+
+## 2026-07-16 - Run the skill validator with an isolated YAML dependency
+
+Mistake: Invoked `quick_validate.py` with the system Python even though PyYAML was not installed there.
+Why it happened: The validator's dependency was assumed to be bundled with the script.
+Rule for next time: Check the validator dependency first and run it through `uv run --with pyyaml` when the system interpreter lacks YAML support.
+Example check: `uv run --with pyyaml python scripts/quick_validate.py <skill-folder>`.
+
+## 2026-07-16 - Invoke non-executable skill scripts through their interpreter
+
+Mistake: Tried to execute the skill initializer directly even though its executable bit was not set.
+Why it happened: The skill documentation showed the script as an executable command, but the installed file permissions differed.
+Rule for next time: Check a provided script's interpreter and permissions before invocation; use the declared interpreter when it is not executable.
+Example check: `test -x scripts/init_skill.py || python3 scripts/init_skill.py --help`.
+
+## 2026-07-16 - Treat header status controls as one layout slot
+
+Mistake: Rendered the profile button and runtime loader as separate siblings in a `space-between` header, which moved the profile button into the center during refresh.
+Why it happened: The profile control was added without checking the existing transient loading state in the same flex container.
+Rule for next time: When adding a right-aligned header control, inspect every loading and error state and render mutually exclusive controls through one stable layout slot.
+Example check: Capture the header once during loading and once after loading; the right-side content must not create an extra flex child.
+
 ## 2026-07-16 - Use Clerk's modal surface for account settings
 
 Mistake: Embedded Clerk UserProfile as a full Connections route when the requested experience matched the existing Clerk Organization modal.
@@ -56,12 +91,12 @@ Why it happened: Source tests proved signature and synchronization behavior, but
 Rule for next time: After adding any webhook, send a harmless unsigned request to the production endpoint; `400 invalid signature` proves the secret is live, while `404` means the integration is disabled.
 Example check: `POST /api/webhooks/clerk` must return `400` before inviting the first collaborator.
 
-## 2026-07-15 - Avoid shell-reserved variable names in verification commands
+## 2026-07-16 - Avoid shell-reserved variable names in zsh commands
 
-Mistake: Used `status` as a zsh variable while checking the webhook response.
-Why it happened: The command was written for generic POSIX shells without accounting for zsh's readonly special parameter.
-Rule for next time: Use descriptive, non-special names such as `http_status` in cross-shell diagnostic commands.
-Example check: Run the composed command once in the active shell before combining it with state inspection.
+Mistake: Used `status` in a webhook check and later `path` in a cleanup loop; both are special zsh parameters, and assigning `path` broke command lookup for the rest of that shell.
+Why it happened: The commands were written with generic variable names without checking zsh's special parameter set.
+Rule for next time: Use descriptive, non-special names such as `http_status` and `candidate_dir` in cross-shell diagnostic commands.
+Example check: Run the composed command once in the active shell before combining it with state inspection, and never use `path`, `status`, or `commands` as loop variables in zsh.
 
 ## 2026-07-15 - Count SQL insert values before combining a repair with its audit event
 

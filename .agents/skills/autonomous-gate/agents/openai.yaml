@@ -1,4 +1,0 @@
-interface:
-  display_name: "Autonomous Gate"
-  short_description: "Audit delivery gates with evidence"
-  default_prompt: "Use $autonomous-gate to review the active feature before it progresses."

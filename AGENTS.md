@@ -4,13 +4,13 @@
 
 This repository starts from OpenConnector, but the product being built is Connections: a shared SaaS for workspace-scoped provider connections and MCP access. Do not treat the current single-runtime behavior as the target product.
 
-Before planning or implementing product work, read [VISION.md](VISION.md) and [LOCKED.md](LOCKED.md).
+Before planning or implementing product work, read [VISION.md](connections-docs/VISION.md) and [LOCKED.md](connections-docs/LOCKED.md).
 
-- `LOCKED.md` is the binding record of accepted product and architecture decisions.
-- `VISION.md` explains the intended product to a new contributor.
+- `connections-docs/LOCKED.md` is the binding record of accepted product and architecture decisions.
+- `connections-docs/VISION.md` explains the intended product to a new contributor.
 - This file defines engineering practice and repository conventions.
-- If a proposed change conflicts with `LOCKED.md`, stop and obtain a decision instead of silently preserving upstream behavior or inventing a new product rule.
-- Update `LOCKED.md` when a product or architecture decision is accepted. Update `VISION.md` when the product direction materially changes.
+- If a proposed change conflicts with `connections-docs/LOCKED.md`, stop and obtain a decision instead of silently preserving upstream behavior or inventing a new product rule.
+- Update `connections-docs/LOCKED.md` when a product or architecture decision is accepted. Update `connections-docs/VISION.md` when the product direction materially changes.
 
 The existing OpenConnector runtime remains the provider-execution foundation. Preserve upstream-compatible behavior unless a locked Connections requirement intentionally changes it.
 
@@ -74,13 +74,6 @@ The existing OpenConnector runtime remains the provider-execution foundation. Pr
 - Run `npm run build` only when you need a separate no-fix typecheck, for example after generated files changed or for CI parity.
 - Run `npm run generate:catalog` when provider definitions or actions change.
 - Run provider examples manually when the task changes user-facing example behavior.
-
-<!-- SPECKIT START -->
-
-For additional context about technologies to be used, project structure,
-shell commands, and other important information, read the current plan
-
-<!-- SPECKIT END -->
 
 <!-- INSFORGE:START -->
 

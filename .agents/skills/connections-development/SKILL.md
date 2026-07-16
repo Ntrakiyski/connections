@@ -16,8 +16,6 @@ Read these files before product work:
 3. `connections-docs/VISION.md` for the intended user experience.
 4. `tasks/lessons.md` for known failure patterns relevant to the task.
 
-Do not use `web/PRODUCT.md` as product truth; it still describes the upstream single-user runtime. Use it only for visual principles that do not conflict with the locked Connections model.
-
 Then load only the task-specific reference:
 
 - Read [references/frontend.md](references/frontend.md) for console, state, loading, OAuth popup, responsive, or browser behavior.

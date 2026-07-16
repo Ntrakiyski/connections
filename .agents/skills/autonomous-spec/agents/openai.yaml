@@ -1,4 +1,0 @@
-interface:
-  display_name: "Autonomous Spec"
-  short_description: "Create a governed Spec Kit feature"
-  default_prompt: "Use $autonomous-spec to turn approved scope into a Spec Kit feature."

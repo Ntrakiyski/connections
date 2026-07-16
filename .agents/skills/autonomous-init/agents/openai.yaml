@@ -1,4 +1,0 @@
-interface:
-  display_name: "Autonomous Init"
-  short_description: "Set up project-local delivery state"
-  default_prompt: "Use $autonomous-init to set up autonomous delivery in this project."

@@ -131,16 +131,10 @@ secrets requis et exécuter `npm run deploy:cloudflare`.
 
 ## Démarrage Rapide
 
-Démarrez le runtime depuis l'image publiée avec Docker Compose :
+Construisez et démarrez le runtime depuis ce checkout avec Docker Compose :
 
 ```bash
-docker compose up
-```
-
-Cela récupère `ghcr.io/oomol-lab/open-connector:latest`. Pour builder depuis les sources :
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.build.yml up --build
+docker compose up --build
 ```
 
 Ouvrez la console locale et la référence API générée :

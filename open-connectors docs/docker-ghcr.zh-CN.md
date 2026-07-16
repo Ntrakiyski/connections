@@ -67,17 +67,11 @@ docker run -d \
 
 ### Docker Compose
 
-仓库自带一个 [`docker-compose.yml`](../docker-compose.yml)，直接运行这个发布镜像。在仓库目录下，先 export
+仓库自带的 [`docker-compose.yml`](../docker-compose.yml) 会从当前源码构建镜像。在仓库目录下，先 export
 上面的 secret，再启动：
 
 ```bash
-docker compose up
-```
-
-想改为从源码构建而不是拉取：
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.build.yml up --build
+docker compose up --build
 ```
 
 ## 验证

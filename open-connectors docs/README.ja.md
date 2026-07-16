@@ -119,16 +119,10 @@ OpenConnector を Cloudflare の Workers、D1、R2、Web Console で起動する
 
 ## クイックスタート
 
-公開イメージから Docker Compose で runtime を起動します。
+このチェックアウトのソースを Docker Compose でビルドして runtime を起動します。
 
 ```bash
-docker compose up
-```
-
-これは `ghcr.io/oomol-lab/open-connector:latest` を pull します。ソースからビルドする場合：
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.build.yml up --build
+docker compose up --build
 ```
 
 ローカル console と生成された API reference を開きます。

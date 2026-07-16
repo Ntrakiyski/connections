@@ -71,17 +71,11 @@ See [configuration.md](configuration.md) for the full environment variable refer
 
 ### Docker Compose
 
-The repository ships a [`docker-compose.yml`](../docker-compose.yml) that runs this published image.
+The repository ships a [`docker-compose.yml`](../docker-compose.yml) that builds the current source.
 From a checkout, export the secrets shown above and start it:
 
 ```bash
-docker compose up
-```
-
-To build from source instead of pulling, add the build overlay:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.build.yml up --build
+docker compose up --build
 ```
 
 ## Verify

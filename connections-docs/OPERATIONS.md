@@ -41,12 +41,12 @@ Members see only their own connections, tokens, runs, and temporary files. Manag
 
 Use the log source that owns the symptom:
 
-| Symptom | First place to inspect | Durable record |
-| --- | --- | --- |
-| Container start, HTTP failures, provider exceptions, stack traces | Coolify application logs | None by default |
-| Action result, duration, error code, and redacted input summary | Connections **Runs** page | InsForge `runs` records |
-| Provider configuration, token, policy, membership, and lifecycle changes | Connections audit API / database | InsForge `audit_events` records |
-| Database or InsForge gateway problem | InsForge Logs: PostgreSQL or PostgREST source | InsForge platform logs |
+| Symptom                                                                  | First place to inspect                        | Durable record                  |
+| ------------------------------------------------------------------------ | --------------------------------------------- | ------------------------------- |
+| Container start, HTTP failures, provider exceptions, stack traces        | Coolify application logs                      | None by default                 |
+| Action result, duration, error code, and redacted input summary          | Connections **Runs** page                     | InsForge `runs` records         |
+| Provider configuration, token, policy, membership, and lifecycle changes | Connections audit API / database              | InsForge `audit_events` records |
+| Database or InsForge gateway problem                                     | InsForge Logs: PostgreSQL or PostgREST source | InsForge platform logs          |
 
 Connections emits structured Pino logs to standard output. Coolify captures these container logs; they are not copied into InsForge. The InsForge Logs page is useful for its PostgreSQL and platform services, but it is not a mirror of the Coolify-hosted Connections application.
 

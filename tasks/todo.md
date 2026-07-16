@@ -332,3 +332,182 @@ Expose Clerk's hosted user-profile modal from the Connections header.
 ## Review
 
 The header now uses a compact person icon that calls Clerk's prebuilt user-profile modal. It replaces the workspace label; the Profile route and sidebar entry were removed. The web production build, focused UI/i18n tests, `npm run fix-check`, the full Vitest suite (56 files / 426 tests), and `git diff --check` passed.
+
+---
+
+# Task Plan
+
+## Goal
+
+Connect Codex to the user's Coolify instance through the Coolify MCP server.
+
+## Constraints
+
+- Keep the supplied API token out of the repository and command output.
+- Preserve the existing Coolify MCP configuration until the new connection is verified.
+- Verify with a read-only initialization request only.
+
+## Steps
+
+- [x] Inspect the upstream MCP setup and existing local Codex configuration.
+- [x] Add a separate local Coolify MCP entry with the supplied token.
+- [x] Verify the MCP handshake without modifying Coolify resources.
+
+## Verification
+
+- [x] The local Codex configuration contains a Coolify MCP server for the verified host.
+- [x] The server initializes successfully with the new token.
+- [x] No repository or Coolify resource is changed.
+
+## Review
+
+Added a separate local `coolify_fractals` Codex MCP entry for the verified Coolify host without altering the pre-existing Coolify configuration. A direct standard-MCP stdio verification completed `initialize`, `tools/list`, and the read-only `get_version` call successfully. No repository application code or Coolify resource was changed. The supplied token was kept out of repository files and command output; because it was pasted into chat, it should be rotated in Coolify after this connection has been replaced with a newly issued token.
+
+---
+
+# Task Plan
+
+## Goal
+
+Prevent the header profile control from shifting through the center while runtime data refreshes, then release the fix to the production Coolify application.
+
+## Constraints
+
+- Preserve Clerk's prebuilt profile modal and existing header layout.
+- Show exactly one right-side header state: the loader while loading, then the profile button.
+- Do not change runtime loading or authentication behavior.
+- Deploy only the pushed `main` revision to Coolify application `m14hs9i7dspgix9ul8gx7lgp`.
+
+## Steps
+
+- [x] Trace the loading state and identify the flex-layout root cause.
+- [x] Render the loader and profile button as mutually exclusive states.
+- [x] Run focused checks and project verification; attempt rendered UI validation.
+- [x] Commit and push the fix to `main`.
+- [x] Redeploy the exact Coolify application and verify its health/logs.
+
+## Verification
+
+- [x] Loading state renders the loader without a profile icon.
+- [x] Loaded state renders the profile icon in the right-side header slot.
+- [x] Clerk profile modal callback remains attached to the loaded-state button.
+- [x] `npm run fix-check`, web build, relevant/full tests, and `git diff --check` pass.
+- [x] Coolify reports the new deployment healthy.
+
+## Review
+
+The header now renders one mutually exclusive right-side state: runtime loading feedback first, then the Clerk profile button. This removes the third flex child that temporarily centered the profile icon. Commit `c5d5402` was pushed to `origin/main` and deployed through Coolify as deployment `eap026r9w7g1zmhbbastzlnz`; Coolify reports `running:healthy`, the new production asset hashes match the local build, and the container log tail has no error signals. Verification passed `npm run fix-check`, the web production build, the focused UI test (4 tests), the full Vitest suite (56 files / 426 tests), and `git diff --check`. Rendered browser automation was attempted, but the browser runtime reported that no browser backend was available, so the loading transition and Clerk modal interaction could not be visually exercised in this session.
+
+---
+
+# Task Plan
+
+## Goal
+
+Create a repository-local skill that gives future agents accurate, app-specific guidance for developing and debugging Connections across its UI, state/loading behavior, responsive layout, browser-to-backend data flow, APIs, storage, logs, deployment, and error handling.
+
+## Constraints
+
+- Derive the skill from current source, tests, product decisions, and verified deployment behavior.
+- Keep the skill concise and progressively disclose detailed architecture through references.
+- Do not duplicate generic React, Hono, Clerk, InsForge, or Coolify documentation.
+- Preserve the current dirty task/lesson notes and avoid unrelated source changes.
+- Include no credentials, tenant data, or environment-specific secrets.
+
+## Steps
+
+- [x] Audit frontend UI composition, state ownership, loading/error transitions, responsive CSS, and UI tests.
+- [x] Audit backend/API routes, authentication, workspace authorization, data/storage flow, MCP, and error shaping.
+- [x] Audit logs, Coolify deployment, InsForge diagnostics, migrations, and verification commands.
+- [x] Initialize `.agents/skills/connections-development` with focused references and agent metadata.
+- [x] Validate the skill structure and forward-test it against realistic maintenance tasks.
+- [x] Review, commit, and push the completed skill.
+
+## Verification
+
+- [x] Every requested area has an authoritative source path and actionable workflow.
+- [x] The skill preserves locked product/security boundaries.
+- [x] The skill validator passes.
+- [x] Independent forward-tests can locate the correct code and verification path without hidden context.
+- [x] `git diff --check` passes and only intended skill files are included in the release commit.
+
+## Review
+
+Created the repository-local `connections-development` skill with a concise development/debugging workflow and progressive references for frontend behavior, backend/data/auth/MCP boundaries, and operations/logging/deployment. The research traced current source, tests, product decisions, and verified production behavior, and records known hazards rather than presenting them as solved. The official skill validator passes in an isolated PyYAML environment; all skill Markdown is repository-formatted and its links resolve. Three fresh-agent forward tests independently found the correct workspace-switch remount boundary, connection-label ownership boundary, and OAuth/Coolify/InsForge diagnostic path without hidden conversation context. Commit `1776268` contains only the five intended skill files and is pushed to `origin/main`.
+
+---
+
+# Task Plan
+
+## Goal
+
+Remove obsolete Autonomous/Specify framework artifacts and their repository-local skills, determine whether `sqlite-migrations` is still required, identify other demonstrably unused repository artifacts, and explain the practical commercial implications of `LICENSE.txt`.
+
+## Constraints
+
+- Trace every candidate through source, scripts, tests, documentation, CI, Docker, and package metadata before deletion.
+- Preserve SQLite local/single-user compatibility required by `connections-docs/LOCKED.md`.
+- Do not remove upstream attribution, copyright notices, or generated/runtime inputs still consumed by the app.
+- Treat license guidance as general information, not individualized legal advice; verify material claims against authoritative sources.
+- Preserve unrelated working-tree changes in `tasks/todo.md` and `tasks/lessons.md`.
+
+## Steps
+
+- [x] Inventory `.autonomous`, `.specify`, their linked skills/scripts/docs, `sqlite-migrations`, and the repository root.
+- [x] Trace all references and classify each artifact as required, generated, historical, or removable.
+- [x] Review `LICENSE.txt`, repository notices, dependency licenses, and authoritative commercial-use obligations.
+- [x] Delete only the confirmed obsolete framework artifacts and update stale references.
+- [x] Verify the cleaned repository with focused searches, project checks, and the full relevant test suite.
+
+## Verification
+
+- [x] No live code, scripts, CI, docs, or skills reference removed paths.
+- [x] SQLite startup and migrations remain functional if retained.
+- [x] Application build, tests, formatter/linter, and `git diff --check` pass.
+- [x] License explanation distinguishes permissions, obligations, upstream notices, trademarks, and client-contract considerations.
+- [x] Review documents the exact deletion set and any candidates intentionally retained.
+
+## Review
+
+Removed 71 tracked Autonomous/Specify framework and dedicated-skill files, their four Autonomous lock records, and the obsolete Spec Kit block in `AGENTS.md`. Also removed the redundant `docker-compose.build.yml` and stale `web/PRODUCT.md`; six retained upstream deployment documents now use the equivalent `docker compose up --build` command. No live code, CI, package script, or documentation references a removed path.
+
+Retained `sqlite-migrations` because the local SQLite runtime, Docker image, D1/SQLite tests, and locked compatibility decision require it. Retained `migrations`, `connections-docs`, alternate Fly/Cloudflare configuration, examples, public governance/license files, and the unlinked upstream documentation/assets because those are supported or require a separate public-documentation decision rather than mechanical deletion.
+
+The repository is Apache-2.0: commercial SaaS, consulting, support, and client deployments are permitted. Distribution still requires license/notice preservation and modified-file/third-party attribution; Apache does not grant OOMOL trademarks or logos. Before client sales, rebrand the remaining OOMOL-facing UI/assets, create a reviewed third-party notices bundle for distributed builds, and review provider/OAuth privacy obligations. This is an engineering license audit, not legal advice.
+
+Verification passed `npm run fix-check`, all 56 Vitest files / 426 tests, Compose configuration validation, focused formatting for every edited retained file, JSON parsing, removed-reference scans, and `git diff --check`.
+
+---
+
+# Task Plan
+
+## Goal
+
+Release the complete reviewed repository cleanup to `main` and deploy that exact commit to the production Connections application in Coolify.
+
+## Constraints
+
+- Include every current intended repository change and no ignored local state, credentials, generated output, or unrelated artifacts.
+- Revalidate the user's additional deletions against live source/build/test/deployment references before committing.
+- Push only after all local checks pass.
+- Deploy only Coolify application `m14hs9i7dspgix9ul8gx7lgp`, wait for terminal status, and verify health plus error-level logs.
+
+## Steps
+
+- [x] Audit the final working tree and confirm every deletion is safe.
+- [x] Run the repository, Docker Compose, and reference-integrity checks.
+- [ ] Commit all intended changes and push `main`.
+- [ ] Deploy the pushed commit to the Connections Coolify application.
+- [ ] Verify the deployment revision, health, and application logs.
+
+## Verification
+
+- [ ] The release commit contains exactly the reviewed cleanup.
+- [ ] `origin/main` matches the local release commit.
+- [ ] Coolify reaches a terminal successful deployment state for that commit.
+- [ ] The application is healthy and its recent logs contain no error-level signals.
+- [ ] Review records the commit and deployment evidence.
+
+## Review
+
+Pending.

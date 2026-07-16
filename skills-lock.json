@@ -1,30 +1,6 @@
 {
   "version": 1,
   "skills": {
-    "autonomous-deliver": {
-      "source": "Ntrakiyski/autonomous-harness",
-      "sourceType": "github",
-      "skillPath": "skills/autonomous-deliver/SKILL.md",
-      "computedHash": "89668ac67fbffdddf186ac47a0552d7a563e194a14bb91c3e6bfb47614e328e6"
-    },
-    "autonomous-gate": {
-      "source": "Ntrakiyski/autonomous-harness",
-      "sourceType": "github",
-      "skillPath": "skills/autonomous-gate/SKILL.md",
-      "computedHash": "1dc1cf9727af5440a526cd286f070a280fc86c456082d097696600bad214c862"
-    },
-    "autonomous-init": {
-      "source": "Ntrakiyski/autonomous-harness",
-      "sourceType": "github",
-      "skillPath": "skills/autonomous-init/SKILL.md",
-      "computedHash": "61e5b0b219c22f47cddc9b198da9215f208cb9bc019d7f2dc1d2fc7bb63a3e04"
-    },
-    "autonomous-spec": {
-      "source": "Ntrakiyski/autonomous-harness",
-      "sourceType": "github",
-      "skillPath": "skills/autonomous-spec/SKILL.md",
-      "computedHash": "8d843689f3dde9113bf2be424042b4420be2ea83e82ebff12b1b7ce8f161704a"
-    },
     "clerk": {
       "source": "clerk/skills",
       "sourceType": "github",

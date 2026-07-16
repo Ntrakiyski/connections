@@ -128,16 +128,10 @@ flowchart LR
 
 ## Быстрый Старт
 
-Запустите runtime из опубликованного образа через Docker Compose:
+Соберите и запустите runtime из этого репозитория через Docker Compose:
 
 ```bash
-docker compose up
-```
-
-Это скачает `ghcr.io/oomol-lab/open-connector:latest`. Чтобы собрать из исходников:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.build.yml up --build
+docker compose up --build
 ```
 
 Откройте локальную console и сгенерированную API reference:
