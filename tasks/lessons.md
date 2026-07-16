@@ -1,5 +1,12 @@
 # Lessons
 
+## 2026-07-16 - Use Clerk's modal surface for account settings
+
+Mistake: Embedded Clerk UserProfile as a full Connections route when the requested experience matched the existing Clerk Organization modal.
+Why it happened: I optimized for direct route access instead of matching the console's established profile-management interaction.
+Rule for next time: When reusing Clerk management UI, first match the existing organization switcher/modal interaction before adding application navigation.
+Example check: Compare the proposed Clerk component with the OrganizationSwitcher behavior shown in the live console.
+
 ## 2026-07-15 - Keep approval in the agent conversation
 
 Mistake: Proposed a browser approval link when the requested product experience was an in-chat confirmation.

@@ -43,7 +43,6 @@
     "runs": "运行记录",
     "access": "API Key",
     "docs": "文档",
-    "profile": "个人资料",
     "members": "成员",
     "settings": "工作区设置"
   },
@@ -54,6 +53,7 @@
     "primaryNav": "主导航",
     "refreshData": "刷新数据",
     "logout": "登出",
+    "openProfile": "打开个人资料",
     "theme": "主题",
     "themeMode": {
       "auto": "自动",
@@ -84,10 +84,6 @@
       "resources": {
         "title": "资源",
         "subtitle": "生成的 API 参考和工具元数据。"
-      },
-      "profile": {
-        "title": "个人资料",
-        "subtitle": "管理您的账户和安全设置。"
       },
       "members": {
         "title": "成员",

@@ -43,7 +43,6 @@
     "runs": "Runs",
     "access": "API Key",
     "docs": "Docs",
-    "profile": "Profile",
     "members": "Members",
     "settings": "Workspace settings"
   },
@@ -54,6 +53,7 @@
     "primaryNav": "Primary",
     "refreshData": "Refresh data",
     "logout": "Log out",
+    "openProfile": "Open profile",
     "theme": "Theme",
     "themeMode": {
       "auto": "Auto",
@@ -84,10 +84,6 @@
       "resources": {
         "title": "Resources",
         "subtitle": "Generated API references and tool metadata."
-      },
-      "profile": {
-        "title": "Profile",
-        "subtitle": "Manage your account and security settings."
       },
       "members": {
         "title": "Members",

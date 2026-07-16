@@ -43,7 +43,6 @@
     "runs": "Exécutions",
     "access": "API Key",
     "docs": "Docs",
-    "profile": "Profil",
     "members": "Membres",
     "settings": "Paramètres de l’espace"
   },
@@ -54,6 +53,7 @@
     "primaryNav": "Principal",
     "refreshData": "Actualiser les données",
     "logout": "Se déconnecter",
+    "openProfile": "Ouvrir le profil",
     "theme": "Thème",
     "themeMode": {
       "auto": "Automatique",
@@ -84,10 +84,6 @@
       "resources": {
         "title": "Ressources",
         "subtitle": "Références d’API générées et métadonnées d’outils."
-      },
-      "profile": {
-        "title": "Profil",
-        "subtitle": "Gérez votre compte et vos paramètres de sécurité."
       },
       "members": {
         "title": "Membres",

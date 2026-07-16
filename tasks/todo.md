@@ -309,26 +309,26 @@ The Actions browser now begins with only providers that have an active, non-virt
 
 ## Goal
 
-Expose Clerk's hosted user-profile management UI inside the Connections console.
+Expose Clerk's hosted user-profile modal from the Connections header.
 
 ## Constraints
 
 - Reuse Clerk's prebuilt profile component; do not duplicate profile fields, account security, or identity storage in Connections.
-- Keep Clerk's hash routing isolated from the application's React Router paths.
+- Match the existing Clerk Organization modal interaction instead of creating a duplicate application page.
 
 ## Steps
 
-- [x] Confirm the installed Clerk React component and routing options.
-- [x] Add the Profile navigation route and render the hosted Clerk user profile.
-- [x] Update the product documentation and navigation translations.
-- [x] Build and regression-test the console.
+- [x] Confirm the installed Clerk modal API.
+- [x] Replace the Profile navigation route with a header profile button that opens Clerk's modal.
+- [x] Update the product documentation and accessible button translations.
+- [x] Build and regression-test the revised console.
 
 ## Verification
 
-- [x] The Profile route renders Clerk's prebuilt user-profile surface.
-- [x] Profile navigation does not interfere with existing workspace routes.
+- [x] The header button opens Clerk's prebuilt user-profile modal.
+- [x] No Profile route or sidebar item remains.
 - [x] Web build, project checks, tests, and diff validation pass.
 
 ## Review
 
-The sidebar now includes Profile. It renders Clerk's prebuilt `UserProfile` component at `/profile` using hash routing, so its internal account and security pages cannot conflict with Connections routes. No user data, settings, or custom profile UI was added to Connections. The web build, focused UI/i18n tests, `npm run fix-check`, the full Vitest suite (56 files / 426 tests), and `git diff --check` passed.
+The header now uses a compact person icon that calls Clerk's prebuilt user-profile modal. It replaces the workspace label; the Profile route and sidebar entry were removed. The web production build, focused UI/i18n tests, `npm run fix-check`, the full Vitest suite (56 files / 426 tests), and `git diff --check` passed.

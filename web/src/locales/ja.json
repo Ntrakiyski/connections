@@ -43,7 +43,6 @@
     "runs": "実行履歴",
     "access": "API Key",
     "docs": "ドキュメント",
-    "profile": "プロフィール",
     "members": "メンバー",
     "settings": "ワークスペース設定"
   },
@@ -54,6 +53,7 @@
     "primaryNav": "メインナビゲーション",
     "refreshData": "データを更新",
     "logout": "ログアウト",
+    "openProfile": "プロフィールを開く",
     "theme": "テーマ",
     "themeMode": {
       "auto": "自動",
@@ -84,10 +84,6 @@
       "resources": {
         "title": "リソース",
         "subtitle": "生成された API reference と tool metadata です。"
-      },
-      "profile": {
-        "title": "プロフィール",
-        "subtitle": "アカウントとセキュリティ設定を管理します。"
       },
       "members": {
         "title": "メンバー",

@@ -379,7 +379,6 @@ h3 {
   width: 100%;
 }
 
-.shell-workspace-name,
 .table-subtitle,
 .workspace-resource-name {
   color: var(--muted-foreground);
