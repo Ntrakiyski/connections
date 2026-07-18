@@ -1,6 +1,6 @@
 ---
 name: add-provider
-description: Add or extend an open-source OOMOL Connect provider under src/providers/<service>, including provider definition, action schemas, local executors, credential validation, examples, and generated catalog updates.
+description: Add or extend an open-source OOMOL Connect provider under src/providers/service-id, including provider definition, action schemas, local executors, credential validation, examples, and generated catalog updates.
 ---
 
 # Add Provider
@@ -26,7 +26,7 @@ Before editing, read:
 
 - `AGENTS.md`.
 - `CONTRIBUTING.md`.
-- `docs/catalog-format.md`.
+- `open-connectors docs/catalog-format.md`.
 - Existing providers with similar auth and runtime shape under `src/providers`.
 - Shared provider helpers in `src/core/json-schema.ts`, `src/core/cast.ts`, `src/core/request.ts`, `src/core/types.ts`, and `src/providers/provider-runtime.ts`.
 
@@ -48,6 +48,17 @@ Do not copy these examples mechanically. Use them to discover the current helper
 
 ## Target Shape
 
+The provider framework contract is `definition.ts` plus `executors.ts`. `actions.ts` is a strong convention, not a hard requirement: small providers may define actions directly in `definition.ts`, while larger providers split action declarations and runtime implementation across helper files.
+
+Current inventory pattern:
+
+- Every provider has `definition.ts` and `executors.ts`.
+- Nearly every provider has `actions.ts`; known inline-action providers include `a_leads`, `abstract`, and `hackernews`.
+- Many providers have `runtime.ts` or `runtime-*.ts` for provider-specific HTTP clients, pagination, resource groups, normalization, and error mapping.
+- OAuth-heavy providers often have `scopes.ts`; providers with shared enums or fixed provider-native values may have `constants.ts`.
+- Large providers may split runtime handlers by API area, such as `github/runtime-issue.ts`, `doppler/runtime.secrets.ts`, or `googlesheets/runtime-values.ts`.
+- OpenAPI-derived generation is exceptional, not the default. `dokploy` has `generate.ts` and generated operation source; most providers are hand-maintained source.
+
 Provider code normally lives under:
 
 ```text
@@ -66,6 +77,7 @@ Rules:
 - Keep definitions importable without network, credentials, or executor code.
 - Keep executor modules lazy. `definition.ts` must not import `executors.ts`, and executor modules should not import `definition.ts` just to reuse catalog metadata.
 - Keep provider-local helpers for provider-specific URLs, signing, pagination, envelopes, error extraction, and response normalization. Put generic casts, reads, query building, request helpers, and credential wiring in shared helpers when they are useful across providers.
+- Keep file splits semantic. Add `runtime-*.ts` only when it represents a real provider API area or protocol boundary, not just to shrink a file.
 
 ## Provider Definition
 
@@ -77,6 +89,7 @@ Create or update `definition.ts` as catalog source code:
 - Use `defineProviderAction(service, action)` from `src/core/provider-definition.ts` so action ids stay stable as `<service>.<name>`.
 - Use provider-native `requiredScopes` and `providerPermissions`; do not invent private aliases.
 - Keep action descriptions and schema descriptions useful for agents. They should describe the business operation and field meaning, not the implementation.
+- Treat actions as the Connections-owned agent/runtime contract over the provider API, not as a blind copy of every upstream endpoint. Prefer the smallest useful runnable action set with clear input and output semantics.
 
 Build `inputSchema` and `outputSchema` with `s` from `src/core/json-schema.ts`:
 
@@ -114,6 +127,32 @@ Create or update `executors.ts` with `ProviderExecutors`:
 - Pass `context.signal` and transit file support through provider contexts when the provider needs cancellation or file output.
 
 Provider-local runtime files are appropriate when a provider has multiple API areas or a meaningful shared protocol. Do not add local mini-frameworks, schema facades, or action adapter layers just to reduce edit size.
+
+## Execution Model
+
+All HTTP and MCP action execution converges on the shared `ActionRunner`. A provider does not get its own runner. The flow is:
+
+```text
+MCP execute_action or HTTP /v1/actions/:actionId
+  -> workspace/token or Clerk auth
+  -> explicit connectionName lookup
+  -> shared ActionRunner
+  -> lazy ProviderLoader import of src/providers/<service>/executors.ts
+  -> provider handler
+  -> provider API
+  -> run log
+```
+
+Provider authors should account for this runtime behavior:
+
+- `connectionName` is mandatory for MCP and `/v1` execution; never rely on a hidden default account selection.
+- Members can access only their own connections; managers/admins can use workspace-visible connections.
+- Concurrent calls to the same action and connection run independently. There is no provider-level queue, dedupe, or lock in `ActionRunner`.
+- Provider API quotas and rate limits are the real backpressure unless the provider implementation adds explicit handling.
+- OAuth credentials are resolved at execution time and refreshed when expired. Do not assume a long-lived in-memory provider client.
+- `ActionRunner` writes one run log per attempt. Keep executor outputs and errors stable enough for useful run history and downstream analysis.
+
+When designing actions, think of the provider action as a hookable wrapper boundary: preflight policy, input validation, credential resolution, provider execution, output normalization, error mapping, and post-run logging all happen outside or around the provider handler.
 
 ## Historical Failure Modes
 
