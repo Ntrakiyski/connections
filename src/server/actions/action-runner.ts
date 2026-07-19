@@ -211,6 +211,13 @@ export class ActionRunner {
     const context: ExecutionContext = {
       ...this.options.connections.forConnection(connectionName),
     };
+    if (this.options.workspace) {
+      context.identity = {
+        workspaceId: this.options.workspace.workspaceId,
+        userId: this.options.workspace.userId,
+        role: this.options.workspace.role,
+      };
+    }
     if (this.options.transitFiles) {
       context.transitFiles = this.createTransitFileWriter(this.options.transitFiles);
     }

@@ -10,33 +10,26 @@ export const provider: ProviderDefinition = {
   displayName: "Board",
   description: "Read and update collaborative tldraw boards hosted on your own Board server.",
   categories: ["Productivity", "Design & Media"],
-  authTypes: ["custom_credential"],
+  authTypes: ["api_key"],
   auth: [
     {
-      type: "custom_credential",
-      fields: [
+      type: "api_key",
+      label: "Board workspace token",
+      placeholder: "bd_...",
+      description:
+        "A scoped Board workspace token created from the Board API while signed in with Clerk. The token only grants access to one Clerk organization workspace.",
+      extraFields: [
         {
-          key: "baseUrl",
+          key: "boardUrl",
           label: "Board URL",
           inputType: "text",
           required: true,
           secret: false,
           placeholder: "http://100.64.0.2:5421",
           description:
-            "The root URL of the self-hosted Board server. Public addresses work by default; Tailscale and private-network targets require OOMOL_CONNECT_ALLOW_PRIVATE_NETWORK on the Connections runtime. Loopback, reserved, and cloud-metadata targets remain blocked.",
-        },
-        {
-          key: "bearerToken",
-          label: "Bearer Token",
-          inputType: "password",
-          required: false,
-          secret: true,
-          placeholder: "Optional deployment access token",
-          description:
-            "Optional bearer token for Board deployments that require one. Leave blank when the server relies on private-network access without application authentication.",
+            "The root URL of the self-hosted Board server. Public addresses work by default; Tailscale and private-network targets require OOMOL_CONNECT_ALLOW_PRIVATE_NETWORK on the Connections runtime.",
         },
       ],
-      testAction: { actionName: "list_boards", input: {} },
     },
   ],
   iconUrl: "/board-icon.png",

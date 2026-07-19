@@ -1,33 +1,33 @@
-import type {
-  CredentialValidationResult,
-  CredentialValidators,
-  ExecutionContext,
-  ProviderExecutors,
-} from "../../core/types.ts";
+import type { CredentialValidators, ExecutionContext, ProviderExecutors } from "../../core/types.ts";
 import type { BoardContext } from "./runtime.ts";
 
 import { isPrivateNetworkAccessAllowed } from "../../core/request.ts";
-import { createProviderFetch, defineProviderExecutors, requireCustomCredential } from "../provider-runtime.ts";
-import { boardActionHandlers, createBoardContext, validateBoardCredential } from "./runtime.ts";
+import { createProviderFetch, defineProviderExecutors, requireApiKeyCredential } from "../provider-runtime.ts";
+import { boardActionHandlers, normalizeBoardBaseUrl, validateBoardCredential } from "./runtime.ts";
 
 const service = "board";
 
 export const executors: ProviderExecutors = defineProviderExecutors<BoardContext>({
   service,
   handlers: boardActionHandlers,
-  allowPrivateNetwork: isPrivateNetworkAccessAllowed,
   async createContext(context: ExecutionContext, fetcher: typeof fetch): Promise<BoardContext> {
-    const credential = await requireCustomCredential(context, service);
-    return createBoardContext(credential.values, fetcher, context.signal);
+    const credential = await requireApiKeyCredential(context, service);
+    return {
+      baseUrl: normalizeBoardBaseUrl(credential.values.boardUrl ?? credential.metadata.boardUrl),
+      token: credential.apiKey,
+      fetcher,
+      signal: context.signal,
+    };
   },
+  allowPrivateNetwork: isPrivateNetworkAccessAllowed,
 });
 
 export const credentialValidators: CredentialValidators = {
-  customCredential(input, { fetcher, signal }): Promise<CredentialValidationResult> {
+  apiKey(input, { fetcher, signal }) {
     const guardedFetcher = createProviderFetch({
       fetch: fetcher,
       allowPrivateNetwork: isPrivateNetworkAccessAllowed,
     });
-    return validateBoardCredential(input.values, guardedFetcher, signal);
+    return validateBoardCredential(input.values, input.apiKey, guardedFetcher, signal);
   },
 };

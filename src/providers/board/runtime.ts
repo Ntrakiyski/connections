@@ -1,125 +1,125 @@
 import type { CredentialValidationResult } from "../../core/types.ts";
-import type { BoardActionName } from "./actions.ts";
+import type { ProviderFetch } from "../provider-runtime.ts";
 
-import { objectArray, optionalRecord, optionalString, requiredString, requiredStringArray } from "../../core/cast.ts";
-import { assertPublicHttpUrl, encodePathSegment, isPrivateNetworkAccessAllowed } from "../../core/request.ts";
-import { providerRequest, ProviderRequestError } from "../provider-runtime.ts";
-
-type BoardActionHandler = (input: Record<string, unknown>, context: BoardContext) => Promise<unknown>;
+import { requiredString } from "../../core/cast.ts";
+import { ProviderRequestError } from "../provider-runtime.ts";
 
 export interface BoardContext {
   baseUrl: string;
-  bearerToken?: string;
-  fetcher: typeof fetch;
+  token: string;
+  fetcher: ProviderFetch;
   signal?: AbortSignal;
 }
 
-export const boardActionHandlers: Record<BoardActionName, BoardActionHandler> = {
-  list_boards(_input, context) {
-    return requestBoardJson(context, "/api/boards", "GET");
+export const boardActionHandlers = {
+  async list_boards(_input: Record<string, unknown>, context: BoardContext): Promise<unknown> {
+    return boardRequest(context, "GET", "/api/boards");
   },
-  read_board(input, context) {
-    return requestBoardJson(context, `/api/boards/${roomId(input)}`, "GET");
+  async read_board(input: Record<string, unknown>, context: BoardContext): Promise<unknown> {
+    const roomId = requiredString(input.roomId, "roomId", boardInputError);
+    return boardRequest(context, "GET", `/api/boards/${encodeURIComponent(roomId)}`);
   },
-  rename_board(input, context) {
-    return requestBoardJson(context, `/api/boards/${roomId(input)}`, "PATCH", {
-      name: requiredString(input.name, "name", inputError),
+  async get_board_snapshot(input: Record<string, unknown>, context: BoardContext): Promise<unknown> {
+    const roomId = requiredString(input.roomId, "roomId", boardInputError);
+    return boardRequest(context, "GET", `/api/boards/${encodeURIComponent(roomId)}/snapshot`);
+  },
+  async rename_board(input: Record<string, unknown>, context: BoardContext): Promise<unknown> {
+    const roomId = requiredString(input.roomId, "roomId", boardInputError);
+    return boardRequest(context, "PATCH", `/api/boards/${encodeURIComponent(roomId)}`, {
+      name: requiredString(input.name, "name", boardInputError),
     });
   },
-  create_or_update_records(input, context) {
-    return requestBoardJson(context, `/api/boards/${roomId(input)}/records`, "POST", {
-      records: objectArray(input.records, "records", inputError),
+  async create_or_update_records(input: Record<string, unknown>, context: BoardContext): Promise<unknown> {
+    const roomId = requiredString(input.roomId, "roomId", boardInputError);
+    return boardRequest(context, "POST", `/api/boards/${encodeURIComponent(roomId)}/records`, {
+      records: input.records,
     });
   },
-  delete_records(input, context) {
-    return requestBoardJson(context, `/api/boards/${roomId(input)}/records`, "DELETE", {
-      recordIds: requiredStringArray(input.recordIds, "recordIds", inputError),
+  async delete_records(input: Record<string, unknown>, context: BoardContext): Promise<unknown> {
+    const roomId = requiredString(input.roomId, "roomId", boardInputError);
+    return boardRequest(context, "DELETE", `/api/boards/${encodeURIComponent(roomId)}/records`, {
+      recordIds: input.recordIds,
     });
   },
 };
 
-export function createBoardContext(
-  values: Record<string, string>,
-  fetcher: typeof fetch,
-  signal?: AbortSignal,
-): BoardContext {
-  const context: BoardContext = {
-    baseUrl: normalizeBoardBaseUrl(values.baseUrl),
-    fetcher,
-    signal,
-  };
-  const bearerToken = optionalString(values.bearerToken);
-  if (bearerToken) context.bearerToken = bearerToken;
-  return context;
-}
-
-export async function validateBoardCredential(
-  values: Record<string, string>,
-  fetcher: typeof fetch,
-  signal?: AbortSignal,
-): Promise<CredentialValidationResult> {
-  const context = createBoardContext(values, fetcher, signal);
-  const payload = optionalRecord(await requestBoardJson(context, "/api/boards", "GET"));
-  if (!payload || !Array.isArray(payload.boards)) {
-    throw new ProviderRequestError(400, "Board credential validation returned an unexpected response");
+export function normalizeBoardBaseUrl(value: unknown): string {
+  const raw = requiredString(value, "boardUrl", boardInputError).trim();
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new ProviderRequestError(400, "boardUrl must be an absolute http(s) URL");
   }
-  const host = new URL(context.baseUrl).host;
-  return {
-    profile: { accountId: `board:${host}`, displayName: `Board ${host}` },
-    grantedScopes: [],
-    metadata: { baseUrl: context.baseUrl },
-  };
-}
-
-/** Validate and normalize a self-hosted Board root URL. */
-export function normalizeBoardBaseUrl(
-  value: unknown,
-  allowPrivateNetwork: boolean = isPrivateNetworkAccessAllowed(),
-): string {
-  const raw = requiredString(value, "baseUrl", credentialError);
-  const url = assertPublicHttpUrl(raw, {
-    fieldName: "baseUrl",
-    createError: credentialError,
-    allowPrivateNetwork,
-  });
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new ProviderRequestError(400, "boardUrl must use http or https");
+  }
   if (url.username || url.password || url.search || url.hash) {
-    throw credentialError("baseUrl must not include credentials, query parameters, or a fragment");
+    throw new ProviderRequestError(400, "boardUrl must not include credentials, query parameters, or a fragment");
   }
   if (url.pathname.replace(/\/+$/u, "") !== "") {
-    throw credentialError("baseUrl must be the Board server root URL");
+    throw new ProviderRequestError(400, "boardUrl must be the Board server root URL");
   }
   return url.origin;
 }
 
-async function requestBoardJson(
-  context: BoardContext,
-  path: string,
-  method: "DELETE" | "GET" | "PATCH" | "POST",
-  body?: Record<string, unknown>,
-): Promise<unknown> {
-  const headers: Record<string, string> = {};
-  if (context.bearerToken) headers.authorization = `Bearer ${context.bearerToken}`;
-  const response = await providerRequest(
-    { fetcher: context.fetcher, signal: context.signal },
-    {
-      url: new URL(path, `${context.baseUrl}/`),
-      method,
-      headers,
-      body,
-      source: "Board",
+export async function validateBoardCredential(
+  values: Record<string, string>,
+  token: string,
+  fetcher: ProviderFetch,
+  signal?: AbortSignal,
+): Promise<CredentialValidationResult> {
+  const context: BoardContext = {
+    baseUrl: normalizeBoardBaseUrl(values.boardUrl),
+    token,
+    fetcher,
+    signal,
+  };
+  const session = (await boardRequest(context, "GET", "/api/auth/session")) as {
+    workspaceId?: string;
+    workspaceName?: string;
+    authType?: string;
+  };
+  return {
+    profile: {
+      accountId: session.workspaceId ?? "board-workspace",
+      displayName: session.workspaceName ? `Board: ${session.workspaceName}` : "Board workspace",
     },
-  );
-  return response.data;
+    grantedScopes: session.authType === "integration_token" ? ["workspace"] : [],
+    metadata: { boardUrl: context.baseUrl },
+  };
 }
 
-function roomId(input: Record<string, unknown>): string {
-  return encodePathSegment(requiredString(input.roomId, "roomId", inputError));
+async function boardRequest(context: BoardContext, method: string, endpoint: string, body?: unknown): Promise<unknown> {
+  const url = new URL(endpoint, `${context.baseUrl}/`);
+  const headers = new Headers({ accept: "application/json", authorization: `Bearer ${context.token}` });
+  const init: RequestInit = { method, headers, signal: context.signal };
+  if (body !== undefined) {
+    headers.set("content-type", "application/json");
+    init.body = JSON.stringify(body);
+  }
+
+  const response = await context.fetcher(url, init);
+  const text = await response.text();
+  const payload = text ? readJson(text) : undefined;
+  if (!response.ok) {
+    const message =
+      typeof payload === "object" && payload && "error" in payload && typeof payload.error === "string"
+        ? payload.error
+        : `Board request failed with HTTP ${response.status}`;
+    throw new ProviderRequestError(response.status, message, payload);
+  }
+  return payload ?? {};
 }
 
-function credentialError(message: string): ProviderRequestError {
-  return new ProviderRequestError(400, message);
+function readJson(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    throw new ProviderRequestError(502, "Board returned a non-JSON response");
+  }
 }
 
-function inputError(message: string): ProviderRequestError {
+function boardInputError(message: string): ProviderRequestError {
   return new ProviderRequestError(400, message);
 }

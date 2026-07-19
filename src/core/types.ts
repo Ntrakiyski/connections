@@ -297,6 +297,12 @@ export interface TransitFileStore {
 
 export type TransitFileWriter = TransitFileStore;
 
+export interface ExecutionIdentityContext {
+  workspaceId: string;
+  userId: string;
+  role: string;
+}
+
 /**
  * Runtime services available to action executors.
  *
@@ -306,6 +312,8 @@ export type TransitFileWriter = TransitFileStore;
 export interface ExecutionContext {
   /** Resolve the credential currently configured for a provider service id. */
   getCredential(service: string): Promise<ResolvedCredential | undefined>;
+  /** Workspace/user identity supplied by the Connections runtime when available. */
+  identity?: ExecutionIdentityContext;
   /** Optional local temporary file storage for actions that produce downloadable files. */
   transitFiles?: TransitFileWriter;
   /** Optional cancellation signal propagated from the HTTP request or runner. */

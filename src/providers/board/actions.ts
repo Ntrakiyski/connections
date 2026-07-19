@@ -4,95 +4,97 @@ import { s } from "../../core/json-schema.ts";
 import { defineProviderAction } from "../../core/provider-definition.ts";
 
 const service = "board";
-const roomIdSchema = s.nonEmptyString("The board room ID from the board URL or list_boards response.");
-const recordSchema = s.looseRequiredObject("A raw tldraw record.", {
-  id: s.nonEmptyString("The stable tldraw record ID, such as shape:abc123."),
-  typeName: s.nonEmptyString("The tldraw record type name, such as shape, asset, or binding."),
-});
-const boardSchema = s.requiredObject("Board metadata.", {
-  id: s.nonEmptyString("The board room ID."),
-  workspaceId: s.nonEmptyString("The Board workspace that owns the board."),
-  name: s.string("The board's optional display name."),
-  createdAt: s.dateTime("When the board was created."),
-  updatedAt: s.dateTime("When the board metadata was last updated."),
-  url: s.string("The relative URL used to open the board in the web editor."),
-});
-const recordsOutputProperties = {
-  roomId: roomIdSchema,
-  workspaceId: s.nonEmptyString("The Board workspace that owns the board."),
-  documentClock: s.nonNegativeInteger("The current tldraw document clock."),
-  records: s.array("All raw tldraw records in the board.", recordSchema),
-  shapes: s.array("Shape records in the board.", recordSchema),
-  assets: s.array("Asset records in the board.", recordSchema),
-  bindings: s.array("Binding records in the board.", recordSchema),
-};
 
-export type BoardActionName =
-  | "list_boards"
-  | "read_board"
-  | "rename_board"
-  | "create_or_update_records"
-  | "delete_records";
+const rawObject = s.unknownObject("A raw object returned by the Board API.");
+const roomId = s.nonEmptyString("The Board room ID, usually the value after /board/ in the Board URL.");
+const records = s.array("Raw tldraw records.", rawObject, { minItems: 1 });
+const recordIds = s.array("Raw tldraw record IDs.", s.nonEmptyString("A tldraw record ID."), { minItems: 1 });
 
 export const boardActions: ActionDefinition[] = [
   defineProviderAction(service, {
     name: "list_boards",
-    description: "List known boards with their names, URLs, and timestamps, newest first.",
+    description: "List boards visible to the connected Board workspace token.",
+    inputSchema: s.object("Input for listing Board boards.", {}, { optional: [] }),
+    outputSchema: s.actionOutput(
+      { boards: s.array("Boards visible to the connected workspace token.", rawObject) },
+      "Board list response.",
+    ),
     riskTags: ["read"],
-    inputSchema: s.object({}, { description: "No input parameters." }),
-    outputSchema: s.requiredObject("Known Board rooms.", {
-      boards: s.array("Boards available to the connected workspace.", boardSchema),
-    }),
+    idempotency: "not_supported",
     followUpActions: ["board.read_board"],
   }),
   defineProviderAction(service, {
     name: "read_board",
-    description: "Read all raw tldraw records for a board, grouped into shapes, assets, and bindings.",
+    description: "Read raw tldraw records, shapes, assets, and bindings for one Board board.",
+    inputSchema: s.actionInput({ roomId }, ["roomId"], "Input for reading one Board board."),
+    outputSchema: s.actionOutput(
+      {
+        roomId,
+        records: s.array("All raw tldraw records on the board.", rawObject),
+        shapes: s.array("Raw tldraw shape records on the board.", rawObject),
+        assets: s.array("Raw tldraw asset records on the board.", rawObject),
+        bindings: s.array("Raw tldraw binding records on the board.", rawObject),
+      },
+      "Board records response.",
+    ),
     riskTags: ["read"],
-    inputSchema: s.requiredObject("Board lookup.", { roomId: roomIdSchema }),
-    outputSchema: s.requiredObject("The current board records.", recordsOutputProperties),
+    idempotency: "not_supported",
     followUpActions: ["board.create_or_update_records", "board.delete_records"],
+  }),
+  defineProviderAction(service, {
+    name: "get_board_snapshot",
+    description: "Read the full tldraw sync snapshot for one Board board.",
+    inputSchema: s.actionInput({ roomId }, ["roomId"], "Input for reading one Board snapshot."),
+    outputSchema: s.actionOutput({ snapshot: rawObject }, "Board snapshot response."),
+    riskTags: ["read"],
+    idempotency: "not_supported",
   }),
   defineProviderAction(service, {
     name: "rename_board",
     description: "Change a board's display name.",
+    inputSchema: s.actionInput(
+      {
+        roomId,
+        name: s.string("The new board name.", { minLength: 1, maxLength: 120 }),
+      },
+      ["roomId", "name"],
+      "Input for renaming one Board board.",
+    ),
+    outputSchema: rawObject,
     riskTags: ["write"],
-    inputSchema: s.requiredObject("Board rename request.", {
-      roomId: roomIdSchema,
-      name: s.string("The new board name.", { minLength: 1, maxLength: 120 }),
-    }),
-    outputSchema: boardSchema,
+    idempotency: "optional",
     followUpActions: ["board.list_boards"],
   }),
   defineProviderAction(service, {
     name: "create_or_update_records",
-    description:
-      "Create raw tldraw records or replace existing records with matching IDs. Records must contain the fields required by their tldraw record type.",
+    description: "Create or update raw tldraw records on one Board board.",
+    inputSchema: s.actionInput({ roomId, records }, ["roomId", "records"], "Input for writing Board records."),
+    outputSchema: s.actionOutput(
+      {
+        roomId,
+        count: s.integer("Number of records written."),
+        records: s.array("Records written to the board.", rawObject),
+      },
+      "Board write response.",
+    ),
     riskTags: ["write"],
-    inputSchema: s.requiredObject("Raw tldraw records to write.", {
-      roomId: roomIdSchema,
-      records: s.array("Records to create or replace.", recordSchema),
-    }),
-    outputSchema: s.requiredObject("The records written to the board.", {
-      roomId: roomIdSchema,
-      count: s.nonNegativeInteger("The number of records written."),
-      records: s.array("The records accepted by Board.", recordSchema),
-    }),
+    idempotency: "optional",
     followUpActions: ["board.read_board"],
   }),
   defineProviderAction(service, {
     name: "delete_records",
-    description: "Delete raw tldraw records from a board by record ID.",
+    description: "Delete raw tldraw records from one Board board by record ID.",
+    inputSchema: s.actionInput({ roomId, recordIds }, ["roomId", "recordIds"], "Input for deleting Board records."),
+    outputSchema: s.actionOutput(
+      {
+        roomId,
+        count: s.integer("Number of records deleted."),
+        recordIds,
+      },
+      "Board delete response.",
+    ),
     riskTags: ["delete"],
-    inputSchema: s.requiredObject("Raw tldraw records to delete.", {
-      roomId: roomIdSchema,
-      recordIds: s.stringArray("Record IDs to delete, such as shape:abc123."),
-    }),
-    outputSchema: s.requiredObject("The records deleted from the board.", {
-      roomId: roomIdSchema,
-      count: s.nonNegativeInteger("The number of record IDs processed."),
-      recordIds: s.stringArray("The record IDs processed by Board."),
-    }),
+    idempotency: "optional",
     followUpActions: ["board.read_board"],
   }),
 ];
