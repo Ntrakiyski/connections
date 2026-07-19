@@ -1377,6 +1377,19 @@ h3 {
   font-weight: 560;
 }
 
+.provider-card-auth-tags {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  min-width: 0;
+  gap: 4px;
+}
+
+.provider-card-auth-tags .badge {
+  flex: 0 0 auto;
+}
+
 .provider-status-badges {
   display: inline-flex;
   align-items: center;
@@ -1704,7 +1717,12 @@ h3 {
   min-width: 0;
 }
 
+.detail-heading.compact {
+  gap: 10px;
+}
+
 .detail-heading h2,
+.detail-heading h3,
 .detail-heading p {
   overflow-wrap: anywhere;
 }
@@ -2377,6 +2395,11 @@ pre,
   gap: 16px;
 }
 
+.access-page-layout {
+  display: grid;
+  gap: 16px;
+}
+
 .access-panel-header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -2390,6 +2413,26 @@ pre,
 
 .access-panel-header > [data-slot="button"] {
   justify-self: end;
+}
+
+.safety-settings-panel {
+  overflow: visible;
+}
+
+.safety-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 14px;
+  padding: 16px;
+}
+
+.safety-settings-grid .form-status,
+.safety-settings-actions {
+  grid-column: 1 / -1;
+}
+
+.safety-settings-actions {
+  justify-content: flex-end;
 }
 
 .token-dialog-form {
@@ -2912,6 +2955,7 @@ tr:last-child td {
   .page-toolbar,
   .split-view,
   .content-grid,
+  .safety-settings-grid,
   .mcp-config-card,
   .docs-grid {
     display: grid;

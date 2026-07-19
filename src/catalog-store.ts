@@ -1,7 +1,9 @@
+import type { ActionSafetyMetadata } from "./core/action-safety.ts";
 import type { ActionDefinition, AuthType, ProviderDefinition } from "./core/types.ts";
 
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { actionSafetyMetadata } from "./core/action-safety.ts";
 import { sortProviders } from "./core/catalog.ts";
 
 export type ActionExecutionStatus = {
@@ -14,6 +16,7 @@ export type ActionExecutionStatus = {
 
 export type RuntimeActionDefinition = ActionDefinition & {
   execution: ActionExecutionStatus;
+  safety: ActionSafetyMetadata;
 };
 
 export type RuntimeProviderDefinition = Omit<ProviderDefinition, "actions"> & {
@@ -50,6 +53,7 @@ export function createCatalogStore(providers: ProviderDefinition[], options: Loa
       (action): RuntimeActionDefinition => ({
         ...action,
         execution: createActionExecutionStatus(provider, action, executableActions),
+        safety: actionSafetyMetadata(action),
       }),
     );
 

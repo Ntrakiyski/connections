@@ -5,6 +5,7 @@ import type {
   OAuthConfig,
   ProviderConnectionStatus,
   ProviderDefinition,
+  ResolvedProviderSafetyConfig,
 } from "./model";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
 
@@ -26,8 +27,9 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { ActionApprovalControl } from "./action-approval-control";
-import { apiDelete, apiPatch, apiPost, apiPut } from "./api";
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from "./api";
 import { credentialFieldsFor, filterProviders, resolveProviderConnectionStatus, sortProviders } from "./model";
+import { SafetySettingsPanel } from "./safety-settings-panel";
 import { Badge, EmptyState, FormStatus, ProviderIcon, TagList } from "./shared-ui";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -354,6 +356,7 @@ function ProviderCard(props: ProviderCardProps): ReactNode {
   const t = useTranslate();
   const to = `/providers/${encodeURIComponent(props.provider.service)}`;
   const locallyAvailable = isProviderLocallyAvailable(props.provider);
+  const authLabels = providerAuthTypeLabels(props.provider, t);
   const actionLabel = !locallyAvailable
     ? t("providers.buttons.details")
     : props.status.noSetupRequired
@@ -370,6 +373,11 @@ function ProviderCard(props: ProviderCardProps): ReactNode {
         <ProviderIcon provider={props.provider} />
         <span className="provider-card-title-row">
           <span className="provider-card-title">{props.provider.displayName || props.provider.service}</span>
+          <span className="provider-card-auth-tags">
+            {authLabels.map((label) => (
+              <Badge key={label}>{label}</Badge>
+            ))}
+          </span>
           <ProviderStatusBadges status={props.status} locallyAvailable={locallyAvailable} compact />
         </span>
       </Link>
@@ -462,6 +470,7 @@ function ProviderDetail(props: ProviderDetailProps): ReactNode {
   const [selectedConnectionName, setSelectedConnectionName] = useState<string | undefined>(
     props.connection?.connectionName,
   );
+  const [safetyConfig, setSafetyConfig] = useState<ResolvedProviderSafetyConfig | undefined>();
   const [isNewConnection, setIsNewConnection] = useState(() => !props.connection);
   const [oauthClientExpanded, setOAuthClientExpanded] = useState(false);
   const selectedConnection = isNewConnection
@@ -494,6 +503,22 @@ function ProviderDetail(props: ProviderDetailProps): ReactNode {
   useEffect(() => {
     setOAuthClientExpanded(false);
   }, [props.provider.service, props.oauthConfig?.clientId]);
+
+  useEffect(() => {
+    let active = true;
+    setSafetyConfig(undefined);
+    const service = encodeURIComponent(props.provider.service);
+    void apiGet<ResolvedProviderSafetyConfig>(`/api/workspace/providers/${service}/safety-config`)
+      .then((config) => {
+        if (active) setSafetyConfig(config);
+      })
+      .catch(() => {
+        if (active) setSafetyConfig(undefined);
+      });
+    return () => {
+      active = false;
+    };
+  }, [props.provider.service]);
 
   return (
     <div className="provider-detail-page">
@@ -642,6 +667,17 @@ function ProviderDetail(props: ProviderDetailProps): ReactNode {
           />
         </section>
 
+        <SafetySettingsPanel
+          title={t("safety.providerTitle")}
+          description={t("safety.providerDescription", { name: props.provider.displayName })}
+          endpoint={`/api/workspace/providers/${encodeURIComponent(props.provider.service)}/safety-config`}
+          config={safetyConfig}
+          canManage={props.canManageProviders}
+          providerOverride
+          onRefresh={props.onRefresh}
+          onSaved={setSafetyConfig}
+        />
+
         <section className="detail-panel provider-detail-card">
           <div className="provider-panel-title-row">
             <div>
@@ -766,6 +802,9 @@ function authLabel(auth: AuthDefinition, t: (key: string) => string): string {
 
 function providerAuthTypeLabels(provider: ProviderDefinition, t: (key: string) => string): string[] {
   const authTypes = provider.authTypes.length > 0 ? provider.authTypes : provider.auth.map((auth) => auth.type);
+  if (authTypes.length === 0) {
+    return [authTypeLabel("no_auth", t)];
+  }
   return [...new Set(authTypes)].map((authType) => authTypeLabel(authType, t));
 }
 

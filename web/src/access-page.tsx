@@ -1,4 +1,4 @@
-import type { RuntimeTokenCreation, RuntimeTokenSummary } from "./model";
+import type { ResolvedProviderSafetyConfig, RuntimeTokenCreation, RuntimeTokenSummary } from "./model";
 import type { FormEvent, ReactNode } from "react";
 
 import { useTranslate } from "@embra/i18n/react";
@@ -7,6 +7,7 @@ import { Check, Copy, KeyRound, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { apiDelete, apiPost } from "./api";
 import { formatDate } from "./model";
+import { SafetySettingsPanel } from "./safety-settings-panel";
 import { Badge, EmptyState, FormStatus } from "./shared-ui";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -16,6 +17,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 
 interface AccessPageProps {
   tokens: RuntimeTokenSummary[];
+  safetyConfig?: ResolvedProviderSafetyConfig;
+  canManage: boolean;
   onRefresh(): void;
 }
 
@@ -83,81 +86,92 @@ export function AccessPage(props: AccessPageProps): ReactNode {
   }
 
   return (
-    <section className="detail-panel access-panel">
-      <div className="access-panel-header">
-        <div className="detail-heading">
-          <div className="action-mark">
-            <KeyRound size={20} />
+    <div className="access-page-layout">
+      <section className="detail-panel access-panel">
+        <div className="access-panel-header">
+          <div className="detail-heading">
+            <div className="action-mark">
+              <KeyRound size={20} />
+            </div>
+            <div>
+              <h2>{t("access.title")}</h2>
+              <p>{t("access.description")}</p>
+            </div>
           </div>
-          <div>
-            <h2>{t("access.title")}</h2>
-            <p>{t("access.description")}</p>
-          </div>
+
+          <Button type="button" onClick={openCreate}>
+            <KeyRound size={16} />
+            {t("access.createToken")}
+          </Button>
         </div>
 
-        <Button type="button" onClick={openCreate}>
-          <KeyRound size={16} />
-          {t("access.createToken")}
-        </Button>
-      </div>
+        {!createOpen && status ? <FormStatus message={status} /> : null}
 
-      {!createOpen && status ? <FormStatus message={status} /> : null}
-
-      <section className="table-panel">
-        {props.tokens.length === 0 ? (
-          <EmptyState
-            icon={<KeyRound size={20} />}
-            title={t("access.noTokensTitle")}
-            description={t("access.noTokensDescription")}
-          />
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t("access.table.name")}</TableHead>
-                <TableHead>{t("access.table.status")}</TableHead>
-                <TableHead>{t("access.table.created")}</TableHead>
-                <TableHead>{t("access.table.lastUsed")}</TableHead>
-                <TableHead></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {props.tokens.map((token) => (
-                <TableRow key={token.id}>
-                  <TableCell>
-                    <strong>{token.name}</strong>
-                  </TableCell>
-                  <TableCell>
-                    <Badge tone="success">{t("common.active")}</Badge>
-                  </TableCell>
-                  <TableCell>{formatDate(token.createdAt)}</TableCell>
-                  <TableCell>{token.lastUsedAt ? formatDate(token.lastUsedAt) : ""}</TableCell>
-                  <TableCell className="table-actions">
-                    <Button variant="outline" size="sm" onClick={() => void revoke(token.id)}>
-                      <Trash2 size={15} />
-                      {t("access.revoke")}
-                    </Button>
-                  </TableCell>
+        <section className="table-panel">
+          {props.tokens.length === 0 ? (
+            <EmptyState
+              icon={<KeyRound size={20} />}
+              title={t("access.noTokensTitle")}
+              description={t("access.noTokensDescription")}
+            />
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t("access.table.name")}</TableHead>
+                  <TableHead>{t("access.table.status")}</TableHead>
+                  <TableHead>{t("access.table.created")}</TableHead>
+                  <TableHead>{t("access.table.lastUsed")}</TableHead>
+                  <TableHead></TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
+              </TableHeader>
+              <TableBody>
+                {props.tokens.map((token) => (
+                  <TableRow key={token.id}>
+                    <TableCell>
+                      <strong>{token.name}</strong>
+                    </TableCell>
+                    <TableCell>
+                      <Badge tone="success">{t("common.active")}</Badge>
+                    </TableCell>
+                    <TableCell>{formatDate(token.createdAt)}</TableCell>
+                    <TableCell>{token.lastUsedAt ? formatDate(token.lastUsedAt) : ""}</TableCell>
+                    <TableCell className="table-actions">
+                      <Button variant="outline" size="sm" onClick={() => void revoke(token.id)}>
+                        <Trash2 size={15} />
+                        {t("access.revoke")}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </section>
+
+        {createOpen ? (
+          <CreateTokenDialog
+            name={name}
+            created={created}
+            status={status}
+            copied={copied}
+            onNameChange={setName}
+            onSubmit={submit}
+            onCopy={(token) => void copy(token)}
+            onClose={closeCreate}
+          />
+        ) : null}
       </section>
 
-      {createOpen ? (
-        <CreateTokenDialog
-          name={name}
-          created={created}
-          status={status}
-          copied={copied}
-          onNameChange={setName}
-          onSubmit={submit}
-          onCopy={(token) => void copy(token)}
-          onClose={closeCreate}
-        />
-      ) : null}
-    </section>
+      <SafetySettingsPanel
+        title={t("safety.workspaceTitle")}
+        description={t("safety.workspaceDescription")}
+        endpoint="/api/workspace/safety-config"
+        config={props.safetyConfig}
+        canManage={props.canManage}
+        onRefresh={props.onRefresh}
+      />
+    </div>
   );
 }
 

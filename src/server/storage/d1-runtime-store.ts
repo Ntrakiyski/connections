@@ -12,7 +12,10 @@ import type {
   RuntimeDatabase,
   Workspace,
   WorkspaceActionPolicy,
+  WorkspaceIdempotencyRecord,
   WorkspaceProvider,
+  WorkspaceProviderSafetySettings,
+  WorkspaceSafetySettings,
   AuditEvent,
   WorkspaceMember,
   WorkspaceScopedStores,
@@ -608,6 +611,112 @@ class D1WorkspaceControlStore implements IWorkspaceControlStore {
         "insert into workspace_action_policies (workspace_id, action_id, require_approval, updated_by, updated_at) values (?, ?, ?, ?, ?) on conflict(workspace_id, action_id) do update set require_approval = excluded.require_approval, updated_by = excluded.updated_by, updated_at = excluded.updated_at",
       )
       .bind(policy.workspaceId, policy.actionId, policy.requireApproval ? 1 : 0, policy.updatedBy, policy.updatedAt)
+      .run();
+  }
+
+  async getWorkspaceSafetySettings(workspaceId: string): Promise<WorkspaceSafetySettings | undefined> {
+    const row = await this.database
+      .prepare(
+        "select workspace_id, value, updated_by, updated_at from workspace_safety_settings where workspace_id = ?",
+      )
+      .bind(workspaceId)
+      .first<RuntimeRow>();
+    return row
+      ? {
+          workspaceId: readString(row, "workspace_id"),
+          value: parseJson(readString(row, "value")),
+          updatedBy: readString(row, "updated_by"),
+          updatedAt: readString(row, "updated_at"),
+        }
+      : undefined;
+  }
+
+  async setWorkspaceSafetySettings(settings: WorkspaceSafetySettings): Promise<void> {
+    await this.database
+      .prepare(
+        "insert into workspace_safety_settings (workspace_id, value, updated_by, updated_at) values (?, ?, ?, ?) on conflict(workspace_id) do update set value = excluded.value, updated_by = excluded.updated_by, updated_at = excluded.updated_at",
+      )
+      .bind(settings.workspaceId, JSON.stringify(settings.value), settings.updatedBy, settings.updatedAt)
+      .run();
+  }
+
+  async getProviderSafetySettings(
+    workspaceId: string,
+    service: string,
+  ): Promise<WorkspaceProviderSafetySettings | undefined> {
+    const row = await this.database
+      .prepare(
+        "select workspace_id, service, value, updated_by, updated_at from workspace_provider_safety_settings where workspace_id = ? and service = ?",
+      )
+      .bind(workspaceId, service)
+      .first<RuntimeRow>();
+    return row
+      ? {
+          workspaceId: readString(row, "workspace_id"),
+          service: readString(row, "service"),
+          value: parseJson(readString(row, "value")),
+          updatedBy: readString(row, "updated_by"),
+          updatedAt: readString(row, "updated_at"),
+        }
+      : undefined;
+  }
+
+  async setProviderSafetySettings(settings: WorkspaceProviderSafetySettings): Promise<void> {
+    await this.database
+      .prepare(
+        "insert into workspace_provider_safety_settings (workspace_id, service, value, updated_by, updated_at) values (?, ?, ?, ?, ?) on conflict(workspace_id, service) do update set value = excluded.value, updated_by = excluded.updated_by, updated_at = excluded.updated_at",
+      )
+      .bind(
+        settings.workspaceId,
+        settings.service,
+        JSON.stringify(settings.value),
+        settings.updatedBy,
+        settings.updatedAt,
+      )
+      .run();
+  }
+
+  async getIdempotencyRecord(
+    workspaceId: string,
+    actionId: string,
+    connectionName: string,
+    idempotencyKey: string,
+  ): Promise<WorkspaceIdempotencyRecord | undefined> {
+    const row = await this.database
+      .prepare(
+        "select workspace_id, action_id, connection_name, idempotency_key, input_hash, execution_id, result, created_at from workspace_idempotency_records where workspace_id = ? and action_id = ? and connection_name = ? and idempotency_key = ?",
+      )
+      .bind(workspaceId, actionId, connectionName, idempotencyKey)
+      .first<RuntimeRow>();
+    return row
+      ? {
+          workspaceId: readString(row, "workspace_id"),
+          actionId: readString(row, "action_id"),
+          connectionName: readString(row, "connection_name"),
+          idempotencyKey: readString(row, "idempotency_key"),
+          inputHash: readString(row, "input_hash"),
+          executionId: readString(row, "execution_id"),
+          result: parseJson(readString(row, "result")),
+          createdAt: readString(row, "created_at"),
+        }
+      : undefined;
+  }
+
+  async setIdempotencyRecord(record: WorkspaceIdempotencyRecord): Promise<void> {
+    await this.database
+      .prepare(
+        "insert into workspace_idempotency_records (workspace_id, action_id, connection_name, idempotency_key, input_hash, execution_id, result, created_at) values (?, ?, ?, ?, ?, ?, ?, ?) on conflict(workspace_id, action_id, connection_name, idempotency_key) do nothing",
+      )
+      .bind(
+        record.workspaceId,
+        record.actionId,
+        record.connectionName,
+        record.idempotencyKey,
+        record.inputHash,
+        record.executionId,
+        JSON.stringify(record.result),
+        record.createdAt,
+      )
       .run();
   }
 

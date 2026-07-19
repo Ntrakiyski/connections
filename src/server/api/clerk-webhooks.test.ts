@@ -3,6 +3,9 @@ import type {
   IWorkspaceMembershipStore,
   IWorkspaceStore,
   Workspace,
+  WorkspaceIdempotencyRecord,
+  WorkspaceProviderSafetySettings,
+  WorkspaceSafetySettings,
 } from "../storage/runtime-database.ts";
 import type { IRuntimeTokenStore, RuntimeTokenRecord } from "../storage/runtime-token-service.ts";
 
@@ -145,6 +148,9 @@ class MemoryMembershipStore implements IWorkspaceMembershipStore {
 
 class MemoryControlStore implements IWorkspaceControlStore {
   readonly events: Array<{ event: string; userId: string }> = [];
+  private readonly workspaceSafety = new Map<string, WorkspaceSafetySettings>();
+  private readonly providerSafety = new Map<string, WorkspaceProviderSafetySettings>();
+  private readonly idempotencyRecords = new Map<string, WorkspaceIdempotencyRecord>();
 
   async listProviders(): Promise<[]> {
     return [];
@@ -161,6 +167,41 @@ class MemoryControlStore implements IWorkspaceControlStore {
   }
 
   async setActionPolicy(): Promise<void> {}
+
+  async getWorkspaceSafetySettings(workspaceId: string): Promise<WorkspaceSafetySettings | undefined> {
+    return this.workspaceSafety.get(workspaceId);
+  }
+
+  async setWorkspaceSafetySettings(settings: WorkspaceSafetySettings): Promise<void> {
+    this.workspaceSafety.set(settings.workspaceId, settings);
+  }
+
+  async getProviderSafetySettings(
+    workspaceId: string,
+    service: string,
+  ): Promise<WorkspaceProviderSafetySettings | undefined> {
+    return this.providerSafety.get(`${workspaceId}:${service}`);
+  }
+
+  async setProviderSafetySettings(settings: WorkspaceProviderSafetySettings): Promise<void> {
+    this.providerSafety.set(`${settings.workspaceId}:${settings.service}`, settings);
+  }
+
+  async getIdempotencyRecord(
+    workspaceId: string,
+    actionId: string,
+    connectionName: string,
+    idempotencyKey: string,
+  ): Promise<WorkspaceIdempotencyRecord | undefined> {
+    return this.idempotencyRecords.get(`${workspaceId}:${actionId}:${connectionName}:${idempotencyKey}`);
+  }
+
+  async setIdempotencyRecord(record: WorkspaceIdempotencyRecord): Promise<void> {
+    this.idempotencyRecords.set(
+      `${record.workspaceId}:${record.actionId}:${record.connectionName}:${record.idempotencyKey}`,
+      record,
+    );
+  }
 
   async addAuditEvent(event: { event: string; userId: string }): Promise<void> {
     this.events.unshift(event);

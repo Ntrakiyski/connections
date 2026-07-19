@@ -66,6 +66,9 @@ describe("loadRuntimeData", () => {
         if (path === "/api/runs") {
           return Response.json({ items: [], nextCursor: null });
         }
+        if (path === "/api/workspace/safety-config") {
+          return Response.json(testSafetyConfig());
+        }
         return Response.json([]);
       }),
     );
@@ -79,6 +82,7 @@ describe("loadRuntimeData", () => {
       "/api/oauth/configs",
       "/api/runtime-tokens",
       "/api/runs",
+      "/api/workspace/safety-config",
     ]);
     for (const call of calls) {
       expect(call.headers.get("authorization")).toBe("Bearer clerk-token");
@@ -93,6 +97,7 @@ describe("loadRuntimeData", () => {
           return Response.json({ adminAuthConfigured: true, authenticated: true });
         }
         if (path === "/api/runs") return Response.json({ items: [] });
+        if (path === "/api/workspace/safety-config") return Response.json(testSafetyConfig());
         return Response.json([]);
       }),
     );
@@ -101,3 +106,13 @@ describe("loadRuntimeData", () => {
     expect(result.data.providers).toEqual([]);
   });
 });
+
+function testSafetyConfig() {
+  const resolved = {
+    scopePreflight: { mode: "observe" },
+    idempotency: { mode: "observe" },
+    retry: { mode: "observe", maxAttempts: 3, baseDelayMs: 250, maxDelayMs: 2000 },
+    rateLimit: { mode: "observe", maxConcurrent: 4 },
+  };
+  return { workspace: resolved, resolved };
+}

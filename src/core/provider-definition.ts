@@ -11,6 +11,8 @@ export type DefineProviderActionInput<TName extends string = string> = {
   outputSchema: JsonSchema;
   requiredScopes?: string[];
   providerPermissions?: string[];
+  riskTags?: ActionDefinition["riskTags"];
+  idempotency?: ActionDefinition["idempotency"];
   followUpActions?: string[];
   asyncLifecycle?: ActionDefinition["asyncLifecycle"];
 };
@@ -34,6 +36,8 @@ export function defineProviderAction<TName extends string>(
     description: input.description,
     requiredScopes: input.requiredScopes ?? [],
     providerPermissions: input.providerPermissions ?? [],
+    riskTags: input.riskTags,
+    idempotency: input.idempotency,
     inputSchema: input.inputSchema,
     outputSchema: input.outputSchema,
     followUpActions: input.followUpActions,

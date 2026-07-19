@@ -2,7 +2,13 @@ import type { ExecutionContext, ResolvedCredential } from "../core/types.ts";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setPrivateNetworkAccessAllowed } from "../core/request.ts";
-import { defineProviderExecutors, defineProviderProxy, providerFetch } from "./provider-runtime.ts";
+import {
+  defineProviderExecutors,
+  defineProviderProxy,
+  ProviderRequestError,
+  providerFetch,
+  providerRequest,
+} from "./provider-runtime.ts";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -140,5 +146,46 @@ describe("provider runtime fetch", () => {
       output: { ok: true },
     });
     expect(nativeFetchThis).toBeUndefined();
+  });
+
+  it("sends JSON provider requests with shared headers and query serialization", async () => {
+    const calls = stubFetchSequence([
+      Response.json({ items: [1] }, { status: 200, headers: { "content-type": "application/json" } }),
+    ]);
+
+    const result = await providerRequest<{ items: number[] }>(
+      { fetcher: fetch },
+      {
+        url: "https://api.example.com/items",
+        query: { page: 2, includeArchived: false, skipped: undefined },
+        body: { name: "Test" },
+      },
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.data).toEqual({ items: [1] });
+    expect(calls[0]?.url).toBe("https://api.example.com/items?page=2&includeArchived=false");
+    expect(calls[0]?.init?.method).toBe("POST");
+    expect(new Headers(calls[0]?.init?.headers).get("content-type")).toBe("application/json");
+    expect(new Headers(calls[0]?.init?.headers).get("user-agent")).toBe("oomol-connect/0.1");
+  });
+
+  it("maps non-2xx JSON responses to provider request errors", async () => {
+    stubFetchSequence([Response.json({ message: "Too many requests" }, { status: 429 })]);
+
+    await expect(providerRequest({ fetcher: fetch }, { url: "https://api.example.com/items" })).rejects.toMatchObject({
+      status: 429,
+      message: "Too many requests",
+    } satisfies Partial<ProviderRequestError>);
+  });
+
+  it("preserves provider status for non-JSON error responses", async () => {
+    stubFetchSequence([new Response("temporarily unavailable", { status: 503 })]);
+
+    await expect(providerRequest({ fetcher: fetch }, { url: "https://api.example.com/items" })).rejects.toMatchObject({
+      status: 503,
+      message: "api.example.com request failed with HTTP 503.",
+      details: "temporarily unavailable",
+    } satisfies Partial<ProviderRequestError>);
   });
 });

@@ -19,6 +19,16 @@ data/
 .insforge
 .agent
 .agents
+!.agents/
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/add-provider/
+.agents/skills/add-provider/*
+!.agents/skills/add-provider/SKILL.md
+!.agents/skills/add-provider/references/
+.agents/skills/add-provider/references/*
+!.agents/skills/add-provider/references/openapi-provider.md
 .augment
 .claude
 .cline

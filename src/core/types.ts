@@ -13,6 +13,9 @@ export type JsonSchema = {
  */
 export type AuthType = "no_auth" | "api_key" | "custom_credential" | "oauth2";
 
+export type ActionRiskTag = "read" | "write" | "delete" | "send" | "purchase" | "admin" | "irreversible";
+export type IdempotencySupport = "not_supported" | "optional" | "required";
+
 /**
  * A single credential field that users can configure for a provider.
  */
@@ -175,6 +178,10 @@ export type ActionDefinition = {
   requiredScopes: string[];
   /** Provider-native permissions or scopes users must grant. */
   providerPermissions: string[];
+  /** Side-effect and safety classification used by approvals, retries, and agents. */
+  riskTags?: ActionRiskTag[];
+  /** Whether this action can safely deduplicate repeated write requests. */
+  idempotency?: IdempotencySupport;
   /** JSON Schema used to validate HTTP/tool input before executor invocation. */
   inputSchema: JsonSchema;
   /** JSON Schema describing the executor output payload. */

@@ -4,6 +4,7 @@ import type {
   ConnectionRecord,
   OAuthConfig,
   ProviderDefinition,
+  ResolvedProviderSafetyConfig,
   RunLogPage,
   RuntimeTokenSummary,
   WorkspaceRole,
@@ -146,12 +147,13 @@ export async function loadRuntimeData(clerkToken: string | null): Promise<Runtim
     return { authSession, data: emptyData };
   }
 
-  const [providers, connections, oauthConfigs, runtimeTokens, runPage] = await Promise.all([
+  const [providers, connections, oauthConfigs, runtimeTokens, runPage, workspaceSafetyConfig] = await Promise.all([
     apiGet<ProviderDefinition[]>("/api/providers", { bearerToken }),
     apiGet<ConnectionRecord[]>("/api/connections", { bearerToken }),
     apiGet<OAuthConfig[]>("/api/oauth/configs", { bearerToken }),
     apiGet<RuntimeTokenSummary[]>("/api/runtime-tokens", { bearerToken }),
     apiGet<RunLogPage>("/api/runs", { bearerToken }),
+    apiGet<ResolvedProviderSafetyConfig>("/api/workspace/safety-config", { bearerToken }),
   ]);
 
   return {
@@ -163,6 +165,7 @@ export async function loadRuntimeData(clerkToken: string | null): Promise<Runtim
       runtimeTokens,
       runs: runPage.items,
       runsNextCursor: runPage.nextCursor,
+      workspaceSafetyConfig,
       workspaceId: authSession.workspaceId,
       workspaceName: authSession.workspaceName ?? "Workspace",
       role: authSession.role ?? "member",
@@ -411,7 +414,14 @@ function AppShell(props: {
             />
             <Route
               path="/access"
-              element={<AccessPage tokens={props.data.runtimeTokens} onRefresh={props.onRefresh} />}
+              element={
+                <AccessPage
+                  tokens={props.data.runtimeTokens}
+                  safetyConfig={props.data.workspaceSafetyConfig}
+                  canManage={props.data.role !== "member"}
+                  onRefresh={props.onRefresh}
+                />
+              }
             />
             <Route path="/resources" element={<ResourcesPage workspaceName={props.data.workspaceName} />} />
             <Route path="*" element={<Navigate to="/overview" replace />} />

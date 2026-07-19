@@ -24,4 +24,4 @@ Action definitions also declare provider-native `requiredScopes` and `providerPe
 runtime exposes those fields through HTTP and MCP discovery together with the current connection
 profile, so agents can see both the capability they are about to use and the account it will run as.
 
-For the full contribution workflow, see `.codex/skills/add-provider/SKILL.md`.
+For the full contribution workflow, see `.agents/skills/add-provider/SKILL.md`.

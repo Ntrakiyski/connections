@@ -86,6 +86,7 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
         runs: stores.runLogStore,
         transitFiles: options.transitFiles,
         actionPolicy: options.actionPolicy,
+        controls,
         logger: options.logger,
         workspace,
         createWorkspaceRunner: (workspaceId) =>

@@ -55,6 +55,7 @@ export interface RuntimeActionMetadata {
   outputSchema: RuntimeActionDefinition["outputSchema"];
   followUpActions: RuntimeActionFollowUp[];
   asyncLifecycle: RuntimeActionDefinition["asyncLifecycle"] | null;
+  safety: RuntimeActionDefinition["safety"];
 }
 
 export interface RuntimeConnectedApp {
@@ -113,6 +114,7 @@ export function serializeRuntimeAction(action: RuntimeActionDefinition): Runtime
     outputSchema: action.outputSchema,
     followUpActions: (action.followUpActions ?? []).map((actionId) => ({ actionId })),
     asyncLifecycle: action.asyncLifecycle ?? null,
+    safety: action.safety,
   };
 
   return metadata;

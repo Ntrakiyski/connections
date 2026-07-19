@@ -32,6 +32,8 @@ Before editing, read:
 
 When the provider has official API documentation, use it as the source of truth for endpoints, auth, pagination, request bodies, response envelopes, limits, and error behavior. If you also have a reference implementation, compare it against the official docs instead of copying it blindly.
 
+If the user provides an OpenAPI or Swagger JSON/YAML spec, read [references/openapi-provider.md](references/openapi-provider.md) before choosing actions or writing provider files.
+
 ## Pattern Picker
 
 Before writing code, pick the closest current provider and follow its current imports and file shape:

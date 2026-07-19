@@ -208,6 +208,14 @@ export class ConnectServer {
     app.put("/api/workspace/action-policies/:actionId", (context) =>
       this.setWorkspaceActionPolicy(context, context.req.param("actionId")),
     );
+    app.get("/api/workspace/safety-config", (context) => this.getWorkspaceSafetyConfig(context));
+    app.put("/api/workspace/safety-config", (context) => this.setWorkspaceSafetyConfig(context));
+    app.get("/api/workspace/providers/:service/safety-config", (context) =>
+      this.getProviderSafetyConfig(context, context.req.param("service")),
+    );
+    app.put("/api/workspace/providers/:service/safety-config", (context) =>
+      this.setProviderSafetyConfig(context, context.req.param("service")),
+    );
     app.delete("/api/workspace", (context) => this.deleteWorkspace(context));
     app.post("/api/workspace/restore", (context) => this.restoreWorkspace(context));
     app.get("/api/audit-events", (context) => this.listAuditEvents(context));
@@ -265,6 +273,12 @@ export class ConnectServer {
           disableProvider: async () => false,
           getActionPolicy: async () => undefined,
           setActionPolicy: async () => {},
+          getWorkspaceSafetySettings: async () => undefined,
+          setWorkspaceSafetySettings: async () => {},
+          getProviderSafetySettings: async () => undefined,
+          setProviderSafetySettings: async () => {},
+          getIdempotencyRecord: async () => undefined,
+          setIdempotencyRecord: async () => {},
           addAuditEvent: async () => {},
           listAuditEvents: async () => [],
         },
@@ -556,6 +570,7 @@ export class ConnectServer {
         input: body.input ?? {},
         caller: "http",
         connectionName,
+        idempotencyKey: optionalString(body.idempotencyKey),
       });
       if (!run) {
         return writeRuntimeFailure(context, {
@@ -989,6 +1004,24 @@ export class ConnectServer {
       return jsonError(context, 400, "invalid_input", "requireApproval must be a boolean.");
     }
     return context.json(await this.services(context).controls.setActionPolicy(actionId, body.requireApproval));
+  }
+
+  private async getWorkspaceSafetyConfig(context: Context): Promise<Response> {
+    return context.json(await this.services(context).controls.getWorkspaceSafetyConfig());
+  }
+
+  private async setWorkspaceSafetyConfig(context: Context): Promise<Response> {
+    const body = await readJsonBody(context);
+    return context.json(await this.services(context).controls.setWorkspaceSafetyConfig(body));
+  }
+
+  private async getProviderSafetyConfig(context: Context, service: string): Promise<Response> {
+    return context.json(await this.services(context).controls.getProviderSafetyConfig(service));
+  }
+
+  private async setProviderSafetyConfig(context: Context, service: string): Promise<Response> {
+    const body = await readJsonBody(context);
+    return context.json(await this.services(context).controls.setProviderSafetyConfig(service, body));
   }
 
   private async listAuditEvents(context: Context): Promise<Response> {

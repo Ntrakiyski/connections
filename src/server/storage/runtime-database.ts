@@ -1,4 +1,5 @@
 import type { IConnectionStore, StoredConnection } from "../../connection-service.ts";
+import type { WorkspaceSafetyConfigPatch } from "../../core/action-safety.ts";
 import type { ResolvedCredential } from "../../core/types.ts";
 import type { IOAuthClientConfigStore } from "../../oauth/oauth-client-config-service.ts";
 import type { OAuthClientConfig } from "../../oauth/oauth-client-config-service.ts";
@@ -41,6 +42,32 @@ export interface WorkspaceActionPolicy {
   updatedAt: string;
 }
 
+export interface WorkspaceSafetySettings {
+  workspaceId: string;
+  value: WorkspaceSafetyConfigPatch;
+  updatedBy: string;
+  updatedAt: string;
+}
+
+export interface WorkspaceProviderSafetySettings {
+  workspaceId: string;
+  service: string;
+  value: WorkspaceSafetyConfigPatch;
+  updatedBy: string;
+  updatedAt: string;
+}
+
+export interface WorkspaceIdempotencyRecord {
+  workspaceId: string;
+  actionId: string;
+  connectionName: string;
+  idempotencyKey: string;
+  inputHash: string;
+  executionId: string;
+  result: unknown;
+  createdAt: string;
+}
+
 export interface AuditEvent {
   id: string;
   workspaceId: string;
@@ -58,6 +85,17 @@ export interface IWorkspaceControlStore {
   disableProvider(workspaceId: string, service: string): Promise<boolean>;
   getActionPolicy(workspaceId: string, actionId: string): Promise<WorkspaceActionPolicy | undefined>;
   setActionPolicy(policy: WorkspaceActionPolicy): Promise<void>;
+  getWorkspaceSafetySettings(workspaceId: string): Promise<WorkspaceSafetySettings | undefined>;
+  setWorkspaceSafetySettings(settings: WorkspaceSafetySettings): Promise<void>;
+  getProviderSafetySettings(workspaceId: string, service: string): Promise<WorkspaceProviderSafetySettings | undefined>;
+  setProviderSafetySettings(settings: WorkspaceProviderSafetySettings): Promise<void>;
+  getIdempotencyRecord(
+    workspaceId: string,
+    actionId: string,
+    connectionName: string,
+    idempotencyKey: string,
+  ): Promise<WorkspaceIdempotencyRecord | undefined>;
+  setIdempotencyRecord(record: WorkspaceIdempotencyRecord): Promise<void>;
   addAuditEvent(event: AuditEvent): Promise<void>;
   listAuditEvents(workspaceId: string, limit: number): Promise<AuditEvent[]>;
 }

@@ -3,7 +3,10 @@ import type {
   AuditEvent,
   IWorkspaceControlStore,
   WorkspaceActionPolicy,
+  WorkspaceIdempotencyRecord,
   WorkspaceProvider,
+  WorkspaceProviderSafetySettings,
+  WorkspaceSafetySettings,
 } from "./storage/runtime-database.ts";
 
 import { describe, expect, it } from "vitest";
@@ -144,6 +147,9 @@ describe("WorkspaceControlService", () => {
 class MemoryWorkspaceControlStore implements IWorkspaceControlStore {
   private readonly providers = new Map<string, WorkspaceProvider>();
   private readonly policies = new Map<string, WorkspaceActionPolicy>();
+  private readonly workspaceSafety = new Map<string, WorkspaceSafetySettings>();
+  private readonly providerSafety = new Map<string, WorkspaceProviderSafetySettings>();
+  private readonly idempotencyRecords = new Map<string, WorkspaceIdempotencyRecord>();
   private readonly auditEvents: AuditEvent[] = [];
 
   async listProviders(workspaceId: string): Promise<WorkspaceProvider[]> {
@@ -164,6 +170,41 @@ class MemoryWorkspaceControlStore implements IWorkspaceControlStore {
 
   async setActionPolicy(policy: WorkspaceActionPolicy): Promise<void> {
     this.policies.set(`${policy.workspaceId}:${policy.actionId}`, policy);
+  }
+
+  async getWorkspaceSafetySettings(workspaceId: string): Promise<WorkspaceSafetySettings | undefined> {
+    return this.workspaceSafety.get(workspaceId);
+  }
+
+  async setWorkspaceSafetySettings(settings: WorkspaceSafetySettings): Promise<void> {
+    this.workspaceSafety.set(settings.workspaceId, settings);
+  }
+
+  async getProviderSafetySettings(
+    workspaceId: string,
+    service: string,
+  ): Promise<WorkspaceProviderSafetySettings | undefined> {
+    return this.providerSafety.get(`${workspaceId}:${service}`);
+  }
+
+  async setProviderSafetySettings(settings: WorkspaceProviderSafetySettings): Promise<void> {
+    this.providerSafety.set(`${settings.workspaceId}:${settings.service}`, settings);
+  }
+
+  async getIdempotencyRecord(
+    workspaceId: string,
+    actionId: string,
+    connectionName: string,
+    idempotencyKey: string,
+  ): Promise<WorkspaceIdempotencyRecord | undefined> {
+    return this.idempotencyRecords.get(`${workspaceId}:${actionId}:${connectionName}:${idempotencyKey}`);
+  }
+
+  async setIdempotencyRecord(record: WorkspaceIdempotencyRecord): Promise<void> {
+    this.idempotencyRecords.set(
+      `${record.workspaceId}:${record.actionId}:${record.connectionName}:${record.idempotencyKey}`,
+      record,
+    );
   }
 
   async addAuditEvent(event: AuditEvent): Promise<void> {

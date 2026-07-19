@@ -11,7 +11,10 @@ import type {
   RuntimeDatabase,
   Workspace,
   WorkspaceActionPolicy,
+  WorkspaceIdempotencyRecord,
   WorkspaceProvider,
+  WorkspaceProviderSafetySettings,
+  WorkspaceSafetySettings,
   AuditEvent,
   WorkspaceMember,
   WorkspaceScopedStores,
@@ -336,7 +339,12 @@ class PostgresRunLogStore implements IRunLogStore {
         run.startedAt,
         run.completedAt,
         run.ok ? 1 : 0,
-        JSON.stringify({ inputSummary: run.inputSummary, errorCode: run.errorCode, errorMessage: run.errorMessage }),
+        JSON.stringify({
+          inputSummary: run.inputSummary,
+          errorCode: run.errorCode,
+          errorMessage: run.errorMessage,
+          safety: run.safety,
+        }),
       ],
     );
   }
@@ -390,6 +398,7 @@ class PostgresRunLogStore implements IRunLogStore {
         inputSummary: extra.inputSummary,
         errorCode: extra.errorCode,
         errorMessage: extra.errorMessage,
+        safety: extra.safety,
       };
     });
 
@@ -604,6 +613,109 @@ class PostgresWorkspaceControlStore implements IWorkspaceControlStore {
        on conflict (workspace_id, action_id) do update
        set require_approval = excluded.require_approval, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
       [policy.workspaceId, policy.actionId, policy.requireApproval, policy.updatedBy, policy.updatedAt],
+    );
+  }
+
+  async getWorkspaceSafetySettings(workspaceId: string): Promise<WorkspaceSafetySettings | undefined> {
+    const result = await this.#pool.query(
+      `select workspace_id, value, updated_by, updated_at from workspace_safety_settings where workspace_id = $1`,
+      [workspaceId],
+    );
+    const row = result.rows[0];
+    return row
+      ? {
+          workspaceId: row.workspace_id,
+          value: row.value,
+          updatedBy: row.updated_by,
+          updatedAt: row.updated_at,
+        }
+      : undefined;
+  }
+
+  async setWorkspaceSafetySettings(settings: WorkspaceSafetySettings): Promise<void> {
+    await this.#pool.query(
+      `insert into workspace_safety_settings (workspace_id, value, updated_by, updated_at)
+       values ($1, $2, $3, $4)
+       on conflict (workspace_id) do update
+       set value = excluded.value, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
+      [settings.workspaceId, settings.value, settings.updatedBy, settings.updatedAt],
+    );
+  }
+
+  async getProviderSafetySettings(
+    workspaceId: string,
+    service: string,
+  ): Promise<WorkspaceProviderSafetySettings | undefined> {
+    const result = await this.#pool.query(
+      `select workspace_id, service, value, updated_by, updated_at
+       from workspace_provider_safety_settings where workspace_id = $1 and service = $2`,
+      [workspaceId, service],
+    );
+    const row = result.rows[0];
+    return row
+      ? {
+          workspaceId: row.workspace_id,
+          service: row.service,
+          value: row.value,
+          updatedBy: row.updated_by,
+          updatedAt: row.updated_at,
+        }
+      : undefined;
+  }
+
+  async setProviderSafetySettings(settings: WorkspaceProviderSafetySettings): Promise<void> {
+    await this.#pool.query(
+      `insert into workspace_provider_safety_settings (workspace_id, service, value, updated_by, updated_at)
+       values ($1, $2, $3, $4, $5)
+       on conflict (workspace_id, service) do update
+       set value = excluded.value, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
+      [settings.workspaceId, settings.service, settings.value, settings.updatedBy, settings.updatedAt],
+    );
+  }
+
+  async getIdempotencyRecord(
+    workspaceId: string,
+    actionId: string,
+    connectionName: string,
+    idempotencyKey: string,
+  ): Promise<WorkspaceIdempotencyRecord | undefined> {
+    const result = await this.#pool.query(
+      `select workspace_id, action_id, connection_name, idempotency_key, input_hash, execution_id, result, created_at
+       from workspace_idempotency_records
+       where workspace_id = $1 and action_id = $2 and connection_name = $3 and idempotency_key = $4`,
+      [workspaceId, actionId, connectionName, idempotencyKey],
+    );
+    const row = result.rows[0];
+    return row
+      ? {
+          workspaceId: row.workspace_id,
+          actionId: row.action_id,
+          connectionName: row.connection_name,
+          idempotencyKey: row.idempotency_key,
+          inputHash: row.input_hash,
+          executionId: row.execution_id,
+          result: row.result,
+          createdAt: row.created_at,
+        }
+      : undefined;
+  }
+
+  async setIdempotencyRecord(record: WorkspaceIdempotencyRecord): Promise<void> {
+    await this.#pool.query(
+      `insert into workspace_idempotency_records
+       (workspace_id, action_id, connection_name, idempotency_key, input_hash, execution_id, result, created_at)
+       values ($1, $2, $3, $4, $5, $6, $7, $8)
+       on conflict (workspace_id, action_id, connection_name, idempotency_key) do nothing`,
+      [
+        record.workspaceId,
+        record.actionId,
+        record.connectionName,
+        record.idempotencyKey,
+        record.inputHash,
+        record.executionId,
+        record.result,
+        record.createdAt,
+      ],
     );
   }
 

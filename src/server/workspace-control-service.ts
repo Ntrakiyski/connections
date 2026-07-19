@@ -1,13 +1,16 @@
 import type { CatalogStore, RuntimeActionDefinition } from "../catalog-store.ts";
+import type { ResolvedProviderSafetyConfig } from "../core/action-safety.ts";
 import type { ProviderDefinition } from "../core/types.ts";
 import type {
   AuditEvent,
   IWorkspaceControlStore,
   WorkspaceActionPolicy,
+  WorkspaceIdempotencyRecord,
   WorkspaceProvider,
 } from "./storage/runtime-database.ts";
 import type { WorkspaceContext } from "./storage/runtime-token-service.ts";
 
+import { normalizeSafetyConfigPatch, resolveWorkspaceSafetyConfig } from "../core/action-safety.ts";
 import { HttpRequestError } from "./api/http-utils.ts";
 
 const defaultApprovalVerbs = new Set([
@@ -167,6 +170,76 @@ export class WorkspaceControlService {
     await this.store.setActionPolicy(policy);
     await this.audit("action_policy.updated", "action", actionId, { requireApproval });
     return policy;
+  }
+
+  async getWorkspaceSafetyConfig(): Promise<ResolvedProviderSafetyConfig> {
+    const settings = await this.store.getWorkspaceSafetySettings(this.workspace.workspaceId);
+    return resolveWorkspaceSafetyConfig(settings?.value, undefined);
+  }
+
+  async setWorkspaceSafetyConfig(value: unknown): Promise<ResolvedProviderSafetyConfig> {
+    this.requireManager();
+    const patch = normalizeSafetyConfigPatch(value);
+    await this.store.setWorkspaceSafetySettings({
+      workspaceId: this.workspace.workspaceId,
+      value: patch,
+      updatedBy: this.workspace.userId,
+      updatedAt: new Date().toISOString(),
+    });
+    await this.audit("safety_config.updated", "workspace", this.workspace.workspaceId, { value: patch });
+    return resolveWorkspaceSafetyConfig(patch, undefined);
+  }
+
+  async getProviderSafetyConfig(service: string): Promise<ResolvedProviderSafetyConfig> {
+    if (!this.catalog.providers.some((provider) => provider.service === service)) {
+      throw new HttpRequestError("unknown_service", `Unknown provider: ${service}.`, 404);
+    }
+    await this.assertProviderEnabled(service);
+    const workspaceSettings = await this.store.getWorkspaceSafetySettings(this.workspace.workspaceId);
+    const providerSettings = await this.store.getProviderSafetySettings(this.workspace.workspaceId, service);
+    return resolveWorkspaceSafetyConfig(workspaceSettings?.value, providerSettings?.value);
+  }
+
+  async setProviderSafetyConfig(service: string, value: unknown): Promise<ResolvedProviderSafetyConfig> {
+    this.requireManager();
+    if (!this.catalog.providers.some((provider) => provider.service === service)) {
+      throw new HttpRequestError("unknown_service", `Unknown provider: ${service}.`, 404);
+    }
+    await this.assertProviderEnabled(service);
+    const patch = normalizeSafetyConfigPatch(value);
+    await this.store.setProviderSafetySettings({
+      workspaceId: this.workspace.workspaceId,
+      service,
+      value: patch,
+      updatedBy: this.workspace.userId,
+      updatedAt: new Date().toISOString(),
+    });
+    await this.audit("safety_config.updated", "provider", service, { value: patch });
+    const workspaceSettings = await this.store.getWorkspaceSafetySettings(this.workspace.workspaceId);
+    return resolveWorkspaceSafetyConfig(workspaceSettings?.value, patch);
+  }
+
+  async getIdempotencyRecord(
+    actionId: string,
+    connectionName: string,
+    idempotencyKey: string,
+  ): Promise<WorkspaceIdempotencyRecord | undefined> {
+    return await this.store.getIdempotencyRecord(this.workspace.workspaceId, actionId, connectionName, idempotencyKey);
+  }
+
+  async setIdempotencyRecord(input: {
+    actionId: string;
+    connectionName: string;
+    idempotencyKey: string;
+    inputHash: string;
+    executionId: string;
+    result: unknown;
+  }): Promise<void> {
+    await this.store.setIdempotencyRecord({
+      workspaceId: this.workspace.workspaceId,
+      ...input,
+      createdAt: new Date().toISOString(),
+    });
   }
 
   async audit(

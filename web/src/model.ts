@@ -41,6 +41,7 @@ export interface ActionDefinition {
     noAuthRunnable: boolean;
     needsCredential: boolean;
   };
+  safety?: ActionSafetyMetadata;
 }
 
 export interface ProviderDefinition {
@@ -99,6 +100,12 @@ export interface RunLog {
   inputSummary?: unknown;
   errorCode?: string;
   errorMessage?: string;
+  safety?: {
+    riskTags: string[];
+    scopePreflight: "not_required" | "passed" | "missing" | "unknown";
+    idempotency: "none" | "observed" | "stored" | "replayed" | "conflict";
+    retryCount: number;
+  };
 }
 
 export interface RunLogPage {
@@ -125,6 +132,39 @@ export interface RuntimeActionResponse {
 
 export type WorkspaceRole = "member" | "manager" | "admin";
 
+export type SafetyMode = "observe" | "enforce";
+
+export interface ActionSafetyMetadata {
+  riskTags: string[];
+  idempotency: "not_supported" | "optional" | "required";
+  retryable: boolean;
+}
+
+export interface WorkspaceSafetyConfig {
+  scopePreflight: { mode: SafetyMode };
+  idempotency: { mode: SafetyMode };
+  retry: {
+    mode: SafetyMode;
+    maxAttempts: number;
+    baseDelayMs: number;
+    maxDelayMs: number;
+  };
+  rateLimit: { mode: SafetyMode; maxConcurrent: number };
+}
+
+export interface WorkspaceSafetyConfigPatch {
+  scopePreflight?: Partial<WorkspaceSafetyConfig["scopePreflight"]>;
+  idempotency?: Partial<WorkspaceSafetyConfig["idempotency"]>;
+  retry?: Partial<WorkspaceSafetyConfig["retry"]>;
+  rateLimit?: Partial<WorkspaceSafetyConfig["rateLimit"]>;
+}
+
+export interface ResolvedProviderSafetyConfig {
+  workspace: WorkspaceSafetyConfig;
+  provider?: WorkspaceSafetyConfigPatch;
+  resolved: WorkspaceSafetyConfig;
+}
+
 export interface AppData {
   providers: ProviderDefinition[];
   connections: ConnectionRecord[];
@@ -132,6 +172,7 @@ export interface AppData {
   runtimeTokens: RuntimeTokenSummary[];
   runs: RunLog[];
   runsNextCursor?: string;
+  workspaceSafetyConfig?: ResolvedProviderSafetyConfig;
   workspaceId?: string;
   workspaceName?: string;
   role?: WorkspaceRole;
@@ -218,6 +259,7 @@ export const emptyData: AppData = {
   oauthConfigs: [],
   runtimeTokens: [],
   runs: [],
+  workspaceSafetyConfig: undefined,
   workspaceId: "",
   workspaceName: "",
   role: "member",

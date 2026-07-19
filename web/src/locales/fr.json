@@ -195,7 +195,7 @@
     "noActions": "Aucune action.",
     "authLabels": {
       "apiKey": "Clé API",
-      "oauth": "OAuth",
+      "oauth": "OAuth2",
       "custom": "Personnalisé",
       "noAuth": "Sans auth"
     },
@@ -338,6 +338,27 @@
       "lastUsed": "Dernière utilisation"
     },
     "revoke": "Révoquer"
+  },
+  "safety": {
+    "workspaceTitle": "Workspace Safety",
+    "workspaceDescription": "Set default guardrails for action execution in this workspace.",
+    "providerTitle": "Provider Safety",
+    "providerDescription": "Override workspace guardrails for {{name}} actions.",
+    "scopePreflight": "Scope preflight",
+    "idempotency": "Idempotency",
+    "retry": "Retry",
+    "rateLimit": "Rate limit",
+    "maxAttempts": "Max attempts",
+    "maxConcurrent": "Max concurrent",
+    "baseDelayMs": "Base delay ms",
+    "maxDelayMs": "Max delay ms",
+    "inherit": "Inherit",
+    "observe": "Observe",
+    "enforce": "Enforce",
+    "save": "Save Safety Settings",
+    "saving": "Saving safety settings...",
+    "saved": "Safety settings saved.",
+    "saveFailed": "Failed to save safety settings."
   },
   "resources": {
     "apiReference": {

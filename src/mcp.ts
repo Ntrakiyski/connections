@@ -160,10 +160,14 @@ export function createMcpServer(options: IMcpServerOptions): McpServer {
           .record(z.string(), z.unknown())
           .default({})
           .describe("Action input object matching the selected action guide."),
+        idempotencyKey: z
+          .string()
+          .optional()
+          .describe("Optional duplicate-protection key for write actions that support idempotency."),
       },
     },
-    async ({ actionId, connectionName, input }) =>
-      toolResult(await executeAction(options, actionId, connectionName, input)),
+    async ({ actionId, connectionName, input, idempotencyKey }) =>
+      toolResult(await executeAction(options, actionId, connectionName, input, idempotencyKey)),
   );
 
   return server;
@@ -257,6 +261,7 @@ async function executeAction(
   actionId: string,
   connectionName: string,
   input: Record<string, unknown>,
+  idempotencyKey?: string,
 ): Promise<ToolPayload> {
   const action = options.catalog.actionsById.get(actionId);
   if (!action || !((await options.isProviderEnabled?.(action.service)) ?? true)) {
@@ -270,6 +275,7 @@ async function executeAction(
       input,
       caller: "mcp",
       connectionName,
+      idempotencyKey,
     });
   } catch (error) {
     if (error instanceof ConnectionError) {
@@ -309,6 +315,7 @@ function summarizeInputSchema(schema: JsonSchema): unknown {
 
 type ActionCapability = {
   execution: RuntimeActionDefinition["execution"];
+  safety: RuntimeActionDefinition["safety"];
   authTypes: ProviderDefinition["authTypes"];
   requiredScopes: string[];
   providerPermissions: string[];
@@ -316,6 +323,7 @@ type ActionCapability = {
   connections: ConnectionSummary[];
   requireApproval: boolean;
   approvalInstruction: string | null;
+  safetyConfig?: unknown;
 };
 
 async function describeActionCapability(
@@ -326,6 +334,7 @@ async function describeActionCapability(
   const requireApproval = (await options.requireApproval?.(action)) ?? true;
   return {
     execution: action.execution,
+    safety: action.safety,
     authTypes: provider?.authTypes ?? [],
     requiredScopes: action.requiredScopes,
     providerPermissions: action.providerPermissions,

@@ -164,6 +164,13 @@ describe("ProvidersPage route shell", () => {
     expect(markup).not.toContain("Reset OAuth Client");
   });
 
+  it("shows provider auth method tags in the provider browser", () => {
+    const markup = renderProvidersPage(providerData, "/providers");
+
+    expect(markup).toContain('class="provider-card-auth-tags"');
+    expect(markup).toContain("OAuth2");
+  });
+
   it("renders a full provider detail page at /providers/:service", () => {
     const markup = renderProvidersPage(providerData, "/providers/gmail");
 

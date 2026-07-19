@@ -20,6 +20,12 @@ export type RunLog = {
   inputSummary?: unknown;
   errorCode?: string;
   errorMessage?: string;
+  safety?: {
+    riskTags: string[];
+    scopePreflight: "not_required" | "passed" | "missing" | "unknown";
+    idempotency: "none" | "observed" | "stored" | "replayed" | "conflict";
+    retryCount: number;
+  };
 };
 
 export interface RunLogListInput {

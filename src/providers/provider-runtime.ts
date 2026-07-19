@@ -574,6 +574,23 @@ export interface ReadProviderJsonBodyOptions {
   trimEmptyBody?: boolean;
 }
 
+export interface ProviderRequestInput {
+  url: string | URL;
+  method?: string;
+  headers?: HeadersInit;
+  query?: Record<string, string | number | boolean | null | undefined>;
+  body?: unknown;
+  timeoutMs?: number;
+  maxBytes?: number;
+  source?: string;
+}
+
+export interface ProviderRequestOutput<T = unknown> {
+  status: number;
+  headers: Headers;
+  data: T;
+}
+
 /**
  * Read a bounded provider response body as text.
  */
@@ -599,6 +616,71 @@ export async function readProviderJsonBody(response: Response, options: ReadProv
 }
 
 /**
+ * Execute a JSON-oriented provider API request through the shared guarded
+ * transport, timeout, bounded body reader, and error mapping.
+ */
+export async function providerRequest<T = unknown>(
+  context: Pick<ApiKeyProviderContext, "fetcher" | "signal">,
+  input: ProviderRequestInput,
+): Promise<ProviderRequestOutput<T>> {
+  const url = new URL(input.url);
+  for (const [key, value] of Object.entries(input.query ?? {})) {
+    if (value !== undefined && value !== null) {
+      url.searchParams.set(key, String(value));
+    }
+  }
+  const headers = new Headers(input.headers);
+  if (!headers.has("accept")) {
+    headers.set("accept", "application/json");
+  }
+  if (!headers.has("user-agent")) {
+    headers.set("user-agent", providerUserAgent);
+  }
+  const init: RequestInit = {
+    method: input.method ?? (input.body === undefined ? "GET" : "POST"),
+    headers,
+    signal: context.signal,
+  };
+  if (input.body !== undefined) {
+    init.body = typeof input.body === "string" ? input.body : JSON.stringify(input.body);
+    if (!headers.has("content-type") && typeof input.body !== "string") {
+      headers.set("content-type", "application/json");
+    }
+  }
+
+  const timeout = input.timeoutMs ? createProviderTimeout(context.signal, input.timeoutMs) : undefined;
+  if (timeout) {
+    init.signal = timeout.signal;
+  }
+  try {
+    const response = await context.fetcher(url, init);
+    const source = input.source ?? url.hostname;
+    const data = await readProviderJsonBody(response, {
+      emptyBody: null,
+      invalidJsonMessage: `${source} returned invalid JSON.`,
+      invalidJsonStatus: response.ok ? 502 : response.status,
+      invalidJsonFallback: response.ok ? undefined : (text) => text,
+      maxBytes: input.maxBytes,
+    });
+    if (!response.ok) {
+      throw new ProviderRequestError(response.status, providerRequestErrorMessage(data, source, response.status), data);
+    }
+    return {
+      status: response.status,
+      headers: response.headers,
+      data: data as T,
+    };
+  } catch (error) {
+    if (timeout?.didTimeout() && isAbortLikeError(error)) {
+      throw new ProviderRequestError(504, `${input.source ?? url.hostname} request timed out.`);
+    }
+    throw error;
+  } finally {
+    timeout?.cleanup();
+  }
+}
+
+/**
  * Parse an already-read provider response body as JSON.
  */
 export function parseProviderJsonBodyText(text: string, options: ReadProviderJsonBodyOptions): unknown {
@@ -616,6 +698,16 @@ export function parseProviderJsonBodyText(text: string, options: ReadProviderJso
     }
     throw new ProviderRequestError(options.invalidJsonStatus ?? 502, options.invalidJsonMessage, error);
   }
+}
+
+function providerRequestErrorMessage(data: unknown, source: string, status: number): string {
+  const record = optionalRecord(data);
+  const message =
+    optionalString(record?.message) ??
+    optionalString(record?.error_description) ??
+    optionalString(record?.error) ??
+    `${source} request failed with HTTP ${status}.`;
+  return message;
 }
 
 /**
