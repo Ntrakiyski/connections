@@ -642,15 +642,16 @@ Use the supplied Meetily application icon in Connections and provide the existin
 - [x] Convert the supplied ICNS icon to a web PNG.
 - [x] Point the Meetily provider at the local icon asset.
 - [x] Regenerate the provider catalog and verify the web build.
-- [ ] Push and deploy the reviewed change.
+- [x] Push and deploy the reviewed change.
 - [x] Copy the dedicated Meetily key from Keychain to the clipboard.
 
 ## Verification
 
 - [x] The generated Meetily catalog contains the local icon URL.
 - [x] The built web bundle contains the icon.
-- [ ] Coolify deploys the exact pushed revision healthy.
+- [x] The production web bundle serves the icon.
+- [x] Coolify deploys the exact pushed revision healthy.
 
 ## Review
 
-Pending.
+The supplied ICNS asset was converted to a 256 px PNG and exposed through the existing provider `iconUrl` field. Catalog generation, `npm run fix-check`, the web build, and `git diff --check` passed. Commit `34b8e7d` was pushed and Coolify deployed that exact revision healthy. The production icon returns `200 image/png` and its SHA-256 matches the tracked asset. The dedicated API key remained in Keychain and was copied directly to the clipboard without being printed.
