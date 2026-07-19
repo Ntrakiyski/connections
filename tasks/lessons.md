@@ -1,5 +1,12 @@
 # Lessons
 
+## 2026-07-19 - Apply every migration required by the deployed revision
+
+Mistake: Deployed Connections code that queried the workspace safety tables while deliberately leaving its existing migration unapplied in production.
+Why it happened: The Meetily release verification focused on the new Meetily migration and treated an older pending migration as unrelated, even though the deployed revision already depended on it.
+Rule for next time: Before every application deploy, diff the revision's migrations against the production migration registry and apply every schema dependency in order, not only the migration added by the current feature.
+Example check: `db migrations list` and targeted `to_regclass` checks must show every table referenced by the release before Coolify deploys the revision.
+
 ## 2026-07-19 - Avoid broad Coolify application reads
 
 Mistake: Used the full Coolify application-details call for post-deploy verification, and its response included deploy webhook credentials alongside the needed health metadata.

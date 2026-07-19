@@ -15,6 +15,7 @@ export const provider: ProviderDefinition = {
       description: "The dedicated Meetily API key configured for the Connections InsForge project.",
     },
   ],
+  iconUrl: "/meetily-icon.png",
   homepageUrl: "https://github.com/Zackriya-Solutions/meetily",
   actions: meetilyActions,
 };

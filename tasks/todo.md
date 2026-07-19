@@ -590,3 +590,67 @@ Created and applied the additive `meetily_meetings` migration in the production 
 Connections now ships a first-class Meetily API-key provider with list, get, latest, and transcript-search actions. Commit `9fdd7ee` passed typecheck plus all 58 test files / 437 tests, was pushed to `main`, and Coolify deployed that exact commit healthy. The provider is enabled only in the existing two-member workspace. The browser automation session reached Clerk sign-in, so storing the encrypted provider connection still requires the owner to sign in and paste the API key already placed on the clipboard.
 
 Meetily publishes from the successful local SQLite save path in a detached task, so an unavailable network cannot fail the recording save. `cargo check` and the focused publisher test pass. Existing unrelated Meetily edits remain untouched. V1 deliberately uses one project-wide key; add workspace-scoped keys before sharing this transcript source with another Connections workspace.
+
+---
+
+# Task Plan
+
+## Goal
+
+Restore the production workspace safety-config endpoint after the Connections deployment returned HTTP 500.
+
+## Constraints
+
+- Diagnose from the deployed logs and production schema before mutating state.
+- Apply only the existing additive migration required by the deployed code.
+- Do not expose credentials or alter workspace data.
+
+## Steps
+
+- [x] Trace the endpoint's storage query and inspect bounded production logs.
+- [x] Compare the production migration registry and schema with the deployed code.
+- [x] Apply the missing workspace safety-settings migration.
+- [x] Verify the migration registry, required tables, and public route behavior.
+
+## Verification
+
+- [x] Production logs identify the exact missing relation and SQLSTATE.
+- [x] Migration `20260718095600_workspace-safety-settings` is registered in production.
+- [x] All three safety/idempotency tables exist in the public schema.
+- [x] The unauthenticated live route reaches Clerk authentication and returns `401`, not `500`.
+
+## Review
+
+The deployed code queried `workspace_safety_settings`, but production had not received its additive migration. Coolify logs confirmed PostgreSQL `42P01` on `GET /api/workspace/safety-config`. Applying migration `20260718095600_workspace-safety-settings` created the workspace safety, provider safety, and idempotency tables. The InsForge migration registry and `information_schema` now report all required objects, and the live route returns the expected Clerk `401` when called without a session instead of failing at the server boundary. No application redeploy was required.
+
+---
+
+# Task Plan
+
+## Goal
+
+Use the supplied Meetily application icon in Connections and provide the existing dedicated API key safely.
+
+## Constraints
+
+- Reuse the existing provider `iconUrl` mechanism.
+- Do not print or commit the API key.
+- Deploy only after the generated catalog and web build pass.
+
+## Steps
+
+- [x] Convert the supplied ICNS icon to a web PNG.
+- [x] Point the Meetily provider at the local icon asset.
+- [x] Regenerate the provider catalog and verify the web build.
+- [ ] Push and deploy the reviewed change.
+- [x] Copy the dedicated Meetily key from Keychain to the clipboard.
+
+## Verification
+
+- [x] The generated Meetily catalog contains the local icon URL.
+- [x] The built web bundle contains the icon.
+- [ ] Coolify deploys the exact pushed revision healthy.
+
+## Review
+
+Pending.
