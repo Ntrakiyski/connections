@@ -1,5 +1,19 @@
 # Lessons
 
+## 2026-07-19 - Avoid broad Coolify application reads
+
+Mistake: Used the full Coolify application-details call for post-deploy verification, and its response included deploy webhook credentials alongside the needed health metadata.
+Why it happened: Chose a broad resource read after the targeted diagnosis and log calls already contained the required evidence.
+Rule for next time: Verify deployments with targeted diagnose, deployment, and log calls; do not request full application configuration unless a specific field is required.
+Example check: The planned output fields should be limited to status, commit, health, and bounded logs before invoking a Coolify read.
+
+## 2026-07-19 - Do not seed a shared-key provider into every workspace
+
+Mistake: Enabled the v1 Meetily provider for every active workspace before checking how many workspaces existed.
+Why it happened: Treated a personal InsForge project as equivalent to one Connections workspace even though the product is multi-workspace.
+Rule for next time: Count and identify target workspaces before inserting provider enablement; a project-wide external key must be connected to exactly one intended workspace.
+Example check: Query active workspace count first, then verify `workspace_providers` has one `meetily` row before distributing the key.
+
 ## 2026-07-19 - Install locked dependencies before project checks
 
 Mistake: Ran `npm run fix-check` in a fresh clone before installing dependencies, so verification stopped at the missing local `oxlint` binary.

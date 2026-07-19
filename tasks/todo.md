@@ -571,7 +571,7 @@ Publish completed Meetily meetings into the existing Connections InsForge projec
 - [x] Implement the Connections Meetily provider and its read actions.
 - [x] Implement Meetily's post-completion publisher with Keychain configuration.
 - [x] Run focused/full relevant checks and an end-to-end synthetic meeting round trip.
-- [ ] Release the Connections provider code and document the one-key v1 limitation.
+- [x] Release the Connections provider code and document the one-key v1 limitation.
 
 ## Verification
 
@@ -585,4 +585,8 @@ Publish completed Meetily meetings into the existing Connections InsForge projec
 
 ## Review
 
-Pending.
+Created and applied the additive `meetily_meetings` migration in the production Connections InsForge project, deployed the authenticated `meetily` edge function, and installed its generated key in InsForge plus the local macOS Keychain. Unauthorized requests return `401`; two identical authorized deliveries both return `200` and produce one row. Authenticated latest/search reads returned the synthetic transcript, and all synthetic rows were removed afterward.
+
+Connections now ships a first-class Meetily API-key provider with list, get, latest, and transcript-search actions. Commit `9fdd7ee` passed typecheck plus all 58 test files / 437 tests, was pushed to `main`, and Coolify deployed that exact commit healthy. The provider is enabled only in the existing two-member workspace. The browser automation session reached Clerk sign-in, so storing the encrypted provider connection still requires the owner to sign in and paste the API key already placed on the clipboard.
+
+Meetily publishes from the successful local SQLite save path in a detached task, so an unavailable network cannot fail the recording save. `cargo check` and the focused publisher test pass. Existing unrelated Meetily edits remain untouched. V1 deliberately uses one project-wide key; add workspace-scoped keys before sharing this transcript source with another Connections workspace.
