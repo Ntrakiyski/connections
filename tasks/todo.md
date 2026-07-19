@@ -511,3 +511,78 @@ Release the complete reviewed repository cleanup to `main` and deploy that exact
 ## Review
 
 Pending.
+
+---
+
+# Task Plan
+
+## Goal
+
+Verify the linked InsForge CLI/backend state and determine the smallest correct way to use the existing Connections database for Meetily transcript ingestion and provider reads.
+
+## Constraints
+
+- Keep this inspection read-only; do not create tables, functions, secrets, branches, or data yet.
+- Confirm the linked project before querying it.
+- Do not print credentials, project keys, database URLs, or meeting/user data.
+- Preserve the locked Hono API boundary for Connections product data unless a deliberate architecture decision changes it.
+
+## Steps
+
+- [x] Confirm the installed InsForge CLI version and authenticated identity.
+- [x] Resolve and link the existing Connections project using the CLI's required explicit project ID.
+- [x] Review relevant project memory, migration history, public schema, functions, and secret names.
+- [x] Compare the available InsForge primitives with the Meetily provider design.
+
+## Verification
+
+- [x] CLI targets the expected Connections project.
+- [x] Existing backend capabilities are confirmed from read-only CLI output.
+- [x] Recommended implementation identifies the ingest boundary, storage objects, and provider read path.
+- [x] No backend state or secret value was changed or exposed.
+
+## Review
+
+InsForge CLI 0.2.0 is authenticated and the checkout is explicitly linked to the existing `Connections` project in `eu-central`. The production public schema contains the current Connections workspace/runtime tables, three applied migrations, no Meetily objects, and no deployed edge functions. Secret names were inspected without reading values; no backend state changed.
+
+The smallest sound v1 is a migration for workspace-scoped Meetily meeting storage plus one token-protected `meetily-ingest` edge function that validates JSON, caps the body, resolves the token to a server-owned workspace, and upserts by `(workspace_id, external_id)`. The Connections Meetily provider should read the same Postgres database server-side through the existing application boundary and expose curated read actions. Do not give the Mac or a provider connection the InsForge admin API key, and do not trust a payload-supplied workspace ID.
+
+---
+
+# Task Plan
+
+## Goal
+
+Publish completed Meetily meetings into the existing Connections InsForge project and expose those transcripts through a first-class Connections Meetily provider.
+
+## Constraints
+
+- Keep InsForge admin credentials server-only; Meetily receives only a scoped ingest token.
+- Derive workspace ownership from the ingest token, never from payload input.
+- Preserve existing uncommitted work in both repositories.
+- Use additive migrations and the smallest provider/publisher changes that cover completed meetings.
+- Do not deploy production schema/function changes until the isolated backend path and local checks pass.
+
+## Steps
+
+- [x] Trace Meetily's meeting-completion persistence flow and Connections provider/runtime patterns.
+- [x] Define the meeting schema and protected ingest contract.
+- [x] Implement and verify the additive InsForge migration/function directly on production as requested.
+- [x] Implement the Connections Meetily provider and its read actions.
+- [x] Implement Meetily's post-completion publisher with Keychain configuration.
+- [x] Run focused/full relevant checks and an end-to-end synthetic meeting round trip.
+- [ ] Release the Connections provider code and document the one-key v1 limitation.
+
+## Verification
+
+- [x] Duplicate delivery upserts rather than duplicates.
+- [x] Invalid/missing tokens and malformed/oversized payloads are rejected.
+- [ ] One workspace cannot read or overwrite another workspace's meetings; v1 intentionally uses one project-wide key.
+- [x] Provider list/get/latest/search actions return curated meeting and transcript data.
+- [x] Meetily completion remains successful when publishing is unconfigured or temporarily unavailable.
+- [x] No secret values appear in tracked files or command output.
+- [x] Both repositories' relevant checks pass and production backend state matches the reviewed artifacts.
+
+## Review
+
+Pending.

@@ -1,5 +1,26 @@
 # Lessons
 
+## 2026-07-19 - Install locked dependencies before project checks
+
+Mistake: Ran `npm run fix-check` in a fresh clone before installing dependencies, so verification stopped at the missing local `oxlint` binary.
+Why it happened: Provider generation uses Node directly and succeeded, masking that package binaries were unavailable.
+Rule for next time: In a fresh checkout, confirm `node_modules/.bin` contains the repository check tools or run `npm ci` before generation and verification.
+Example check: `test -x node_modules/.bin/oxlint` must pass before `npm run fix-check`.
+
+## 2026-07-19 - Name the non-primary upsert conflict target
+
+Mistake: Sent a PostgREST merge-duplicates request without `on_conflict`, so the first Meetily insert worked but a repeated `external_id` delivery failed against the unique constraint.
+Why it happened: The upsert header was treated as sufficient even though the idempotency key is not the table's primary key.
+Rule for next time: For every PostgREST upsert keyed by a non-primary unique constraint, include `?on_conflict=<unique_column>` and verify the same payload twice.
+Example check: Two identical ingest requests both return success and a count query still returns exactly one row.
+
+## 2026-07-19 - InsForge link without a project only refreshes guidance
+
+Mistake: Ran `npx @insforge/cli link -y` expecting the single visible project to be selected automatically, but CLI 0.2.0 only refreshed agent skills and rewrote the InsForge block in `AGENTS.md`.
+Why it happened: Relied on older skill wording instead of checking the installed CLI command help first.
+Rule for next time: On an unlinked checkout, run `npx @insforge/cli link --help` first and pass the exact existing `--project-id` and `--org-id`; preserve and inspect repository guidance before any bootstrap-style command.
+Example check: `npx @insforge/cli current` must name the expected project, and `git diff -- AGENTS.md` must remain empty after linking.
+
 ## 2026-07-16 - Separate binary cleanup from text patches
 
 Mistake: Included PNG assets in a generated `apply_patch` deletion set, which failed because the patch tool reads deleted files as UTF-8.
