@@ -1,5 +1,12 @@
 # Lessons
 
+## 2026-07-19 - Inspect table ownership before access-control migrations
+
+Mistake: The first hardening migration assumed every application table was owned by the InsForge migration role.
+Why it happened: Effective privileges and RLS flags were inspected, but two legacy tables owned by `postgres` were not separated from `project_admin`-owned tables before applying DDL.
+Rule for next time: Include table owner and ACL grantor in the access-control preflight; split objects the migration role cannot administer before the first apply.
+Example check: Query `pg_class.relowner` and `aclexplode(relacl).grantor` for every target table before generating `ALTER TABLE` or `REVOKE` statements.
+
 ## 2026-07-19 - Match constraints to the schema helper contract
 
 Mistake: Passed `maxLength` to `s.nonEmptyString`, whose options intentionally expose only the shared JSON Schema options.

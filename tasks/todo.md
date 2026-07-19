@@ -2,6 +2,80 @@
 
 ## Goal
 
+Apply the approved InsForge table-access hardening through a durable repository migration and verify the live result.
+
+## Constraints
+
+- Operate only on the already-linked parent Connections project.
+- Preserve the Hono-only database boundary; do not add browser/PostgREST policies.
+- Keep the server database role working while removing `anon` and `authenticated` access.
+- Do not alter tenant rows, credentials, or unrelated database objects.
+
+## Steps
+
+- [x] Confirm the linked project and remote migration head.
+- [x] Create and review one focused access-control migration.
+- [x] Apply the migration with the InsForge CLI.
+- [x] Verify grants, RLS, advisor output, and application health.
+
+## Verification
+
+- [ ] All 13 affected tables have RLS enabled and not forced; 11 are fixed, while two legacy `postgres`-owned tables require owner-level repair unavailable to the CLI migration role.
+- [ ] `anon` and `authenticated` have no table privileges on all affected tables; verified for the same 11, with the two owner-blocked tables remaining exposed.
+- [x] No policies were added and no tenant rows were touched.
+- [x] The migration is recorded remotely, database diagnostics are healthy, and production `/health` returns `{"ok":true}`.
+
+## Review
+
+Applied `20260719133905_lock-down-server-tables` to the parent Connections project. It enables non-forced RLS and removes all `anon`/`authenticated` table privileges from 11 application tables, then removes those roles from `project_admin`'s future table and sequence defaults. Live metadata verifies every protected privilege is false, RLS is enabled, no policies were added, the database has no slow queries or locks, and the production health endpoint returns OK.
+
+The first apply was transactionally rolled back because `workspace_action_policies` and `workspace_providers` are legacy tables owned by `postgres`, with their public grants also issued by `postgres`. InsForge migrations run as `project_admin`, which cannot alter either table or revoke another owner's grants. Those two tables remain publicly readable and writable and require InsForge owner-level action: transfer ownership to `project_admin` or have `postgres` enable RLS and revoke the public grants. No risky table rebuild was attempted.
+
+---
+
+# Task Plan
+
+## Goal
+
+Inspect the 14 InsForge "Table publicly accessible" security findings and propose a verified remediation plan without changing production.
+
+## Constraints
+
+- Read-only investigation; do not alter grants, RLS, migrations, production data, secrets, or deployment state.
+- Verify the linked InsForge project before querying and avoid broad outputs that may expose credentials or tenant data.
+- Preserve the locked architecture: Clerk and the Connections Hono API own human authorization; the browser never queries InsForge directly.
+- Distinguish `public` schema placement from actual access granted to anonymous/authenticated PostgREST roles.
+- Protect encrypted credentials, OAuth state, token hashes, membership, runs, and audit data with defense in depth.
+
+## Steps
+
+- [x] Capture the complete advisor findings and affected-table set.
+- [x] Inspect current table grants, RLS flags, policies, and application database role usage.
+- [x] Compare live schema state with repository migrations and deployment architecture.
+- [x] Classify exposure and propose the smallest safe migration and rollout sequence.
+
+## Verification
+
+- [x] Advisor output checked; the CLI currently returns no persisted scan payload, so the screenshot was reconciled with live PostgreSQL metadata instead.
+- [x] Live grants/RLS/policies verified without reading tenant row contents.
+- [x] Application database access requirements traced from production code.
+- [x] Proposed SQL is compatible with the Hono-only data boundary and includes a runtime-role preflight before RLS rollout.
+- [x] Remaining unknowns and required post-fix checks documented.
+
+## Review
+
+The screenshot reflects a real database exposure, although it is one finding stale: the live project currently has 13 unsafe application tables, while `meetily_meetings` is already protected. Every unsafe table has RLS disabled, no policies, and direct `SELECT`, `INSERT`, `UPDATE`, and `DELETE` grants to both `anon` and `authenticated`; those roles also have `USAGE` on `public`. No tenant rows or secrets were read during verification.
+
+The root cause is the InsForge database's default ACL for tables created by both `postgres` and `project_admin`. Older schema and migrations created tables without overriding those defaults. The Meetily migration demonstrates the correct server-only pattern: enable RLS and revoke all table access from `anon` and `authenticated`. Because Connections uses Clerk plus its Hono API as the sole authorization boundary and connects with a server-side PostgreSQL URL, it should not define browser/PostgREST policies for these tables.
+
+Recommended rollout: first confirm `current_user` through the production application's own database connection (expected `project_admin`, which has `BYPASSRLS`); then apply one explicit migration that revokes all privileges from the two public roles and enables non-forced RLS on the 13 affected tables. Smoke-test workspace load, connection management, OAuth, runtime-token authentication, a provider run, and audit writes; then re-scan and verify zero public table privileges. Change `project_admin` default privileges where permitted and require every future `create table` migration to include the explicit RLS/revoke pair. Do not use `FORCE ROW LEVEL SECURITY`, and do not add permissive `USING (true)` policies.
+
+---
+
+# Task Plan
+
+## Goal
+
 Create a runnable Board provider from the supplied OpenAPI document and use the supplied image as its Connections catalog cover.
 
 ## Constraints
