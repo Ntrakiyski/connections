@@ -3,6 +3,7 @@ const maxBodyBytes = 2 * 1024 * 1024;
 
 interface TranscriptSegment {
   text?: unknown;
+  speaker?: unknown;
   timestamp?: unknown;
   audio_start_time?: unknown;
   audio_end_time?: unknown;
@@ -15,7 +16,6 @@ interface MeetingPayload {
   transcript?: unknown;
   transcriptSegments?: unknown;
   summary?: unknown;
-  actionItems?: unknown;
 }
 
 export default async function (request: Request): Promise<Response> {
@@ -60,6 +60,15 @@ export default async function (request: Request): Promise<Response> {
     return json({ error: "externalId, title, and transcript are required" }, 400);
   }
 
+  const record: Record<string, unknown> = {
+    external_id: externalId,
+    title,
+    transcript,
+    transcript_segments: segments,
+  };
+  const summary = optionalString(payload.summary);
+  if (summary) record.summary = summary;
+
   const response = await fetch(`${baseUrl}/api/database/records/meetily_meetings?on_conflict=external_id`, {
     method: "POST",
     headers: {
@@ -67,16 +76,7 @@ export default async function (request: Request): Promise<Response> {
       "content-type": "application/json",
       prefer: "resolution=merge-duplicates,return=representation",
     },
-    body: JSON.stringify([
-      {
-        external_id: externalId,
-        title,
-        transcript,
-        transcript_segments: segments,
-        summary: optionalString(payload.summary),
-        action_items: Array.isArray(payload.actionItems) ? payload.actionItems : [],
-      },
-    ]),
+    body: JSON.stringify([record]),
   });
 
   if (!response.ok) {
@@ -111,7 +111,7 @@ async function readMeetings(request: Request, baseUrl: string, apiKey: string): 
   }
 
   if (operation === "list") {
-    query.set("select", "id,external_id,title,summary,action_items,created_at,updated_at");
+    query.set("select", "id,external_id,title,summary,created_at,updated_at");
   }
 
   const response = await fetch(`${baseUrl}/api/database/records/meetily_meetings?${query}`, {

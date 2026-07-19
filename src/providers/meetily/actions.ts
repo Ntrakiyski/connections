@@ -4,12 +4,19 @@ import { s } from "../../core/json-schema.ts";
 import { defineProviderAction } from "../../core/provider-definition.ts";
 
 const service = "meetily";
+const transcriptSegmentSchema = s.looseObject("A timestamped Meetily transcript segment.", {
+  text: s.nonEmptyString("Segment transcript text."),
+  speaker: s.nullableString("Audio source label when available."),
+  audio_start_time: s.nullableNumber("Segment start in recording seconds."),
+  audio_end_time: s.nullableNumber("Segment end in recording seconds."),
+  duration: s.nullableNumber("Segment duration in seconds."),
+});
 const meetingSchema = s.looseObject("A completed Meetily meeting.", {
   externalId: s.nonEmptyString("Stable Meetily meeting ID."),
   title: s.nonEmptyString("Meeting title."),
   transcript: s.string("Full transcript text when requested."),
+  transcriptSegments: s.array("Timestamped transcript segments when requested.", transcriptSegmentSchema),
   summary: s.nullable(s.string("Meeting summary when available.")),
-  actionItems: s.array("Meeting action items.", s.unknown("Action item.")),
   createdAt: s.nonEmptyString("Time the meeting was first stored."),
   updatedAt: s.nonEmptyString("Time the stored meeting was last updated."),
 });

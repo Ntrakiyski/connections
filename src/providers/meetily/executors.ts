@@ -72,8 +72,8 @@ function normalizeMeeting(value: unknown): Record<string, unknown> {
     externalId: meeting.external_id,
     title: meeting.title,
     ...(meeting.transcript === undefined ? {} : { transcript: meeting.transcript }),
+    transcriptSegments: meeting.transcript_segments ?? [],
     summary: meeting.summary ?? null,
-    actionItems: meeting.action_items ?? [],
     createdAt: meeting.created_at,
     updatedAt: meeting.updated_at,
   };
