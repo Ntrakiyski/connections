@@ -655,3 +655,40 @@ Use the supplied Meetily application icon in Connections and provide the existin
 ## Review
 
 The supplied ICNS asset was converted to a 256 px PNG and exposed through the existing provider `iconUrl` field. Catalog generation, `npm run fix-check`, the web build, and `git diff --check` passed. Commit `34b8e7d` was pushed and Coolify deployed that exact revision healthy. The production icon returns `200 image/png` and its SHA-256 matches the tracked asset. The dedicated API key remained in Keychain and was copied directly to the clipboard without being printed.
+
+---
+
+# Task Plan
+
+## Goal
+
+Preserve the original Meetily transcript beside the LLM-corrected default transcript and expose both through the Connections provider.
+
+## Constraints
+
+- Keep one row per meeting and preserve summaries during transcript-only retries.
+- Keep the existing dedicated ingest key and protected table access unchanged.
+- Test schema/function changes on an InsForge branch before production.
+- Do not leave synthetic meetings in either backend.
+
+## Steps
+
+- [x] Add raw transcript text and segment columns through an additive migration.
+- [x] Extend the ingest function without clearing omitted raw or summary data.
+- [x] Expose corrected/default and raw transcript fields through provider actions.
+- [x] Verify the branch, merge to production, deploy the function, and reload PostgREST schema.
+- [x] Push and deploy the exact Connections revision.
+
+## Verification
+
+- [x] Corrected and raw segment JSON coexist under one external meeting ID.
+- [x] A later transcript-only upsert preserves the original transcript.
+- [x] The production authenticated round trip passes and synthetic rows are deleted.
+- [x] Typecheck and all 437 provider/runtime tests pass.
+- [x] Coolify deploys the pushed revision and reports `running:healthy`.
+
+## Review
+
+Migration `20260719130001_add-meetily-raw-transcript.sql` and the updated `meetily` edge function were proven on schema-only branch `meetily-raw-transcript`, whose dry-run merge reported zero conflicts. Production now stores `raw_transcript` and `raw_transcript_segments` beside the corrected/default fields. An authenticated two-version production upsert proved the row stays singular and later corrected snapshots do not erase the raw copy; the synthetic row was removed.
+
+Provider normalization now returns `rawTranscript` and `rawTranscriptSegments` in detailed meeting actions while retaining `transcript` and `transcriptSegments` as the corrected/default version. Typecheck and all 58 test files / 437 tests passed. Commit `7e76131` was pushed and Coolify deployment `yuv80otfx6mtmh6yjpgkuxqc` finished at that exact revision; the application is `running:healthy` and startup logs contain no application errors.

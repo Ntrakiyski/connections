@@ -1,5 +1,12 @@
 # Lessons
 
+## 2026-07-19 - Reload PostgREST after merging branch migrations
+
+Mistake: Expected a successful InsForge branch merge to refresh the parent PostgREST schema cache automatically.
+Why it happened: The new columns and migration history existed in PostgreSQL, but the parent PostgREST process had not received a reload notification and rejected the first new-column write with `PGRST204`.
+Rule for next time: After merging schema changes, verify an API request using every new column and explicitly reload the `pgrst` schema cache if it is stale.
+Example check: Function logs contain no `PGRST204`, and the exact new-column payload succeeds before the release is marked complete.
+
 ## 2026-07-19 - Apply every migration required by the deployed revision
 
 Mistake: Deployed Connections code that queried the workspace safety tables while deliberately leaving its existing migration unapplied in production.
