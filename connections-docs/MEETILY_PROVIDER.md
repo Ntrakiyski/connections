@@ -44,7 +44,7 @@ So the better abstraction is a first-class `meetily` provider backed by a durabl
 
 ## Data Flow
 
-After a meeting ends, the Meetily macOS app sends one completed meeting payload to the VPS.
+Meetily upserts transcript snapshots while the meeting is active. After stop, it preserves the original transcript, automatically publishes the LLM-corrected transcript as the default, and retains both versions under the same meeting ID.
 
 Example ingest payload:
 
@@ -56,6 +56,9 @@ Example ingest payload:
   "endedAt": "2026-07-19T10:45:00Z",
   "participants": ["Alice", "Bob"],
   "transcript": "Full transcript text...",
+  "rawTranscript": "Original speech-recognition text...",
+  "transcriptSegments": [],
+  "rawTranscriptSegments": [],
   "summary": "Meeting summary...",
   "actionItems": [
     {

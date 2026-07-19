@@ -15,6 +15,8 @@ interface MeetingPayload {
   title?: unknown;
   transcript?: unknown;
   transcriptSegments?: unknown;
+  rawTranscript?: unknown;
+  rawTranscriptSegments?: unknown;
   summary?: unknown;
 }
 
@@ -68,6 +70,12 @@ export default async function (request: Request): Promise<Response> {
   };
   const summary = optionalString(payload.summary);
   if (summary) record.summary = summary;
+  const rawSegments = Array.isArray(payload.rawTranscriptSegments)
+    ? payload.rawTranscriptSegments.filter(isTranscriptSegment)
+    : undefined;
+  const rawTranscript = optionalString(payload.rawTranscript);
+  if (rawTranscript) record.raw_transcript = rawTranscript;
+  if (rawSegments) record.raw_transcript_segments = rawSegments;
 
   const response = await fetch(`${baseUrl}/api/database/records/meetily_meetings?on_conflict=external_id`, {
     method: "POST",
