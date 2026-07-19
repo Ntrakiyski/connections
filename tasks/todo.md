@@ -2,6 +2,75 @@
 
 ## Goal
 
+Create a runnable Board provider from the supplied OpenAPI document and use the supplied image as its Connections catalog cover.
+
+## Constraints
+
+- Use the repository-local `add-provider` OpenAPI workflow and existing runtime helpers.
+- Treat Board as a user-configured self-hosted service; preserve the deployment-gated private-network policy for Tailscale/private instances.
+- Route all provider requests through the shared SSRF-guarded fetcher.
+- Use only the supplied image; do not import third-party assets.
+- Keep the first provider slice useful and minimal, with at most five actions.
+- Preserve unrelated working-tree changes and do not deploy or alter production configuration.
+
+## Steps
+
+- [x] Inspect the complete Board OpenAPI contract and relevant provider/runtime/catalog patterns.
+- [x] Implement the Board definition, actions, runtime, executors, and cover asset.
+- [x] Add the smallest regression checks for URL handling and request mapping.
+- [x] Generate catalog data and run repository verification.
+- [x] Review the user-facing catalog result and final diff.
+
+## Verification
+
+- [x] Provider appears in generated catalog with the supplied image.
+- [x] Selected actions map to the documented methods, paths, and bodies.
+- [x] Self-hosted base URL validation and private-network opt-in are preserved.
+- [x] Focused tests, `npm run generate:catalog`, `npm run fix-check`, full tests, and `git diff --check` pass.
+- [x] Risks or unverified live-service behavior are documented.
+
+## Review
+
+Added the runnable `board` provider with five curated OpenAPI operations: list boards, read a board, rename a board, create/update raw tldraw records, and delete records. The connection uses a required self-hosted root URL plus an optional bearer token; public targets work normally, while Tailscale/RFC 1918 targets remain behind `OOMOL_CONNECT_ALLOW_PRIVATE_NETWORK` and reserved targets stay blocked. The supplied 200×200 PNG is exposed as `/board-icon.png` and the production web build contains the identical SHA-256 (`a051481e2a07807facc938a1cdee0c7a0f9fc993ec21eff354a4e6365a6c46b8`).
+
+The generated catalog contains Board, the five actions, custom credential fields, and the icon URL. Verification passed the focused Board runtime test (2 tests), `npm run generate:catalog`, `npm run fix-check`, all 59 Vitest files / 439 tests, the production web build, and `git diff --check`. A live Board connection was not exercised because no durable service URL/token was supplied. The current Board server optionally accepts a bearer token, but its repository does not document a durable machine-token lifecycle; authenticated deployments may need a long-lived Board API-key feature rather than an expiring Clerk session token.
+
+---
+
+# Task Plan
+
+## Goal
+
+Explain how Connections can create a provider from an `openapi.json` file and identify the current supported workflow and limitations.
+
+## Constraints
+
+- Inspect only; do not generate or modify a provider without a named target API and specification.
+- Follow the repository's curated-provider and SSRF-safe runtime requirements.
+- Prefer the existing provider structure and dependencies.
+
+## Steps
+
+- [x] Trace the root provider-generation command.
+- [x] Inspect the existing OpenAPI-backed generator and normal provider examples.
+- [x] Review the repository's OpenAPI provider instructions and validation gates.
+
+## Verification
+
+- [x] Confirmed whether the root command accepts arbitrary OpenAPI documents.
+- [x] Confirmed the required provider files, auth mapping, runtime boundary, and checks.
+- [x] Reviewed the current generator's source-path and checksum behavior.
+
+## Review
+
+Connections does not currently have a generic `openapi.json`-to-provider command. `npm run generate:provider -- <provider>` only dispatches to an existing provider-local `generate.ts`; the sole current example is Dokploy, whose generator is intentionally pinned to Dokploy's specification and SHA-256. The normal path is to inspect the OpenAPI document, select at most five useful runnable operations, and author a native `definition.ts`, `actions.ts`, `executors.ts`, plus an optional shared `runtime.ts`. A broad generator is justified only for stable, redistributable specs and remains provider-specific. Provider egress must use the injected guarded fetch. Validation is `npm run generate:catalog`, `npm run fix-check`, targeted tests for non-trivial runtime behavior, and `npm test` before contribution.
+
+---
+
+# Task Plan
+
+## Goal
+
 Prove that MCP runtime tokens cannot expose or execute data across Clerk Organization / Connections workspace boundaries, and fix any violation found.
 
 ## Constraints

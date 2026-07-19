@@ -1,5 +1,19 @@
 # Lessons
 
+## 2026-07-19 - Match constraints to the schema helper contract
+
+Mistake: Passed `maxLength` to `s.nonEmptyString`, whose options intentionally expose only the shared JSON Schema options.
+Why it happened: Assumed the convenience helper forwarded every string constraint without checking its exact signature.
+Rule for next time: Use `s.string(description, { minLength, maxLength })` when a string needs bounds beyond non-emptiness.
+Example check: Read the selected helper signature in `src/core/json-schema.ts` before combining convenience helpers with extra constraints.
+
+## 2026-07-19 - Lead with the repository provider skill
+
+Mistake: Explained that Connections lacks a generic OpenAPI importer before clearly answering that the repository already has an `add-provider` skill for creating providers from OpenAPI specifications.
+Why it happened: Focused on the implementation mechanism and command limitations instead of the user's agent workflow.
+Rule for next time: When asked how the agent creates a provider from OpenAPI, lead with `.agents/skills/add-provider/SKILL.md` and its `references/openapi-provider.md`; mention the absence of a generic importer only as a secondary implementation detail.
+Example check: State “Yes, use the add-provider skill” before describing provider files or generator commands.
+
 ## 2026-07-19 - Reload PostgREST after merging branch migrations
 
 Mistake: Expected a successful InsForge branch merge to refresh the parent PostgREST schema cache automatically.
