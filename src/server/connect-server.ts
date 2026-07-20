@@ -6,6 +6,11 @@ import type { IProviderLoader } from "../providers/provider-loader.ts";
 import type { ClerkAuthOptions } from "./api/clerk-auth.ts";
 import type { ClerkWebhookOptions } from "./api/clerk-webhooks.ts";
 import type { RuntimeTokenAuthOptions } from "./api/runtime-token-auth.ts";
+import type {
+  AutomationStore,
+  GmailDraftAutomationDefinition,
+  AutomationScheduleInput,
+} from "./automations/automation-store.ts";
 import type { ITransitFileService } from "./files/transit-file-store.ts";
 import type { TransitFileAccess } from "./files/transit-file-store.ts";
 import type { Logger } from "./logger.ts";
@@ -46,6 +51,7 @@ import {
 } from "./api/runtime-api.ts";
 import { createRuntimeTokenAuthMiddleware } from "./api/runtime-token-auth.ts";
 import { getWorkspaceContext, requireManager } from "./api/workspace-helpers.ts";
+import { AutomationError, AutomationService } from "./automations/automation-service.ts";
 import { createTransitFileResponse, TransitFileError } from "./files/transit-file-store.ts";
 import { ProxyRunner } from "./proxy/proxy-runner.ts";
 import { decodeRunLogCursor } from "./storage/runtime-store.ts";
@@ -58,6 +64,7 @@ export interface WorkspaceServerServices {
   oauthFlow: OAuthFlowService;
   runtimeTokens: RuntimeTokenService;
   actions: ActionRunner;
+  automation: AutomationService;
   controls: WorkspaceControlService;
   lifecycle?: WorkspaceLifecycleService;
 }
@@ -81,6 +88,7 @@ export interface IConnectServerOptions {
   createWorkspaceServices?(workspace: WorkspaceContext): WorkspaceServerServices;
   purgeExpiredWorkspaces?(): Promise<void>;
   actionPolicy?: ActionPolicyService;
+  automationStore?: AutomationStore;
   actionSearch?: ActionSearchIndexProvider;
   registerStaticRoutes?: (app: Hono) => void;
   logger?: Logger;
@@ -184,6 +192,32 @@ export class ConnectServer {
     app.delete("/api/connections/:service", (context) => this.disconnect(context, context.req.param("service")));
 
     app.get("/api/runs", (context) => this.listRuns(context));
+    app.get("/api/automations", (context) => this.listAutomations(context));
+    app.post("/api/automations", (context) => this.buildAutomation(context));
+    app.get("/api/automations/:automationId", (context) =>
+      this.getAutomation(context, context.req.param("automationId")),
+    );
+    app.put("/api/automations/:automationId/draft", (context) =>
+      this.editAutomationDraft(context, context.req.param("automationId")),
+    );
+    app.post("/api/automations/:automationId/test", (context) =>
+      this.testAutomation(context, context.req.param("automationId")),
+    );
+    app.post("/api/automations/:automationId/publish", (context) =>
+      this.publishAutomation(context, context.req.param("automationId")),
+    );
+    app.post("/api/automations/:automationId/schedules", (context) =>
+      this.scheduleAutomation(context, context.req.param("automationId")),
+    );
+    app.get("/api/automations/:automationId/runs", (context) =>
+      this.listAutomationRuns(context, context.req.param("automationId")),
+    );
+    app.post("/api/automations/:automationId/disable", (context) =>
+      this.disableAutomation(context, context.req.param("automationId")),
+    );
+    app.post("/api/automation-schedules/:scheduleId/stop", (context) =>
+      this.stopAutomationSchedule(context, context.req.param("scheduleId")),
+    );
     app.post("/api/files", (context) => this.createTransitFile(context));
     app.get("/api/files/:fileId", (context) => this.getTransitFile(context, context.req.param("fileId")));
     app.delete("/api/files/:fileId", (context) => this.deleteTransitFile(context, context.req.param("fileId")));
@@ -259,6 +293,31 @@ export class ConnectServer {
       oauthFlow: this.options.oauthFlow,
       runtimeTokens: this.options.runtimeTokens,
       actions: this.options.actions,
+      automation: new AutomationService({
+        store: this.options.automationStore!,
+        actions: this.options.actions,
+        connections: this.options.connections,
+        gmailDraftAction: this.options.catalog.actionsById.get("gmail.create_email_draft"),
+        controls: new WorkspaceControlServiceImpl(
+          this.options.catalog,
+          {
+            listProviders: async () => [],
+            enableProvider: async () => undefined,
+            disableProvider: async () => false,
+            getActionPolicy: async () => undefined,
+            setActionPolicy: async () => undefined,
+            getWorkspaceSafetySettings: async () => undefined,
+            setWorkspaceSafetySettings: async () => undefined,
+            getProviderSafetySettings: async () => undefined,
+            setProviderSafetySettings: async () => undefined,
+            getIdempotencyRecord: async () => undefined,
+            setIdempotencyRecord: async () => undefined,
+            addAuditEvent: async () => undefined,
+            listAuditEvents: async () => [],
+          },
+          workspace,
+        ),
+      }),
       controls: new WorkspaceControlServiceImpl(
         this.options.catalog,
         {
@@ -285,6 +344,105 @@ export class ConnectServer {
         workspace,
       ),
     };
+  }
+
+  private automationActor(context: Context) {
+    const workspace = getWorkspaceContext(context);
+    return { workspaceId: workspace.workspaceId, userId: workspace.userId, role: workspace.role };
+  }
+
+  private async listAutomations(context: Context): Promise<Response> {
+    return context.json(await this.services(context).automation.list(this.automationActor(context)));
+  }
+
+  private async getAutomation(context: Context, automationId: string): Promise<Response> {
+    return this.writeAutomationResult(
+      context,
+      this.services(context).automation.get(this.automationActor(context), automationId),
+    );
+  }
+
+  private async buildAutomation(context: Context): Promise<Response> {
+    const body = await readJsonBody(context);
+    return this.writeAutomationResult(
+      context,
+      this.services(context).automation.build(
+        this.automationActor(context),
+        body as unknown as GmailDraftAutomationDefinition,
+      ),
+    );
+  }
+
+  private async editAutomationDraft(context: Context, automationId: string): Promise<Response> {
+    const body = await readJsonBody(context);
+    return this.writeAutomationResult(
+      context,
+      this.services(context).automation.edit(
+        this.automationActor(context),
+        automationId,
+        body as unknown as GmailDraftAutomationDefinition,
+      ),
+    );
+  }
+
+  private async testAutomation(context: Context, automationId: string): Promise<Response> {
+    return this.writeAutomationResult(
+      context,
+      this.services(context).automation.test(this.automationActor(context), automationId),
+    );
+  }
+
+  private async publishAutomation(context: Context, automationId: string): Promise<Response> {
+    const body = await readJsonBody(context);
+    return this.writeAutomationResult(
+      context,
+      this.services(context).automation.publish(this.automationActor(context), automationId, body.confirmed === true),
+    );
+  }
+
+  private async scheduleAutomation(context: Context, automationId: string): Promise<Response> {
+    const body = await readJsonBody(context);
+    return this.writeAutomationResult(
+      context,
+      this.services(context).automation.schedule(
+        this.automationActor(context),
+        automationId,
+        body as unknown as AutomationScheduleInput,
+      ),
+    );
+  }
+
+  private async stopAutomationSchedule(context: Context, scheduleId: string): Promise<Response> {
+    return this.writeAutomationResult(
+      context,
+      this.services(context).automation.stopSchedule(this.automationActor(context), scheduleId),
+    );
+  }
+
+  private async disableAutomation(context: Context, automationId: string): Promise<Response> {
+    return this.writeAutomationResult(
+      context,
+      this.services(context).automation.disable(this.automationActor(context), automationId),
+    );
+  }
+
+  private async listAutomationRuns(context: Context, automationId: string): Promise<Response> {
+    return this.writeAutomationResult(
+      context,
+      this.services(context).automation.listRuns(this.automationActor(context), automationId),
+    );
+  }
+
+  private async writeAutomationResult(context: Context, result: Promise<unknown>): Promise<Response> {
+    try {
+      return context.json(await result);
+    } catch (error) {
+      if (error instanceof AutomationError) {
+        const status = error.code === "automation_not_found" ? 404 : error.code === "approval_required" ? 403 : 400;
+        return jsonError(context, status, error.code, error.message);
+      }
+      throw error;
+    }
   }
 
   private async listProviders(context: Context): Promise<Response> {
@@ -707,6 +865,7 @@ export class ConnectServer {
       workspaceContext: workspace,
       isProviderEnabled: (service) => services.controls.isProviderEnabled(service),
       requireApproval: async (action) => (await services.controls.getActionPolicy(action)).requireApproval,
+      automation: services.automation,
     });
 
     await server.connect(transport);

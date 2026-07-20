@@ -14,6 +14,7 @@ import { OAuthClientConfigService } from "../oauth/oauth-client-config-service.t
 import { OAuthCredentialRefreshService } from "../oauth/oauth-credential-refresh-service.ts";
 import { OAuthFlowService } from "../oauth/oauth-flow-service.ts";
 import { ActionRunner } from "./actions/action-runner.ts";
+import { AutomationService } from "./automations/automation-service.ts";
 import { ConnectServer } from "./connect-server.ts";
 import { RuntimeTokenService } from "./storage/runtime-token-service.ts";
 import { WorkspaceControlService } from "./workspace-control-service.ts";
@@ -38,6 +39,7 @@ export interface ConnectAppOptions {
 export interface ConnectApp {
   app: Hono;
   runtimeAuthConfigured: boolean;
+  processDueAutomations(): Promise<void>;
 }
 
 export async function createConnectApp(options: ConnectAppOptions): Promise<ConnectApp> {
@@ -68,6 +70,38 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
         }).connections,
       logger: options.logger,
     });
+    const actions = new ActionRunner({
+      catalog: options.catalog,
+      providerLoader: options.providerLoader,
+      connections,
+      runs: stores.runLogStore,
+      transitFiles: options.transitFiles,
+      actionPolicy: options.actionPolicy,
+      controls,
+      logger: options.logger,
+      workspace,
+      createWorkspaceRunner: (workspaceId) =>
+        createWorkspaceServices({
+          ...workspace,
+          workspaceId,
+        }).actions,
+    });
+    const automation = new AutomationService({
+      store: options.runtimeDatabase.automationStore!,
+      actions,
+      connections,
+      controls,
+      gmailDraftAction: options.catalog.actionsById.get("gmail.create_email_draft"),
+      createWorkspaceService: async (schedule) => {
+        if (schedule.workspaceId === "default") {
+          return createWorkspaceServices({ workspaceId: "default", userId: "local-dev", role: "admin" }).automation;
+        }
+        const role = await options.runtimeDatabase.membershipStore.getRole(schedule.workspaceId, schedule.createdBy);
+        return role
+          ? createWorkspaceServices({ workspaceId: schedule.workspaceId, userId: schedule.createdBy, role }).automation
+          : undefined;
+      },
+    });
     return {
       controls,
       connections,
@@ -79,22 +113,8 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
         statePrefix: `${workspace.workspaceId}.${workspace.userId}`,
         userId: workspace.userId,
       }),
-      actions: new ActionRunner({
-        catalog: options.catalog,
-        providerLoader: options.providerLoader,
-        connections,
-        runs: stores.runLogStore,
-        transitFiles: options.transitFiles,
-        actionPolicy: options.actionPolicy,
-        controls,
-        logger: options.logger,
-        workspace,
-        createWorkspaceRunner: (workspaceId) =>
-          createWorkspaceServices({
-            ...workspace,
-            workspaceId,
-          }).actions,
-      }),
+      actions,
+      automation,
       runtimeTokens: new RuntimeTokenService(stores.runtimeTokenStore),
       lifecycle:
         options.clerkSecretKey && options.runtimeDatabase.workspaceLifecycleStore
@@ -154,8 +174,10 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
           }
         : undefined,
       actionPolicy: options.actionPolicy,
+      automationStore: options.runtimeDatabase.automationStore,
       logger: options.logger,
     }).createApp(),
     runtimeAuthConfigured: options.computeRuntimeAuthConfigured === false ? false : await hasStoredRuntimeTokens(),
+    processDueAutomations: async () => await defaultServices.automation.processDue(),
   };
 }

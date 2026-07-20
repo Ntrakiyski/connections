@@ -5,6 +5,8 @@ import type { ActionSearchIndexProvider } from "./core/action-search.ts";
 import type { JsonSchema, ProviderDefinition } from "./core/types.ts";
 import type { IProviderLoader } from "./providers/provider-loader.ts";
 import type { ActionRunner } from "./server/actions/action-runner.ts";
+import type { AutomationService } from "./server/automations/automation-service.ts";
+import type { GmailDraftAutomationDefinition, AutomationScheduleInput } from "./server/automations/automation-store.ts";
 import type { WorkspaceContext } from "./server/storage/runtime-token-service.ts";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
@@ -27,6 +29,7 @@ export interface IMcpServerOptions {
   workspaceContext?: WorkspaceContext;
   isProviderEnabled?(service: string): Promise<boolean>;
   requireApproval?(action: RuntimeActionDefinition): Promise<boolean>;
+  automation?: AutomationService;
 }
 
 /**
@@ -59,6 +62,32 @@ const mcpToolSummaries: IMcpToolSummary[] = [
     title: "Execute Action",
     description: "Execute one local provider action by id with a JSON input object.",
   },
+  {
+    name: "list_automations",
+    title: "List Automations",
+    description: "List workspace automation drafts and live versions.",
+  },
+  { name: "get_automation", title: "Get Automation", description: "Read an automation, schedules, and recent runs." },
+  { name: "build_automation", title: "Build Automation", description: "Create a Gmail draft automation draft." },
+  {
+    name: "edit_automation_draft",
+    title: "Edit Automation Draft",
+    description: "Replace a Gmail draft automation definition.",
+  },
+  { name: "test_automation", title: "Test Automation", description: "Validate a draft without calling Gmail." },
+  {
+    name: "publish_automation",
+    title: "Publish Automation",
+    description: "Publish a tested draft after explicit confirmation.",
+  },
+  { name: "run_automation", title: "Run Automation", description: "Create a scheduled Gmail draft run." },
+  { name: "stop_automation_schedule", title: "Stop Automation Schedule", description: "Stop a future schedule." },
+  {
+    name: "disable_automation",
+    title: "Disable Automation",
+    description: "Disable an automation and all future schedules.",
+  },
+  { name: "get_automation_runs", title: "Get Automation Runs", description: "List automation run history." },
 ];
 
 const mcpServerInstructions = [
@@ -109,6 +138,8 @@ export function createMcpServer(options: IMcpServerOptions): McpServer {
     },
     async ({ query }) => toolResult(successPayload(await listApps(options, query))),
   );
+
+  if (options.automation && options.workspaceContext) registerAutomationTools(server, options);
 
   server.registerTool(
     "search_actions",
@@ -171,6 +202,145 @@ export function createMcpServer(options: IMcpServerOptions): McpServer {
   );
 
   return server;
+}
+
+function registerAutomationTools(server: McpServer, options: IMcpServerOptions): void {
+  const automation = options.automation!;
+  const actor = options.workspaceContext!;
+  const id = z.string().min(1).describe("Automation id.");
+  const definition = z.object({
+    name: z.string().min(1),
+    description: z.string().default(""),
+    slug: z.string().min(1),
+    connectionName: z.string().min(1),
+    actionId: z.literal("gmail.create_email_draft"),
+    steps: z.tuple([
+      z.object({ id: z.literal("compose"), name: z.string(), kind: z.literal("input") }),
+      z.object({ id: z.literal("schedule"), name: z.string(), kind: z.literal("schedule") }),
+      z.object({ id: z.literal("create-draft"), name: z.string(), kind: z.literal("action") }),
+    ]),
+  });
+  const runInput = z.object({
+    to: z.string().email(),
+    subject: z.string().min(1),
+    body: z.string().min(1),
+    scheduledFor: z.string().min(1),
+    timeZone: z.string().min(1),
+    repeat: z.boolean(),
+    cadence: z.enum(["daily", "weekly"]).optional(),
+    endAt: z.string().optional(),
+  });
+  const tool =
+    <T>(operation: () => Promise<T>) =>
+    async (): Promise<CallToolResult> =>
+      toolResult(await automationResult(operation));
+  server.registerTool(
+    "list_automations",
+    { title: "List Automations", description: "List workspace automations.", inputSchema: {} },
+    tool(async () => await automation.list(actor)),
+  );
+  server.registerTool(
+    "get_automation",
+    { title: "Get Automation", description: "Read one automation.", inputSchema: { automationId: id } },
+    async ({ automationId }) =>
+      toolResult(await automationResult(async () => await automation.get(actor, automationId))),
+  );
+  server.registerTool(
+    "build_automation",
+    { title: "Build Automation", description: "Create a Gmail draft automation draft.", inputSchema: { definition } },
+    async ({ definition: value }) =>
+      toolResult(
+        await automationResult(async () => await automation.build(actor, value as GmailDraftAutomationDefinition)),
+      ),
+  );
+  server.registerTool(
+    "edit_automation_draft",
+    {
+      title: "Edit Automation Draft",
+      description: "Replace a Gmail automation draft.",
+      inputSchema: { automationId: id, definition },
+    },
+    async ({ automationId, definition: value }) =>
+      toolResult(
+        await automationResult(
+          async () => await automation.edit(actor, automationId, value as GmailDraftAutomationDefinition),
+        ),
+      ),
+  );
+  server.registerTool(
+    "test_automation",
+    {
+      title: "Test Automation",
+      description: "Validate a draft without invoking Gmail.",
+      inputSchema: { automationId: id },
+    },
+    async ({ automationId }) =>
+      toolResult(await automationResult(async () => await automation.test(actor, automationId))),
+  );
+  server.registerTool(
+    "publish_automation",
+    {
+      title: "Publish Automation",
+      description: "Publish after explicit user confirmation.",
+      inputSchema: {
+        automationId: id,
+        confirmed: z.literal(true).describe("Set only after the user explicitly approves publishing."),
+      },
+    },
+    async ({ automationId, confirmed }) =>
+      toolResult(await automationResult(async () => await automation.publish(actor, automationId, confirmed))),
+  );
+  server.registerTool(
+    "run_automation",
+    {
+      title: "Run Automation",
+      description: "Create a one-off or recurring schedule.",
+      inputSchema: { automationId: id, input: runInput },
+    },
+    async ({ automationId, input }) =>
+      toolResult(
+        await automationResult(
+          async () => await automation.schedule(actor, automationId, input as AutomationScheduleInput),
+        ),
+      ),
+  );
+  server.registerTool(
+    "stop_automation_schedule",
+    {
+      title: "Stop Automation Schedule",
+      description: "Stop one schedule.",
+      inputSchema: { scheduleId: z.string().min(1) },
+    },
+    async ({ scheduleId }) =>
+      toolResult(await automationResult(async () => await automation.stopSchedule(actor, scheduleId))),
+  );
+  server.registerTool(
+    "disable_automation",
+    {
+      title: "Disable Automation",
+      description: "Disable an automation and all future schedules.",
+      inputSchema: { automationId: id },
+    },
+    async ({ automationId }) =>
+      toolResult(await automationResult(async () => await automation.disable(actor, automationId))),
+  );
+  server.registerTool(
+    "get_automation_runs",
+    { title: "Get Automation Runs", description: "List automation runs.", inputSchema: { automationId: id } },
+    async ({ automationId }) =>
+      toolResult(await automationResult(async () => await automation.listRuns(actor, automationId))),
+  );
+}
+
+async function automationResult<T>(operation: () => Promise<T>): Promise<ToolPayload> {
+  try {
+    return successPayload(await operation());
+  } catch (error) {
+    return errorPayload(
+      error instanceof Error && "code" in error ? String((error as { code: string }).code) : "automation_error",
+      error instanceof Error ? error.message : "Automation operation failed.",
+    );
+  }
 }
 
 async function listApps(options: IMcpServerOptions, query: string | undefined): Promise<unknown> {

@@ -53,7 +53,7 @@ const transitFiles = new TransitFileService({
   maxBytes: transitFileMaxBytes,
 });
 await transitFiles.cleanupExpired();
-const { app, runtimeAuthConfigured } = await createConnectApp({
+const { app, runtimeAuthConfigured, processDueAutomations } = await createConnectApp({
   catalog,
   providerLoader,
   runtimeDatabase,
@@ -67,12 +67,18 @@ const { app, runtimeAuthConfigured } = await createConnectApp({
   registerStaticRoutes: (app) => registerStaticRoutes(app, staticRoot),
   logger,
 });
+const automationScheduleTimer = setInterval(() => {
+  void processDueAutomations().catch((error) => logger.error({ err: error }, "automation schedule worker failed"));
+}, 15_000);
+void processDueAutomations().catch((error) => logger.error({ err: error }, "automation schedule worker failed"));
 
 process.once("SIGINT", () => {
+  clearInterval(automationScheduleTimer);
   void runtimeDatabase.close();
   process.exit(0);
 });
 process.once("SIGTERM", () => {
+  clearInterval(automationScheduleTimer);
   void runtimeDatabase.close();
   process.exit(0);
 });

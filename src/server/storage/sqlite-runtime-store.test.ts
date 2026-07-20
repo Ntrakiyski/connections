@@ -265,6 +265,102 @@ describe("SqliteRuntimeDatabase", () => {
     second.close();
   });
 
+  it("persists encrypted automation input and claims each scheduled occurrence once", async () => {
+    const databasePath = await createDatabasePath();
+    const codec = new AesGcmSecretCodec("automation-test-key");
+    const database = new SqliteRuntimeDatabase(databasePath, { secretCodec: codec });
+    await database.workspaceStore.create({
+      id: "workspace-automation",
+      clerkOrgId: "org_automation",
+      name: "Automation workspace",
+      createdAt: "2026-07-20T08:00:00.000Z",
+      updatedAt: "2026-07-20T08:00:00.000Z",
+    });
+    const definition = {
+      name: "Scheduled Gmail draft",
+      description: "Creates a Gmail draft at the chosen time.",
+      slug: "scheduled-gmail-draft",
+      connectionName: "client-gmail",
+      actionId: "gmail.create_email_draft" as const,
+      steps: [
+        { id: "compose" as const, name: "Compose email", kind: "input" as const },
+        { id: "schedule" as const, name: "Schedule draft", kind: "schedule" as const },
+        { id: "create-draft" as const, name: "Create Gmail draft", kind: "action" as const },
+      ] as const,
+    };
+    await database.automationStore.createDraft(
+      {
+        id: "automation-1",
+        workspaceId: "workspace-automation",
+        lifecycle: "draft",
+        draftVersionId: "version-1",
+        createdBy: "user-1",
+        createdAt: "2026-07-20T08:00:00.000Z",
+        updatedAt: "2026-07-20T08:00:00.000Z",
+      },
+      {
+        id: "version-1",
+        automationId: "automation-1",
+        version: 1,
+        state: "draft",
+        definition,
+        createdBy: "user-1",
+        createdAt: "2026-07-20T08:00:00.000Z",
+      },
+    );
+    await database.automationStore.publish(
+      "workspace-automation",
+      "automation-1",
+      "version-1",
+      {
+        automationVersionId: "version-1",
+        actionId: "gmail.create_email_draft",
+        connectionName: "client-gmail",
+        approvedBy: "user-1",
+        approvedAt: "2026-07-20T08:01:00.000Z",
+        actionPolicyUpdatedAt: "2026-07-20T08:01:00.000Z",
+      },
+      "2026-07-20T08:01:00.000Z",
+    );
+    await database.automationStore.createSchedule({
+      id: "schedule-1",
+      workspaceId: "workspace-automation",
+      automationId: "automation-1",
+      automationVersionId: "version-1",
+      state: "active",
+      nextRunAt: "2026-07-20T09:00:00.000Z",
+      timeZone: "Europe/Sofia",
+      scheduledFor: "2026-07-20T12:00",
+      repeat: false,
+      input: {
+        to: "recipient@example.com",
+        subject: "Private subject",
+        body: "secret scheduled email body",
+        scheduledFor: "2026-07-20T12:00",
+        timeZone: "Europe/Sofia",
+        repeat: false,
+      },
+      createdBy: "user-1",
+      createdAt: "2026-07-20T08:01:00.000Z",
+      updatedAt: "2026-07-20T08:01:00.000Z",
+    });
+
+    const claimed = await database.automationStore.claimDueSchedules("2026-07-20T09:00:00.000Z", 10);
+    expect(claimed).toMatchObject([
+      { id: "schedule-1", state: "running", input: { body: "secret scheduled email body" } },
+    ]);
+    await expect(database.automationStore.claimDueSchedules("2026-07-20T09:01:00.000Z", 10)).resolves.toEqual([]);
+    database.close();
+
+    await expectDatabaseDirectoryNotToContain(databasePath, "secret scheduled email body");
+    const reopened = new SqliteRuntimeDatabase(databasePath, { secretCodec: codec });
+    await expect(reopened.automationStore.getSchedule("workspace-automation", "schedule-1")).resolves.toMatchObject({
+      input: { subject: "Private subject", body: "secret scheduled email body" },
+      state: "running",
+    });
+    reopened.close();
+  });
+
   it("stores runtime token hashes and supports verification and revocation", async () => {
     const databasePath = await createDatabasePath();
     const database = new SqliteRuntimeDatabase(databasePath);

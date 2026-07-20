@@ -4,6 +4,7 @@ import type { ResolvedCredential } from "../../core/types.ts";
 import type { IOAuthClientConfigStore } from "../../oauth/oauth-client-config-service.ts";
 import type { OAuthClientConfig } from "../../oauth/oauth-client-config-service.ts";
 import type { IOAuthStateStore } from "../../oauth/oauth-flow-service.ts";
+import type { AutomationStore } from "../automations/automation-store.ts";
 import type { IRunLogStore, RunLog, RunLogListInput, RunLogPage } from "./runtime-store.ts";
 import type { IRuntimeTokenStore, RuntimeTokenRecord, WorkspaceRole } from "./runtime-token-service.ts";
 
@@ -169,5 +170,6 @@ export interface RuntimeDatabase {
   workspaceLifecycleStore?: IWorkspaceLifecycleStore;
   membershipStore: IWorkspaceMembershipStore;
   workspaceControlStore: IWorkspaceControlStore;
+  automationStore?: AutomationStore;
   createScopedStores(workspaceId: string): WorkspaceScopedStores;
 }
