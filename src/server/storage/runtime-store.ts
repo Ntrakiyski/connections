@@ -1,6 +1,6 @@
 import type { CredentialProfile } from "../../core/types.ts";
 
-export type RunLogCaller = "http" | "mcp" | "web";
+export type RunLogCaller = "http" | "mcp" | "web" | "automation";
 
 /**
  * One recent action run shown by the local runtime.

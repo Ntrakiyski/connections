@@ -58,6 +58,12 @@ Clerk is the only human-authentication system. Insforge provides the initial man
 
 Connections owns authorization, auditing, OAuth handling, runtime-token validation, provider execution, and MCP behavior. The provider runtime remains lazy and uses the existing safety controls for provider network access.
 
+## Automations
+
+Automations are workspace-scoped, versioned products created and maintained by agents through Connections MCP. They compose the workspace's existing labelled provider connections and enabled actions into ordered, schema-validated steps. The console is the client form, safe configuration, inspection, release, endpoint, and run-log surface; it is not a general workflow builder.
+
+Connections deploys one generic AutomationRunner alongside its existing action runner. It executes stored automation definitions, then delegates every provider call back through the established workspace authorization, action policy, credential, file, and logging boundary. Client automations do not add repository scripts or deployments. The first release uses declarative input, action, transform, and return steps; an isolated arbitrary-code sandbox is a future escape hatch only when that model cannot meet a proven requirement.
+
 ## Lifecycle, observability, and safety
 
 Members can see only their own runs. Managers and admins can inspect workspace-wide runs. The workspace records audit events for security-relevant changes such as provider configuration, connections, token changes, roles, approval policies, and deletion.

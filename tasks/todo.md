@@ -2,6 +2,110 @@
 
 ## Goal
 
+Implement Scheduled Gmail Draft Automation v1 as an MCP-created, workspace-scoped product with a three-step read-only UI, persistent schedules, an in-process worker, and audit-safe run history.
+
+## Constraints
+
+- Build the generic platform once; automation instances are MCP-created database records, not repository scripts.
+- Reuse the existing workspace-scoped action runner, labelled provider connections, action policies, transit files, credentials, and run logs.
+- The browser is not a general builder. It is an inspection, safe configuration, execution, release, endpoint, and observability surface.
+- Start with a declarative, TypeScript-native runner in the existing Connections service. No sandbox in the first usable slice.
+
+## Steps
+
+- [x] Define the product boundary and phased vertical-slice sequence.
+- [x] Map each phase to its MCP tools, UI surface, runtime work, and acceptance check.
+- [x] Accept the phase-0 automation contract and first OLX success criterion.
+- [x] Add persisted automation versions, approval grants, encrypted schedules, parent runs, and step runs for PostgreSQL and SQLite.
+- [x] Add the in-process schedule worker, DST-safe Temporal recurrence, stale-claim recovery, duplicate occurrence protection, and Gmail ActionRunner delegation.
+- [x] Add workspace-scoped MCP and browser operations for build, test, publish, scheduling, stopping, disabling, inspection, and runs.
+- [x] Add the Automations library and Gmail-draft client/technical views.
+- [x] Run the complete verification suite and document final limitations.
+- [ ] Commit and push the verified automation slice without overwriting divergent production history.
+- [ ] Integrate the automation slice with current `origin/main`, apply the production migration, and deploy the resulting revision.
+
+## Verification
+
+- [x] The plan covers the MCP and UI responsibilities for every phase.
+- [x] The first usable release can be created, tested, published, scheduled, and run without an arbitrary-code sandbox.
+- [x] Provider credentials and workspace isolation remain owned by the existing runtime boundary.
+- [x] The accepted contract is reflected in locked product documentation before implementation.
+- [x] Type checking, full test suite, production web build, formatting/lint, and diff integrity checks pass.
+
+## Review
+
+Scheduled Gmail Draft v1 is implemented as the first vertical slice. It persists workspace-scoped immutable versions, approval grants, encrypted form input, schedules, parent/step runs, and a recoverable in-process worker. MCP owns structural creation/editing; the console provides a library, a three-step technical inspection view, test/publish/disable controls for managers, and a client schedule form. The worker delegates only to the existing Gmail action through the existing workspace-bound ActionRunner. `npm run fix-check`, the full Vitest suite (58 files / 434 tests), the production web build, and `git diff --check` passed. A local browser smoke check reached the route, but no signed-in Clerk session was available, so it could not exercise the authenticated UI flow; build and component type checks cover that surface. No production migration or deployment was performed.
+
+---
+
+# Previous Task Plan
+
+## Goal
+
+Define the minimal, secure execution architecture for MCP-created automations in the deployed Connections service, including when an external sandbox is actually necessary.
+
+## Constraints
+
+- Do not create or deploy a repository Python script for each automation.
+- Preserve Connections as the sole execution boundary for workspace-scoped provider credentials, action policies, labelled connections, files, and run logs.
+- Avoid executing agent-generated arbitrary code inside the existing Coolify application container.
+- This is an architecture recommendation only; no deployment, vendor account, or code change is authorized.
+
+## Steps
+
+- [x] Trace the current Coolify container, Hono server, workspace-scoped action runner, credentials, and run logging flow.
+- [x] Compare direct declarative execution with external sandbox capabilities.
+- [x] Define the recommended MVP execution path and the escalation boundary for isolated code execution.
+
+## Verification
+
+- [x] The recommendation reuses the existing workspace-scoped `ActionRunner` and credential boundary.
+- [x] Automation definitions require no Git deployment after the platform feature is shipped.
+- [x] The sandbox option prevents direct credential access and bypassing the provider-action boundary.
+- [x] The recommendation has a clear operational location for HTTP and MCP requests.
+
+## Review
+
+The recommended MVP stores published automation versions and declarative steps in the existing database, then executes them inside the deployed Connections Node service. The generic AutomationRunner invokes the existing workspace-scoped ActionRunner for every provider call, so credentials remain server-managed and current action/run controls stay effective. This OLX workflow requires no Python script or external sandbox. Add an isolated sandbox only when a future automation genuinely needs arbitrary generated code or native dependencies; it must receive a short-lived, action-scoped capability rather than provider secrets. Daytona, E2B, and Microsandbox are capable of isolated code execution, but deploying any of them before that need would introduce an unnecessary second runtime.
+
+---
+
+# Previous Task Plan
+
+## Goal
+
+Review the proposed Automations UX against the product documentation and the MCP-created, step-based automation model; identify what should be retained, removed, or clarified before implementation.
+
+## Constraints
+
+- This is a product/design review only; do not alter application code or product decisions without an accepted direction.
+- Automations are created and changed through MCP/code using the workspace's existing providers, labeled connections, actions, and permissions.
+- The UI is an inspection, client-facing execution, safe-configuration, test, and observability surface—not a general workflow builder.
+
+## Steps
+
+- [x] Read the repository product direction and locked decisions.
+- [x] Review the published Automations specification and the supplied screens.
+- [x] Reconcile the screens with the MCP-first lifecycle and workspace security model.
+- [x] Produce a prioritized design recommendation with clear product decisions to lock.
+
+## Verification
+
+- [x] Every recommendation traces to the stated automation model or an existing product constraint.
+- [x] Client View, configuration, steps, runs, endpoint, and MCP responsibilities are clearly separated.
+- [x] No recommendation exposes credentials or bypasses existing provider/action permissions.
+- [x] Stakeholder-facing review is checked for clarity and actionable next steps.
+
+## Review
+
+The library design is a good fit and the use of the existing provider, action, run, and file vocabulary is coherent. The review identified one product-level correction before implementation: the console must not present a manual builder. MCP/code owns creation and structural changes; the console owns inspection, client execution, schema-bounded configuration, tests, release visibility, endpoints, and logs. The main risks to resolve are status/filter semantics, immutable version/release controls, explicit labelled connection binding, mutation approval for UI/API runs, and test isolation. The published brief needs this MCP-first boundary made binding before engineering starts.
+
+---
+
+# Previous Task Plan
+
+## Goal
+
 Prove that MCP runtime tokens cannot expose or execute data across Clerk Organization / Connections workspace boundaries, and fix any violation found.
 
 ## Constraints

@@ -47,6 +47,17 @@
 - A token immediately uses the member's current workspace role; a role change does not require replacing tokens.
 - Runtime tokens are opaque secrets stored only as hashes in the application database, enabling immediate revocation and role enforcement.
 
+## Automations
+
+- Automations are workspace-scoped, versioned products composed from the workspace's existing labelled provider connections and enabled actions.
+- Agents create and structurally edit automation drafts through Connections MCP; the browser is an inspection, safe-configuration, client-execution, release, endpoint, and observability surface, not a general workflow/code builder.
+- Connections deploys one generic in-process `AutomationRunner`. Client automations are persisted definitions and do not add a repository script, container, or deployment.
+- The `AutomationRunner` delegates every provider call to the existing workspace-scoped action runner. It does not receive or expose provider credentials.
+- An automation step declares Input, Logic, Output, its allowed action, and its explicit connection label. The initial runner supports input, action, transform, return, and a persisted schedule step for the scheduled Gmail-draft use case.
+- Published automation versions are immutable. Editing a draft never changes the currently live endpoint behaviour; runs retain their version and step history.
+- A future live automation endpoint is private by default and authenticated by Connections, never by the target provider's OAuth credential. Scheduled Gmail Draft v1 intentionally has no public endpoint.
+- Sandbox execution is not part of the first automation release. Add isolated arbitrary-code execution only for a proven requirement outside the declarative runner; it must receive a short-lived action-scoped capability rather than provider credentials.
+
 ## Platform and data boundary
 
 - Insforge's free tier is the initial managed PostgreSQL and private-storage platform.

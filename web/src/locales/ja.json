@@ -40,6 +40,7 @@
     "overview": "概要",
     "providers": "プロバイダー",
     "actions": "アクション",
+    "automations": "自動化",
     "runs": "実行履歴",
     "access": "API Key",
     "docs": "ドキュメント",
@@ -72,6 +73,10 @@
       "actions": {
         "title": "アクション",
         "subtitle": "ローカルランタイムのアクションを検索、確認、デバッグします。"
+      },
+      "automations": {
+        "title": "自動化",
+        "subtitle": "ワークスペースの自動化を確認し、スケジュールします。"
       },
       "runs": {
         "title": "実行履歴",
