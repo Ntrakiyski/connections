@@ -29,6 +29,7 @@ export interface ConnectAppOptions {
   secretCodec: ISecretCodec;
   clerkSecretKey?: string;
   clerkPublishableKey?: string;
+  meetingsOAuthClientId?: string;
   clerkOptional?: boolean;
   actionPolicy?: ActionPolicyService;
   registerStaticRoutes?: (app: Hono) => void;
@@ -151,7 +152,9 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
         optional: options.clerkOptional,
         workspaceStore: options.runtimeDatabase.workspaceStore,
         membershipStore: options.runtimeDatabase.membershipStore,
+        meetingsOAuthClientId: options.meetingsOAuthClientId,
       },
+      meetingStore: options.runtimeDatabase.meetingStore,
       clerkWebhooks: {
         signingSecret: process.env.CLERK_WEBHOOK_SIGNING_SECRET,
         workspaceStore: options.runtimeDatabase.workspaceStore,

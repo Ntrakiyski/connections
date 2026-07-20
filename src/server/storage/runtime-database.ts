@@ -80,6 +80,40 @@ export interface AuditEvent {
   createdAt: string;
 }
 
+export type MeetingSyncState = "live" | "final";
+
+export interface MeetingRecord {
+  /** Internal database ID returned by list/upsert and used for GET lookups. */
+  id: string;
+  workspaceId: string;
+  externalId: string;
+  createdBy: string;
+  state: MeetingSyncState;
+  revision: number;
+  title: string;
+  transcript: string;
+  transcriptSegments: unknown[];
+  rawTranscript?: string;
+  rawTranscriptSegments?: unknown[];
+  summary?: string;
+  startedAt?: string;
+  endedAt?: string;
+  finalizedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type MeetingWrite = Omit<MeetingRecord, "id" | "workspaceId" | "createdAt" | "updatedAt" | "finalizedAt">;
+export type MeetingWriteResult = { status: "created" | "updated" | "ignored"; meeting: MeetingRecord };
+
+export interface IMeetingStore {
+  list(workspaceId: string): Promise<MeetingRecord[]>;
+  getById(workspaceId: string, id: string): Promise<MeetingRecord | undefined>;
+  /** Private sync key used only by PUT idempotency. */
+  get(workspaceId: string, externalId: string): Promise<MeetingRecord | undefined>;
+  put(workspaceId: string, input: MeetingWrite): Promise<MeetingWriteResult>;
+}
+
 export interface IWorkspaceControlStore {
   listProviders(workspaceId: string): Promise<WorkspaceProvider[]>;
   enableProvider(provider: WorkspaceProvider): Promise<void>;
@@ -171,5 +205,6 @@ export interface RuntimeDatabase {
   membershipStore: IWorkspaceMembershipStore;
   workspaceControlStore: IWorkspaceControlStore;
   automationStore?: AutomationStore;
+  meetingStore: IMeetingStore;
   createScopedStores(workspaceId: string): WorkspaceScopedStores;
 }

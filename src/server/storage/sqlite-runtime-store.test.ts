@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { AesGcmSecretCodec } from "../secrets/secret-codec.ts";
+import { SqliteMeetingStore } from "./meeting-store.ts";
 import { RuntimeTokenService } from "./runtime-token-service.ts";
 import { SqliteRuntimeDatabase } from "./sqlite-runtime-store.ts";
 
@@ -411,6 +412,138 @@ describe("SqliteRuntimeDatabase", () => {
     database.close();
   });
 
+  it("keeps meetings tenant scoped and rejects stale or non-creator updates", async () => {
+    const database = new SqliteRuntimeDatabase(await createDatabasePath());
+    for (const id of ["workspace-a", "workspace-b"]) {
+      await database.workspaceStore.create({
+        id,
+        clerkOrgId: `org-${id}`,
+        name: id,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    const live = {
+      externalId: "same-id",
+      createdBy: "user-a",
+      state: "live" as const,
+      revision: 1,
+      title: "Sync",
+      transcript: "hello",
+      transcriptSegments: [],
+    };
+    await expect(database.meetingStore.put("workspace-a", live)).resolves.toMatchObject({ status: "created" });
+    await expect(database.meetingStore.get("workspace-b", "same-id")).resolves.toBeUndefined();
+    await expect(database.meetingStore.put("workspace-b", live)).resolves.toMatchObject({ status: "created" });
+    await expect(
+      database.meetingStore.put("workspace-a", { ...live, state: "final", revision: 2, summary: "done" }),
+    ).resolves.toMatchObject({ status: "updated", meeting: { state: "final", summary: "done" } });
+    await expect(database.meetingStore.put("workspace-a", { ...live, revision: 3 })).resolves.toMatchObject({
+      status: "ignored",
+      meeting: { state: "final" },
+    });
+    await expect(
+      database.meetingStore.put("workspace-a", { ...live, createdBy: "user-b", revision: 4 }),
+    ).rejects.toThrow("meeting_creator_forbidden");
+    database.close();
+  });
+
+  it("keeps a concurrent final meeting ahead of a stale lower live update", async () => {
+    const database = new DatabaseSync(":memory:");
+    for (const migration of [
+      "0001_runtime.sql",
+      "0002_run-service.sql",
+      "0003_workspaces.sql",
+      "0007_meetily_meetings.sql",
+      "0008_meetily_internal_ids.sql",
+    ]) {
+      database.exec(readFileSync(new URL(`../../../sqlite-migrations/${migration}`, import.meta.url), "utf8"));
+    }
+    database
+      .prepare("insert into workspaces (id, clerk_org_id, name, created_at, updated_at) values (?, ?, ?, ?, ?)")
+      .run("workspace-a", "org-a", "Workspace A", "2026-07-20T00:00:00.000Z", "2026-07-20T00:00:00.000Z");
+    const store = new SqliteMeetingStore(new LateFinalSqliteDatabase(database) as unknown as DatabaseSync);
+    const live = createMeetingWrite();
+
+    await store.put("workspace-a", live);
+    await expect(store.put("workspace-a", { ...live, revision: 2, title: "late live" })).resolves.toMatchObject({
+      status: "ignored",
+      meeting: { state: "final", revision: 3, title: "final" },
+    });
+    database.close();
+  });
+
+  it("forbids concurrent meeting creators", async () => {
+    const database = new SqliteRuntimeDatabase(await createDatabasePath());
+    await database.workspaceStore.create({
+      id: "workspace-a",
+      clerkOrgId: "org-a",
+      name: "Workspace A",
+      createdAt: "2026-07-20T00:00:00.000Z",
+      updatedAt: "2026-07-20T00:00:00.000Z",
+    });
+    const write = createMeetingWrite();
+    const results = await Promise.allSettled([
+      database.meetingStore.put("workspace-a", write),
+      database.meetingStore.put("workspace-a", { ...write, createdBy: "user-b" }),
+    ]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.find((result) => result.status === "rejected")).toMatchObject({
+      reason: expect.objectContaining({ message: "meeting_creator_forbidden" }),
+    });
+    database.close();
+  });
+
+  it("keeps the first finalization timestamp across newer final revisions", async () => {
+    const database = new DatabaseSync(":memory:");
+    for (const migration of [
+      "0001_runtime.sql",
+      "0002_run-service.sql",
+      "0003_workspaces.sql",
+      "0007_meetily_meetings.sql",
+      "0008_meetily_internal_ids.sql",
+    ]) {
+      database.exec(readFileSync(new URL(`../../../sqlite-migrations/${migration}`, import.meta.url), "utf8"));
+    }
+    database
+      .prepare("insert into workspaces (id, clerk_org_id, name, created_at, updated_at) values (?, ?, ?, ?, ?)")
+      .run("workspace-a", "org-a", "Workspace A", "2026-07-20T00:00:00.000Z", "2026-07-20T00:00:00.000Z");
+    const store = new SqliteMeetingStore(database);
+    const final = { ...createMeetingWrite(), state: "final" as const };
+    await store.put("workspace-a", final);
+    database
+      .prepare("update meetily_meetings set finalized_at=? where workspace_id=? and external_id=?")
+      .run("2026-07-20T10:00:00.000Z", "workspace-a", "meeting-1");
+
+    await expect(store.put("workspace-a", { ...final, revision: 2 })).resolves.toMatchObject({
+      status: "updated",
+      meeting: { finalizedAt: "2026-07-20T10:00:00.000Z" },
+    });
+    database.close();
+  });
+
+  it("creates and verifies tenant uniqueness before atomically retiring global uniqueness", () => {
+    const migration = readFileSync(
+      new URL("../../../migrations/20260720103941_tenant-meetily-meetings.sql", import.meta.url),
+      "utf8",
+    );
+    const transactionStart = migration.indexOf("BEGIN;");
+    const tenantUnique = migration.indexOf(
+      "ADD CONSTRAINT meetily_meetings_workspace_external_key UNIQUE (workspace_id, external_id)",
+    );
+    const verification = migration.lastIndexOf("pg_get_constraintdef");
+    const globalUniqueDrop = migration.indexOf("DROP CONSTRAINT IF EXISTS meetily_meetings_external_id_key");
+    const transactionCommit = migration.indexOf("COMMIT;");
+
+    expect(transactionStart).toBeGreaterThan(-1);
+    expect(tenantUnique).toBeGreaterThan(transactionStart);
+    expect(verification).toBeGreaterThan(tenantUnique);
+    expect(globalUniqueDrop).toBeGreaterThan(verification);
+    expect(transactionCommit).toBeGreaterThan(globalUniqueDrop);
+    expect(migration).not.toContain("duplicate_object OR duplicate_table");
+  });
+
   it("rotates stored secret encryption without resetting other runtime data", async () => {
     const databasePath = await createDatabasePath();
     const database = new SqliteRuntimeDatabase(databasePath, {
@@ -477,6 +610,50 @@ function createRun(id: string, startedAt: string, actionId = "hackernews.get_top
     durationMs: 0,
     ok: true,
   };
+}
+
+function createMeetingWrite() {
+  return {
+    externalId: "meeting-1",
+    createdBy: "user-a",
+    state: "live" as const,
+    revision: 1,
+    title: "live",
+    transcript: "hello",
+    transcriptSegments: [],
+  };
+}
+
+class LateFinalSqliteDatabase {
+  private armed = true;
+  private readonly database: DatabaseSync;
+
+  constructor(database: DatabaseSync) {
+    this.database = database;
+  }
+
+  exec(sql: string): void {
+    this.database.exec(sql);
+  }
+
+  prepare(query: string): ReturnType<DatabaseSync["prepare"]> {
+    const statement = this.database.prepare(query);
+    if (!query.startsWith("update meetily_meetings")) return statement;
+    return {
+      ...statement,
+      run: (...values: Parameters<typeof statement.run>) => {
+        if (this.armed) {
+          this.armed = false;
+          this.database
+            .prepare(
+              "update meetily_meetings set state='final', revision=3, title='final' where workspace_id=? and external_id=?",
+            )
+            .run("workspace-a", "meeting-1");
+        }
+        return statement.run(...values);
+      },
+    } as ReturnType<DatabaseSync["prepare"]>;
+  }
 }
 
 async function expectDatabaseDirectoryNotToContain(databasePath: string, needle: string): Promise<void> {

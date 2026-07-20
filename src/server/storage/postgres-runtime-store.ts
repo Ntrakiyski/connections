@@ -6,6 +6,7 @@ import type { AutomationStore } from "../automations/automation-store.ts";
 import type { ISecretCodec } from "../secrets/secret-codec-core.ts";
 import type {
   IWorkspaceMembershipStore,
+  IMeetingStore,
   IWorkspaceControlStore,
   IWorkspaceStore,
   IWorkspaceLifecycleStore,
@@ -24,6 +25,7 @@ import type { IRunLogStore, RunLog, RunLogCaller, RunLogListInput, RunLogPage } 
 import type { IRuntimeTokenStore, RuntimeTokenRecord, WorkspaceRole } from "./runtime-token-service.ts";
 import type { Pool, QueryResultRow } from "pg";
 
+import { PostgresMeetingStore } from "./meeting-store.ts";
 import { PostgresAutomationStore } from "./postgres-automation-store.ts";
 
 function now(): string {
@@ -41,6 +43,7 @@ export class PostgresRuntimeDatabase implements RuntimeDatabase {
   readonly membershipStore: IWorkspaceMembershipStore;
   readonly workspaceControlStore: IWorkspaceControlStore;
   readonly automationStore: AutomationStore;
+  readonly meetingStore: IMeetingStore;
   readonly #pool: Pool;
   readonly #codec: ISecretCodec;
 
@@ -58,6 +61,7 @@ export class PostgresRuntimeDatabase implements RuntimeDatabase {
     this.membershipStore = new PostgresMembershipStore(pool);
     this.workspaceControlStore = new PostgresWorkspaceControlStore(pool);
     this.automationStore = new PostgresAutomationStore(pool, secretCodec);
+    this.meetingStore = new PostgresMeetingStore(pool);
   }
 
   close(): Promise<void> {
@@ -727,7 +731,7 @@ class PostgresWorkspaceControlStore implements IWorkspaceControlStore {
   async addAuditEvent(event: AuditEvent): Promise<void> {
     await this.#pool.query(
       `insert into audit_events (id, workspace_id, user_id, event, resource_type, resource_id, details, created_at)
-       values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+       values ($1, $2, $3, $4, $5, $6, $7, $8) on conflict (id) do nothing`,
       [
         event.id,
         event.workspaceId,

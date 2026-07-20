@@ -6,6 +6,7 @@ import type { D1DatabaseBinding } from "../cloudflare/cloudflare-bindings.ts";
 import type { ISecretCodec } from "../secrets/secret-codec-core.ts";
 import type {
   IWorkspaceMembershipStore,
+  IMeetingStore,
   IWorkspaceControlStore,
   IWorkspaceStore,
   IWorkspaceLifecycleStore,
@@ -24,6 +25,7 @@ import type { IRunLogStore, RunLog, RunLogListInput, RunLogPage } from "./runtim
 import type { IRuntimeTokenStore, RuntimeTokenRecord, WorkspaceRole } from "./runtime-token-service.ts";
 
 import { PlainTextSecretCodec } from "../secrets/secret-codec-core.ts";
+import { D1MeetingStore } from "./meeting-store.ts";
 import { decodeRunLogCursor, encodeRunLogCursor } from "./runtime-store.ts";
 
 type RuntimeRow = Record<string, unknown>;
@@ -44,6 +46,7 @@ export class D1RuntimeDatabase implements RuntimeDatabase {
   readonly workspaceLifecycleStore: D1WorkspaceLifecycleStore;
   readonly membershipStore: D1WorkspaceMembershipStore;
   readonly workspaceControlStore: D1WorkspaceControlStore;
+  readonly meetingStore: IMeetingStore;
 
   private readonly database: D1DatabaseBinding;
   private readonly secretCodec: ISecretCodec;
@@ -63,6 +66,7 @@ export class D1RuntimeDatabase implements RuntimeDatabase {
     this.workspaceLifecycleStore = new D1WorkspaceLifecycleStore(database);
     this.membershipStore = new D1WorkspaceMembershipStore(database);
     this.workspaceControlStore = new D1WorkspaceControlStore(database);
+    this.meetingStore = new D1MeetingStore(database);
   }
 
   createScopedStores(workspaceId: string): WorkspaceScopedStores {
@@ -723,7 +727,7 @@ class D1WorkspaceControlStore implements IWorkspaceControlStore {
   async addAuditEvent(event: AuditEvent): Promise<void> {
     await this.database
       .prepare(
-        "insert into audit_events (id, workspace_id, user_id, event, resource_type, resource_id, details, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
+        "insert into audit_events (id, workspace_id, user_id, event, resource_type, resource_id, details, created_at) values (?, ?, ?, ?, ?, ?, ?, ?) on conflict(id) do nothing",
       )
       .bind(
         event.id,

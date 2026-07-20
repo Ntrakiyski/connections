@@ -26,7 +26,7 @@
       "binding": "DB",
       "database_name": "open-connector",
       "database_id": "<your-d1-database-id>",
-      "migrations_dir": "migrations",
+      "migrations_dir": "sqlite-migrations",
     },
   ],
   // Transit-file storage — enable EXACTLY ONE of Option A or Option B.

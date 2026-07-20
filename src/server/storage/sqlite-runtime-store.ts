@@ -6,6 +6,7 @@ import type { AutomationStore } from "../automations/automation-store.ts";
 import type { ISecretCodec } from "../secrets/secret-codec-core.ts";
 import type {
   IWorkspaceMembershipStore,
+  IMeetingStore,
   IWorkspaceControlStore,
   IWorkspaceStore,
   IWorkspaceLifecycleStore,
@@ -26,6 +27,7 @@ import type { IRuntimeTokenStore, RuntimeTokenRecord, WorkspaceRole } from "./ru
 import { readFileSync, readdirSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { PlainTextSecretCodec } from "../secrets/secret-codec-core.ts";
+import { SqliteMeetingStore } from "./meeting-store.ts";
 import { decodeRunLogCursor, encodeRunLogCursor } from "./runtime-store.ts";
 import { SqliteAutomationStore } from "./sqlite-automation-store.ts";
 
@@ -49,6 +51,7 @@ export class SqliteRuntimeDatabase implements RuntimeDatabase {
   readonly membershipStore: SqliteWorkspaceMembershipStore;
   readonly workspaceControlStore: SqliteWorkspaceControlStore;
   readonly automationStore: AutomationStore;
+  readonly meetingStore: IMeetingStore;
 
   private readonly database: DatabaseSync;
   private readonly secretCodec: ISecretCodec;
@@ -71,6 +74,7 @@ export class SqliteRuntimeDatabase implements RuntimeDatabase {
     this.membershipStore = new SqliteWorkspaceMembershipStore(this.database);
     this.workspaceControlStore = new SqliteWorkspaceControlStore(this.database);
     this.automationStore = new SqliteAutomationStore(this.database, this.secretCodec);
+    this.meetingStore = new SqliteMeetingStore(this.database);
   }
 
   createScopedStores(workspaceId: string): WorkspaceScopedStores {
@@ -780,7 +784,7 @@ class SqliteWorkspaceControlStore implements IWorkspaceControlStore {
   async addAuditEvent(event: AuditEvent): Promise<void> {
     this.database
       .prepare(
-        "insert into audit_events (id, workspace_id, user_id, event, resource_type, resource_id, details, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
+        "insert into audit_events (id, workspace_id, user_id, event, resource_type, resource_id, details, created_at) values (?, ?, ?, ?, ?, ?, ?, ?) on conflict(id) do nothing",
       )
       .run(
         event.id,

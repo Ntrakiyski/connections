@@ -162,6 +162,103 @@ describe("D1RuntimeDatabase", () => {
     expect(second.items.map((run) => run.id)).toEqual(["gmail-1"]);
     expect(second.nextCursor).toBeUndefined();
   });
+
+  it("keeps a concurrent final meeting ahead of a stale lower live update", async () => {
+    const d1 = new SqliteD1Database();
+    const database = new D1RuntimeDatabase(d1);
+    await database.workspaceStore.create({
+      id: "workspace-a",
+      clerkOrgId: "org-a",
+      name: "Workspace A",
+      createdAt: "2026-07-20T00:00:00.000Z",
+      updatedAt: "2026-07-20T00:00:00.000Z",
+    });
+    const live = createMeetingWrite();
+
+    await database.meetingStore.put("workspace-a", live);
+    d1.finalizeOnNextMeetingUpdate();
+    await expect(
+      database.meetingStore.put("workspace-a", { ...live, revision: 2, title: "late live" }),
+    ).resolves.toMatchObject({
+      status: "ignored",
+      meeting: { state: "final", revision: 3, title: "final" },
+    });
+  });
+
+  it("looks up a meeting by its internal database ID", async () => {
+    const database = new D1RuntimeDatabase(new SqliteD1Database());
+    await database.workspaceStore.create({
+      id: "workspace-a",
+      clerkOrgId: "org-a",
+      name: "Workspace A",
+      createdAt: "2026-07-20T00:00:00.000Z",
+      updatedAt: "2026-07-20T00:00:00.000Z",
+    });
+    const created = await database.meetingStore.put("workspace-a", createMeetingWrite());
+
+    await expect(database.meetingStore.getById("workspace-a", created.meeting.id)).resolves.toMatchObject({
+      externalId: "meeting-1",
+    });
+    await expect(database.meetingStore.getById("workspace-b", created.meeting.id)).resolves.toBeUndefined();
+  });
+
+  it("rolls back a meeting when its transactional audit insert fails", async () => {
+    const d1 = new SqliteD1Database();
+    const database = new D1RuntimeDatabase(d1);
+    await database.workspaceStore.create({
+      id: "workspace-a",
+      clerkOrgId: "org-a",
+      name: "Workspace A",
+      createdAt: "2026-07-20T00:00:00.000Z",
+      updatedAt: "2026-07-20T00:00:00.000Z",
+    });
+    d1.failNextMeetingAudit();
+
+    await expect(database.meetingStore.put("workspace-a", createMeetingWrite())).rejects.toThrow("audit unavailable");
+    await expect(database.meetingStore.get("workspace-a", "meeting-1")).resolves.toBeUndefined();
+    await expect(database.workspaceControlStore.listAuditEvents("workspace-a", 10)).resolves.toEqual([]);
+  });
+
+  it("forbids concurrent meeting creators", async () => {
+    const database = new D1RuntimeDatabase(new SqliteD1Database());
+    await database.workspaceStore.create({
+      id: "workspace-a",
+      clerkOrgId: "org-a",
+      name: "Workspace A",
+      createdAt: "2026-07-20T00:00:00.000Z",
+      updatedAt: "2026-07-20T00:00:00.000Z",
+    });
+    const write = createMeetingWrite();
+    const results = await Promise.allSettled([
+      database.meetingStore.put("workspace-a", write),
+      database.meetingStore.put("workspace-a", { ...write, createdBy: "user-b" }),
+    ]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.find((result) => result.status === "rejected")).toMatchObject({
+      reason: expect.objectContaining({ message: "meeting_creator_forbidden" }),
+    });
+  });
+
+  it("keeps the first finalization timestamp across newer final revisions", async () => {
+    const d1 = new SqliteD1Database();
+    const database = new D1RuntimeDatabase(d1);
+    await database.workspaceStore.create({
+      id: "workspace-a",
+      clerkOrgId: "org-a",
+      name: "Workspace A",
+      createdAt: "2026-07-20T00:00:00.000Z",
+      updatedAt: "2026-07-20T00:00:00.000Z",
+    });
+    const final = { ...createMeetingWrite(), state: "final" as const };
+    await database.meetingStore.put("workspace-a", final);
+    d1.setMeetingFinalizedAt("2026-07-20T10:00:00.000Z");
+
+    await expect(database.meetingStore.put("workspace-a", { ...final, revision: 2 })).resolves.toMatchObject({
+      status: "updated",
+      meeting: { finalizedAt: "2026-07-20T10:00:00.000Z" },
+    });
+  });
 });
 
 function createRun(id: string, startedAt: string, actionId = "hackernews.get_top_stories", service = "hackernews") {
@@ -179,8 +276,22 @@ function createRun(id: string, startedAt: string, actionId = "hackernews.get_top
   };
 }
 
+function createMeetingWrite() {
+  return {
+    externalId: "meeting-1",
+    createdBy: "user-a",
+    state: "live" as const,
+    revision: 1,
+    title: "live",
+    transcript: "hello",
+    transcriptSegments: [],
+  };
+}
+
 class SqliteD1Database implements D1DatabaseBinding {
   private readonly database = new DatabaseSync(":memory:");
+  private finalizeNextMeetingUpdate = false;
+  private failMeetingAudit = false;
 
   constructor() {
     this.database.exec(readFileSync(new URL("../../../sqlite-migrations/0001_runtime.sql", import.meta.url), "utf8"));
@@ -190,10 +301,61 @@ class SqliteD1Database implements D1DatabaseBinding {
     this.database.exec(
       readFileSync(new URL("../../../sqlite-migrations/0003_workspaces.sql", import.meta.url), "utf8"),
     );
+    this.database.exec(
+      readFileSync(new URL("../../../sqlite-migrations/0007_meetily_meetings.sql", import.meta.url), "utf8"),
+    );
+    this.database.exec(
+      readFileSync(new URL("../../../sqlite-migrations/0008_meetily_internal_ids.sql", import.meta.url), "utf8"),
+    );
+  }
+
+  finalizeOnNextMeetingUpdate(): void {
+    this.finalizeNextMeetingUpdate = true;
+  }
+
+  failNextMeetingAudit(): void {
+    this.failMeetingAudit = true;
+  }
+
+  async batch(
+    statements: D1PreparedStatementBinding[],
+  ): Promise<Array<{ success: boolean; meta: { changes?: number } }>> {
+    this.database.exec("begin");
+    try {
+      const results = [];
+      for (const statement of statements) results.push(await statement.run());
+      this.database.exec("commit");
+      return results;
+    } catch (error) {
+      this.database.exec("rollback");
+      throw error;
+    }
+  }
+
+  failMeetingAuditIfArmed(query: string): void {
+    if (!this.failMeetingAudit || !query.startsWith("insert into audit_events")) return;
+    this.failMeetingAudit = false;
+    throw new Error("audit unavailable");
+  }
+
+  setMeetingFinalizedAt(finalizedAt: string): void {
+    this.database
+      .prepare("update meetily_meetings set finalized_at=? where workspace_id=? and external_id=?")
+      .run(finalizedAt, "workspace-a", "meeting-1");
+  }
+
+  finalizeMeetingUpdateIfArmed(query: string): void {
+    if (!this.finalizeNextMeetingUpdate || !query.startsWith("update meetily_meetings")) return;
+    this.finalizeNextMeetingUpdate = false;
+    this.database
+      .prepare(
+        "update meetily_meetings set state='final', revision=3, title='final' where workspace_id=? and external_id=?",
+      )
+      .run("workspace-a", "meeting-1");
   }
 
   prepare(query: string): D1PreparedStatementBinding {
-    return new SqliteD1PreparedStatement(this.database, query);
+    return new SqliteD1PreparedStatement(this.database, query, [], this);
   }
 
   value(table: "connections" | "oauth_client_configs", keyColumn: "service", key: string): string {
@@ -208,15 +370,17 @@ class SqliteD1PreparedStatement implements D1PreparedStatementBinding {
   private readonly database: DatabaseSync;
   private readonly query: string;
   private readonly values: unknown[];
+  private readonly owner: SqliteD1Database;
 
-  constructor(database: DatabaseSync, query: string, values: unknown[] = []) {
+  constructor(database: DatabaseSync, query: string, values: unknown[] = [], owner: SqliteD1Database) {
     this.database = database;
     this.query = query;
     this.values = values;
+    this.owner = owner;
   }
 
   bind(...values: unknown[]): D1PreparedStatementBinding {
-    return new SqliteD1PreparedStatement(this.database, this.query, values);
+    return new SqliteD1PreparedStatement(this.database, this.query, values, this.owner);
   }
 
   async first<T = Record<string, unknown>>(): Promise<T | null> {
@@ -228,6 +392,8 @@ class SqliteD1PreparedStatement implements D1PreparedStatementBinding {
   }
 
   async run(): Promise<{ success: boolean; meta: { changes?: number } }> {
+    this.owner.finalizeMeetingUpdateIfArmed(this.query);
+    this.owner.failMeetingAuditIfArmed(this.query);
     const result = this.database.prepare(this.query).run(...toSqlValues(this.values));
     return { success: true, meta: { changes: Number(result.changes) } };
   }

@@ -25,6 +25,8 @@ export interface ClerkAuthOptions {
   optional?: boolean;
   workspaceStore?: IWorkspaceStore;
   membershipStore?: IWorkspaceMembershipStore;
+  /** Public OAuth client ID used by the Meetings desktop application. */
+  meetingsOAuthClientId?: string;
 }
 
 declare module "hono" {
@@ -50,6 +52,9 @@ interface ClerkBackendModule {
 export function createClerkAuthMiddleware(options: ClerkAuthOptions): MiddlewareHandler {
   if (options.optional || !options.secretKey) {
     return async (context, next) => {
+      if (isMeetingsPath(context.req.path)) {
+        throw new HttpRequestError("unauthorized", "Meetings requires Clerk authentication.", 401);
+      }
       context.set("workspace", localWorkspace);
       context.set("clerkSession", { ...localWorkspace, sessionClaims: {} });
       await next();
@@ -98,6 +103,8 @@ async function authenticateClerkRequest(context: Context, options: ClerkAuthOpti
     throw new HttpRequestError("unauthorized", "A valid Clerk session is required.", 401);
   }
 
+  validateMeetingsOAuthAccess(context, claims, options.meetingsOAuthClientId);
+
   const userId = readClaim(claims, "sub");
   const organization = readClerkOrganization(claims);
   const clerkOrgId = organization.id;
@@ -117,6 +124,38 @@ async function authenticateClerkRequest(context: Context, options: ClerkAuthOpti
   const workspaceContext = { workspaceId: workspace.id, userId, role };
   context.set("workspace", workspaceContext);
   context.set("clerkSession", { ...workspaceContext, sessionClaims: claims });
+}
+
+const MEETINGS_SCOPES = ["openid", "profile", "email", "user:org:read"];
+
+function validateMeetingsOAuthAccess(context: Context, claims: Record<string, unknown>, clientId?: string): void {
+  const audience = claims.aud;
+  const meetingsPath = isMeetingsPath(context.req.path);
+  if (meetingsPath && audience === undefined) {
+    throw new HttpRequestError("oauth_audience_missing", "The OAuth token audience is required.", 401);
+  }
+  if (audience === undefined) return;
+  if (meetingsPath && !clientId) {
+    throw new HttpRequestError("oauth_client_unconfigured", "Meetings OAuth is not configured.", 500);
+  }
+  const audiences = typeof audience === "string" ? [audience] : Array.isArray(audience) ? audience : [];
+  const isMeetingsToken = Boolean(clientId && audiences.includes(clientId));
+  if (meetingsPath && !isMeetingsToken) {
+    throw new HttpRequestError("oauth_audience_invalid", "The OAuth token audience is invalid.", 401);
+  }
+  if (!meetingsPath && isMeetingsToken && context.req.path !== "/api/auth/session") {
+    throw new HttpRequestError("oauth_scope_forbidden", "The Meetings OAuth token cannot access this endpoint.", 403);
+  }
+  if (!isMeetingsToken) return;
+  const scopes =
+    typeof claims.scope === "string" ? claims.scope.split(/\s+/) : Array.isArray(claims.scp) ? claims.scp : [];
+  if (!MEETINGS_SCOPES.every((scope) => scopes.includes(scope))) {
+    throw new HttpRequestError("oauth_scope_missing", "The OAuth token is missing required scopes.", 403);
+  }
+}
+
+function isMeetingsPath(path: string): boolean {
+  return path === "/api/meetings" || path.startsWith("/api/meetings/");
 }
 
 function isWorkspaceRestoreRequest(context: Context): boolean {

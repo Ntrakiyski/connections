@@ -79,14 +79,15 @@ The service listens on port `3000`; configure Coolify's domain to route to that 
 
 Set these production environment variables in Coolify:
 
-| Variable                       | Purpose                                                                                                                                                                               |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OOMOL_CONNECT_ORIGIN`         | Public HTTPS origin, for example `https://connections.example.com`. Used for OAuth callbacks and generated URLs.                                                                      |
-| `DATABASE_URL`                 | PostgreSQL connection string for the Connections database.                                                                                                                            |
-| `OOMOL_CONNECT_ENCRYPTION_KEY` | Server-only key that encrypts stored provider credentials and OAuth client secrets. Keep it stable; changing it without a key-rotation procedure makes old encrypted data unreadable. |
-| `CLERK_SECRET_KEY`             | Server-only Clerk key used to verify human sessions.                                                                                                                                  |
-| `CLERK_PUBLISHABLE_KEY`        | Clerk public key. It is also supplied at Docker build time so the Vite console can load Clerk.                                                                                        |
-| `CLERK_WEBHOOK_SIGNING_SECRET` | Verifies Clerk membership webhooks. Configure Clerk to send organization membership events to `https://your-domain/api/webhooks/clerk`.                                               |
+| Variable                          | Purpose                                                                                                                                                                               |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OOMOL_CONNECT_ORIGIN`            | Public HTTPS origin, for example `https://connections.example.com`. Used for OAuth callbacks and generated URLs.                                                                      |
+| `DATABASE_URL`                    | PostgreSQL connection string for the Connections database.                                                                                                                            |
+| `OOMOL_CONNECT_ENCRYPTION_KEY`    | Server-only key that encrypts stored provider credentials and OAuth client secrets. Keep it stable; changing it without a key-rotation procedure makes old encrypted data unreadable. |
+| `CLERK_SECRET_KEY`                | Server-only Clerk key used to verify human sessions.                                                                                                                                  |
+| `CLERK_PUBLISHABLE_KEY`           | Clerk public key. It is also supplied at Docker build time so the Vite console can load Clerk.                                                                                        |
+| `CLERK_MEETINGLY_OAUTH_CLIENT_ID` | Public Clerk OAuth client ID accepted by the organization-scoped Meetings API.                                                                                                        |
+| `CLERK_WEBHOOK_SIGNING_SECRET`    | Verifies Clerk membership webhooks. Configure Clerk to send organization membership events to `https://your-domain/api/webhooks/clerk`.                                               |
 
 Useful optional controls:
 

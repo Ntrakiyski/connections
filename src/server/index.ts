@@ -62,6 +62,7 @@ const { app, runtimeAuthConfigured, processDueAutomations } = await createConnec
   secretCodec,
   clerkSecretKey,
   clerkPublishableKey,
+  meetingsOAuthClientId: process.env.CLERK_MEETINGLY_OAUTH_CLIENT_ID,
   clerkOptional,
   actionPolicy,
   registerStaticRoutes: (app) => registerStaticRoutes(app, staticRoot),

@@ -165,6 +165,10 @@ function memoryAssets(files: Record<string, unknown>): AssetsBinding {
 }
 
 class UnusedD1Database implements D1DatabaseBinding {
+  async batch(): Promise<never> {
+    throw new Error("Unexpected D1 batch");
+  }
+
   prepare(query: string): D1PreparedStatementBinding {
     throw new Error(`Unexpected D1 query: ${query}`);
   }

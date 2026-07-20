@@ -12,7 +12,7 @@ export const provider: ProviderDefinition = {
       type: "api_key",
       label: "Connections API Key",
       placeholder: "MEETILY_CONNECTIONS_API_KEY",
-      description: "The dedicated Meetily API key configured for the Connections InsForge project.",
+      description: "Retired. Use the Clerk-authenticated Meetings API instead.",
     },
   ],
   iconUrl: "/meetily-icon.png",

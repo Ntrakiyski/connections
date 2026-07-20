@@ -14,6 +14,7 @@ import type {
 import type { ITransitFileService } from "./files/transit-file-store.ts";
 import type { TransitFileAccess } from "./files/transit-file-store.ts";
 import type { Logger } from "./logger.ts";
+import type { IMeetingStore } from "./storage/runtime-database.ts";
 import type { RunLogListInput } from "./storage/runtime-store.ts";
 import type { RuntimeTokenService } from "./storage/runtime-token-service.ts";
 import type { WorkspaceContext } from "./storage/runtime-token-service.ts";
@@ -37,6 +38,7 @@ import { createClerkAuthMiddleware } from "./api/clerk-auth.ts";
 import { registerClerkRoutes } from "./api/clerk-routes.ts";
 import { registerClerkWebhookRoutes } from "./api/clerk-webhooks.ts";
 import { HttpRequestError, internalError, jsonError, notFound, readJsonBody } from "./api/http-utils.ts";
+import { registerMeetingRoutes } from "./api/meeting-routes.ts";
 import { renderOAuthCompletionPage } from "./api/oauth-completion-page.ts";
 import { createOpenApiDocument } from "./api/openapi.ts";
 import {
@@ -92,6 +94,7 @@ export interface IConnectServerOptions {
   actionSearch?: ActionSearchIndexProvider;
   registerStaticRoutes?: (app: Hono) => void;
   logger?: Logger;
+  meetingStore?: IMeetingStore;
 }
 
 /**
@@ -130,6 +133,9 @@ export class ConnectServer {
       registerClerkWebhookRoutes(app, this.options.clerkWebhooks);
     }
     app.use("*", createClerkAuthMiddleware(auth));
+    if (this.options.meetingStore) {
+      registerMeetingRoutes(app, this.options.meetingStore);
+    }
     if (this.options.runtimeTokenAuth) {
       const runtimeTokenAuth = createRuntimeTokenAuthMiddleware(this.options.runtimeTokenAuth);
       app.use("/v1/*", runtimeTokenAuth);
