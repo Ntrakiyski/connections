@@ -144,6 +144,10 @@ stop_automation_schedule
 `build_automation` and `edit_automation_draft` accept a complete validated automation definition.
 They are deliberately not a collection of browser-style, one-field-at-a-time builder tools.
 
+`test_automation` requires the compose input and explicit confirmation. It creates one real Gmail
+draft through the exact bound action and connection, records the run, and bypasses only the schedule;
+it never sends email or creates an active future schedule.
+
 `disable_automation` prevents future runs. A future `cancel_automation_run` tool is separate: it
 requires a durable background-job implementation before Connections can reliably stop in-flight work.
 

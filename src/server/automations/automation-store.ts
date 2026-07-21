@@ -59,6 +59,12 @@ export interface AutomationScheduleInput {
   endAt?: string;
 }
 
+export interface AutomationTestInput {
+  to: string;
+  subject: string;
+  body: string;
+}
+
 export interface AutomationSchedule {
   id: string;
   workspaceId: string;

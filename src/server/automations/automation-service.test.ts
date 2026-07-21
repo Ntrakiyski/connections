@@ -30,7 +30,7 @@ afterEach(async () => {
 });
 
 describe("AutomationService", () => {
-  it("tests without Gmail and runs the published three-step automation through the bound connection", async () => {
+  it("tests the draft through Gmail without scheduling it, then runs the published automation", async () => {
     const database = new SqliteRuntimeDatabase(await createDatabasePath());
     await database.workspaceStore.create({
       id: actor.workspaceId,
@@ -58,8 +58,31 @@ describe("AutomationService", () => {
     });
 
     const built = await service.build(actor, definition);
-    await expect(service.test(actor, built.automation.id)).resolves.toMatchObject({ ok: true });
-    expect(actionRun).not.toHaveBeenCalled();
+    await expect(
+      service.test(
+        actor,
+        built.automation.id,
+        { to: "recipient@example.com", subject: "Subject", body: "Private body" },
+        false,
+      ),
+    ).rejects.toMatchObject({ code: "approval_required" });
+    await expect(
+      service.test(
+        actor,
+        built.automation.id,
+        { to: "recipient@example.com", subject: "Subject", body: "Private body" },
+        true,
+      ),
+    ).resolves.toMatchObject({ ok: true, draftId: "draft-1" });
+    expect(actionRun).toHaveBeenCalledWith({
+      actionId: "gmail.create_email_draft",
+      connectionName: "team-gmail",
+      input: { to: "recipient@example.com", subject: "Subject", body: "Private body" },
+      caller: "automation",
+    });
+    await expect(service.listRuns(actor, built.automation.id)).resolves.toEqual(
+      expect.arrayContaining([expect.objectContaining({ status: "success", draftId: "draft-1" })]),
+    );
     await service.publish(actor, built.automation.id, true);
     const scheduled = await service.schedule(actor, built.automation.id, {
       to: "recipient@example.com",
@@ -74,16 +97,17 @@ describe("AutomationService", () => {
     await service.processDue("2026-07-20T09:00:00.000Z");
 
     const after = await service.get(actor, built.automation.id);
-    expect(after.schedules).toMatchObject([{ state: "completed" }]);
-    expect(actionRun).toHaveBeenCalledWith({
+    expect(after.schedules).toHaveLength(2);
+    expect(after.schedules).toEqual(expect.arrayContaining([expect.objectContaining({ state: "completed" })]));
+    expect(actionRun).toHaveBeenLastCalledWith({
       actionId: "gmail.create_email_draft",
       connectionName: "team-gmail",
       input: { to: "recipient@example.com", subject: "Subject", body: "Private body" },
       caller: "automation",
     });
-    await expect(service.listRuns(actor, built.automation.id)).resolves.toMatchObject([
-      { status: "success", draftId: "draft-1" },
-    ]);
+    await expect(service.listRuns(actor, built.automation.id)).resolves.toEqual(
+      expect.arrayContaining([expect.objectContaining({ status: "success", draftId: "draft-1" })]),
+    );
     database.close();
   });
 });

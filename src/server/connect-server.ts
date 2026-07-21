@@ -10,6 +10,7 @@ import type {
   AutomationStore,
   GmailDraftAutomationDefinition,
   AutomationScheduleInput,
+  AutomationTestInput,
 } from "./automations/automation-store.ts";
 import type { ITransitFileService } from "./files/transit-file-store.ts";
 import type { TransitFileAccess } from "./files/transit-file-store.ts";
@@ -392,9 +393,15 @@ export class ConnectServer {
   }
 
   private async testAutomation(context: Context, automationId: string): Promise<Response> {
+    const body = await readJsonBody(context);
     return this.writeAutomationResult(
       context,
-      this.services(context).automation.test(this.automationActor(context), automationId),
+      this.services(context).automation.test(
+        this.automationActor(context),
+        automationId,
+        body as unknown as AutomationTestInput,
+        body.confirmed === true,
+      ),
     );
   }
 

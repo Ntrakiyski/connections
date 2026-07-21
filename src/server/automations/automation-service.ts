@@ -9,6 +9,7 @@ import type {
   AutomationScheduleInput,
   AutomationStepRun,
   AutomationStore,
+  AutomationTestInput,
   AutomationVersionRecord,
   GmailDraftAutomationDefinition,
 } from "./automation-store.ts";
@@ -22,7 +23,8 @@ export class AutomationError extends Error {
     | "not_live"
     | "invalid_input"
     | "gmail_connection_unavailable"
-    | "approval_required";
+    | "approval_required"
+    | "execution_failed";
 
   constructor(code: AutomationError["code"], message: string) {
     super(message);
@@ -105,17 +107,48 @@ export class AutomationService {
     return detail;
   }
 
-  async test(actor: AutomationActor, automationId: string): Promise<Record<string, unknown>> {
+  async test(
+    actor: AutomationActor,
+    automationId: string,
+    input: AutomationTestInput,
+    confirmed: boolean,
+  ): Promise<Record<string, unknown>> {
     assertManager(actor);
+    if (!confirmed)
+      throw new AutomationError("approval_required", "Testing requires approval to create one Gmail draft.");
     const detail = await this.requireAutomation(actor.workspaceId, automationId);
     const version = detail.draft;
     if (!version) throw new AutomationError("draft_not_found", "Automation has no draft to test.");
     await this.validateDefinition(version.definition);
+    validateTestInput(input);
+    await this.currentPolicy(version.definition);
+    const now = new Date().toISOString();
+    const schedule: AutomationSchedule = {
+      id: crypto.randomUUID(),
+      workspaceId: actor.workspaceId,
+      automationId,
+      automationVersionId: version.id,
+      state: "completed",
+      timeZone: "UTC",
+      scheduledFor: now,
+      repeat: false,
+      input: { ...input, scheduledFor: now, timeZone: "UTC", repeat: false },
+      createdBy: actor.userId,
+      createdAt: now,
+      updatedAt: now,
+    };
+    // Completed test schedules anchor test runs without creating a future occurrence.
+    await this.services.store.createSchedule(schedule);
+    const run = await this.executeRun(schedule, version.definition, now);
+    if (!run || run.status !== "success") {
+      throw new AutomationError("execution_failed", run?.errorMessage ?? "Gmail draft creation failed.");
+    }
+    await this.services.controls.audit("automation.test_executed", "automation", automationId);
     return {
       ok: true,
       actionId: version.definition.actionId,
       connectionName: version.definition.connectionName,
-      plannedInput: { to: "recipient@example.com", subject: "Example subject", body: "Example body" },
+      draftId: run.draftId,
     };
   }
 
@@ -267,6 +300,14 @@ export class AutomationService {
       return;
     }
 
+    await this.executeRun(schedule, live.definition, now);
+  }
+
+  private async executeRun(
+    schedule: AutomationSchedule,
+    definition: GmailDraftAutomationDefinition,
+    now: string,
+  ): Promise<AutomationRun | undefined> {
     const run: AutomationRun = {
       id: crypto.randomUUID(),
       workspaceId: schedule.workspaceId,
@@ -284,13 +325,13 @@ export class AutomationService {
       schedule.claimedAt = undefined;
       schedule.updatedAt = now;
       await this.services.store.saveSchedule(schedule);
-      return;
+      return undefined;
     }
     let action: Awaited<ReturnType<ActionRunner["run"]>>;
     try {
       action = await this.services.actions.run({
-        actionId: live.definition.actionId,
-        connectionName: live.definition.connectionName,
+        actionId: definition.actionId,
+        connectionName: definition.connectionName,
         input: { to: schedule.input.to, subject: schedule.input.subject, body: schedule.input.body },
         caller: "automation",
       });
@@ -334,6 +375,7 @@ export class AutomationService {
     schedule.state = schedule.nextRunAt ? "active" : "completed";
     schedule.claimedAt = undefined;
     await this.services.store.saveSchedule(schedule);
+    return run;
   }
 
   private async validateDefinition(definition: GmailDraftAutomationDefinition): Promise<void> {
@@ -414,6 +456,12 @@ function validateScheduleInput(input: AutomationScheduleInput): void {
     Temporal.ZonedDateTime.from(`${input.scheduledFor}[${input.timeZone}]`);
   } catch {
     throw new AutomationError("invalid_input", "The scheduled date, time, or time zone is invalid.");
+  }
+}
+
+function validateTestInput(input: AutomationTestInput): void {
+  if (!input.to || !input.subject || !input.body) {
+    throw new AutomationError("invalid_input", "Recipient, subject, and body are required.");
   }
 }
 

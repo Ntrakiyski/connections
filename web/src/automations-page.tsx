@@ -45,6 +45,11 @@ interface AutomationRun {
   draftId?: string;
 }
 
+interface AutomationTestResult {
+  ok: true;
+  draftId?: string;
+}
+
 interface AutomationDetail {
   automation: {
     id: string;
@@ -203,6 +208,7 @@ function AutomationDetailPage(props: { automationId: string; canManage: boolean 
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState<ScheduleForm>(() => defaultScheduleForm());
 
   const reload = async (): Promise<void> => {
     try {
@@ -218,12 +224,23 @@ function AutomationDetailPage(props: { automationId: string; canManage: boolean 
 
   const definition = detail?.live?.definition ?? detail?.draft?.definition;
   const runTest = async (): Promise<void> => {
+    if (!form.to || !form.subject || !form.body) {
+      setError("Enter a recipient, subject, and body before testing.");
+      return;
+    }
+    if (!window.confirm("Create a real Gmail draft now? This test ignores the schedule and never sends email.")) return;
     setBusy(true);
     try {
-      await apiPost(`/api/automations/${props.automationId}/test`, {});
-      setNotice("Dry run passed. No Gmail draft was created.");
+      const result = await apiPost<AutomationTestResult>(`/api/automations/${props.automationId}/test`, {
+        to: form.to,
+        subject: form.subject,
+        body: form.body,
+        confirmed: true,
+      });
+      setNotice(`Test passed. Gmail draft${result.draftId ? ` ${result.draftId}` : ""} was created.`);
+      await reload();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Dry run failed.");
+      setError(caught instanceof Error ? caught.message : "Test did not create a Gmail draft.");
     } finally {
       setBusy(false);
     }
@@ -311,6 +328,8 @@ function AutomationDetailPage(props: { automationId: string; canManage: boolean 
             automationId={props.automationId}
             connectionName={definition.connectionName}
             live={Boolean(detail.live)}
+            form={form}
+            onChange={setForm}
             onScheduled={async (message) => {
               setNotice(message);
               await reload();
@@ -409,9 +428,10 @@ function ScheduleFormView(props: {
   automationId: string;
   connectionName: string;
   live: boolean;
+  form: ScheduleForm;
+  onChange(form: ScheduleForm): void;
   onScheduled(message: string): Promise<void>;
 }): ReactNode {
-  const [form, setForm] = useState<ScheduleForm>(() => defaultScheduleForm());
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
@@ -423,9 +443,10 @@ function ScheduleFormView(props: {
     setBusy(true);
     try {
       const schedule = await apiPost<AutomationSchedule>(`/api/automations/${props.automationId}/schedules`, {
-        ...form,
-        cadence: form.repeat ? form.cadence : undefined,
-        endAt: form.repeat && form.endAt ? new Date(`${form.endAt}T23:59:59`).toISOString() : undefined,
+        ...props.form,
+        cadence: props.form.repeat ? props.form.cadence : undefined,
+        endAt:
+          props.form.repeat && props.form.endAt ? new Date(`${props.form.endAt}T23:59:59`).toISOString() : undefined,
       });
       await props.onScheduled(
         `Schedule created. Next draft: ${schedule.nextRunAt ? displayDate(schedule.nextRunAt) : "not available"}.`,
@@ -454,15 +475,15 @@ function ScheduleFormView(props: {
             <Input
               required
               type="email"
-              value={form.to}
-              onChange={(event) => setForm({ ...form, to: event.target.value })}
+              value={props.form.to}
+              onChange={(event) => props.onChange({ ...props.form, to: event.target.value })}
             />
           </Field>
           <Field label="Subject">
             <Input
               required
-              value={form.subject}
-              onChange={(event) => setForm({ ...form, subject: event.target.value })}
+              value={props.form.subject}
+              onChange={(event) => props.onChange({ ...props.form, subject: event.target.value })}
             />
           </Field>
         </div>
@@ -470,8 +491,8 @@ function ScheduleFormView(props: {
           <Textarea
             required
             rows={7}
-            value={form.body}
-            onChange={(event) => setForm({ ...form, body: event.target.value })}
+            value={props.form.body}
+            onChange={(event) => props.onChange({ ...props.form, body: event.target.value })}
           />
         </Field>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -479,30 +500,33 @@ function ScheduleFormView(props: {
             <Input
               required
               type="datetime-local"
-              value={form.scheduledFor}
-              onChange={(event) => setForm({ ...form, scheduledFor: event.target.value })}
+              value={props.form.scheduledFor}
+              onChange={(event) => props.onChange({ ...props.form, scheduledFor: event.target.value })}
             />
           </Field>
           <Field label="Time zone">
             <Input
               required
-              value={form.timeZone}
-              onChange={(event) => setForm({ ...form, timeZone: event.target.value })}
+              value={props.form.timeZone}
+              onChange={(event) => props.onChange({ ...props.form, timeZone: event.target.value })}
             />
           </Field>
         </div>
         <label className="flex items-center gap-2 text-sm">
           <input
             type="checkbox"
-            checked={form.repeat}
-            onChange={(event) => setForm({ ...form, repeat: event.target.checked })}
+            checked={props.form.repeat}
+            onChange={(event) => props.onChange({ ...props.form, repeat: event.target.checked })}
           />{" "}
           Repeat this schedule
         </label>
-        {form.repeat ? (
+        {props.form.repeat ? (
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Cadence">
-              <Select value={form.cadence} onValueChange={(value) => setForm({ ...form, cadence: value as Cadence })}>
+              <Select
+                value={props.form.cadence}
+                onValueChange={(value) => props.onChange({ ...props.form, cadence: value as Cadence })}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -515,8 +539,8 @@ function ScheduleFormView(props: {
             <Field label="End date (optional)">
               <Input
                 type="date"
-                value={form.endAt}
-                onChange={(event) => setForm({ ...form, endAt: event.target.value })}
+                value={props.form.endAt}
+                onChange={(event) => props.onChange({ ...props.form, endAt: event.target.value })}
               />
             </Field>
           </div>

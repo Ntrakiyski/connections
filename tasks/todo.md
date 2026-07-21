@@ -2,6 +2,34 @@
 
 ## Goal
 
+Make Gmail automation tests create one real Gmail draft using the current form input while bypassing only the schedule.
+
+## Constraints
+
+- Preserve the existing workspace, connection, action-policy, and ActionRunner boundaries.
+- Require explicit confirmation before the test creates a Gmail draft; it must never send email.
+- Reuse the existing encrypted schedule/run storage so successful and failed tests appear in automation history.
+
+## Steps
+
+- [ ] Trace the current dry-run test flow and its action-runner/schedule boundaries.
+- [ ] Execute the draft definition with form input after explicit test confirmation, without waiting for a due schedule.
+- [ ] Update the browser and MCP test contracts and user-facing result state.
+- [ ] Add focused regression coverage and run the relevant checks.
+
+## Verification
+
+- [ ] Test invokes only `gmail.create_email_draft` with the exact bound connection and form input.
+- [ ] The test never creates an active schedule or sends email.
+- [ ] Successful and failed tests are recorded in automation run history.
+- [ ] Type, unit, UI, and rendered-flow checks pass.
+
+---
+
+# Task Plan
+
+## Goal
+
 Apply the approved InsForge table-access hardening through a durable repository migration and verify the live result.
 
 ## Constraints
