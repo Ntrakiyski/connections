@@ -2,6 +2,34 @@
 
 ## Goal
 
+Remove the separate Gmail scheduling action: publishing from the client form must persist the entered values and create the first schedule, while tests still ignore date and time.
+
+## Constraints
+
+- Keep MCP `publish_automation` as a publish-only tool; it has no client form input.
+- Publish from the browser must clearly create a schedule and never send email immediately.
+- Preserve the existing real Gmail-draft test behavior and current authorization checks.
+
+## Steps
+
+- [ ] Trace the publish, save, and schedule paths and add one browser publish-and-schedule operation.
+- [ ] Replace the UI scheduling control with the revised publish action.
+- [ ] Add regression coverage for a published schedule and run focused checks.
+- [ ] Deploy and verify the live UI bundle and health.
+
+## Verification
+
+- [ ] Test ignores date/time and invokes only Gmail draft creation.
+- [ ] Browser publish persists the values and creates an active schedule at the selected time.
+- [ ] MCP publish remains publish-only.
+- [ ] Tests, typecheck, web build, migration state, and production health pass.
+
+---
+
+# Task Plan
+
+## Goal
+
 Add a persistent, encrypted automation configuration so the client form has an explicit Save configuration action.
 
 ## Constraints

@@ -422,9 +422,17 @@ export class ConnectServer {
 
   private async publishAutomation(context: Context, automationId: string): Promise<Response> {
     const body = await readJsonBody(context);
+    const actor = this.automationActor(context);
     return this.writeAutomationResult(
       context,
-      this.services(context).automation.publish(this.automationActor(context), automationId, body.confirmed === true),
+      body.input
+        ? this.services(context).automation.publishAndSchedule(
+            actor,
+            automationId,
+            body.input as AutomationScheduleInput,
+            body.confirmed === true,
+          )
+        : this.services(context).automation.publish(actor, automationId, body.confirmed === true),
     );
   }
 

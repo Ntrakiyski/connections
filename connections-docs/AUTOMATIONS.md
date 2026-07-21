@@ -340,6 +340,10 @@ worker rechecks that approval, action policy, enabled provider, and exact labell
 It delegates credential resolution and provider invocation to `ActionRunner`; the scheduler itself
 never receives Gmail credentials.
 
+In the Gmail client form, **Publish & schedule** saves the displayed values, publishes the draft,
+and creates its first schedule in one explicit confirmation. The separate MCP publish operation
+remains publish-only because it does not receive client form input.
+
 ## Delivery Sequence
 
 1. Add the storage model, MCP draft creation/read tools, and a read-only library/technical UI.

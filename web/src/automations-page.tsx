@@ -1,6 +1,6 @@
-import type { FormEvent, ReactNode } from "react";
+import type { ReactNode } from "react";
 
-import { AlertCircle, CalendarClock, CheckCircle2, ListChecks, Play, Power, RefreshCw } from "lucide-react";
+import { AlertCircle, CheckCircle2, ListChecks, Play, Power, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { apiGet, apiPost } from "./api";
@@ -281,11 +281,19 @@ function AutomationDetailPage(props: { automationId: string; canManage: boolean 
     }
   };
   const publish = async (): Promise<void> => {
-    if (!window.confirm("Publish this version and approve Gmail draft creation for future schedules?")) return;
+    if (
+      !window.confirm("Publish and schedule this Gmail draft at the selected date and time? It will never send email.")
+    )
+      return;
     setBusy(true);
     try {
-      await apiPost(`/api/automations/${props.automationId}/publish`, { confirmed: true });
-      setNotice("Live version published. New schedules can now create Gmail drafts.");
+      const schedule = await apiPost<AutomationSchedule>(`/api/automations/${props.automationId}/publish`, {
+        confirmed: true,
+        input: scheduleInput(form),
+      });
+      setNotice(
+        `Live version published. Next draft: ${schedule.nextRunAt ? displayDate(schedule.nextRunAt) : "not available"}.`,
+      );
       await reload();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not publish the automation.");
@@ -333,7 +341,7 @@ function AutomationDetailPage(props: { automationId: string; canManage: boolean 
           ) : null}
           {props.canManage && detail.draft ? (
             <Button onClick={() => void publish()} disabled={busy}>
-              Publish draft
+              Publish & schedule
             </Button>
           ) : null}
           {props.canManage && detail.automation.lifecycle !== "disabled" ? (
@@ -362,17 +370,7 @@ function AutomationDetailPage(props: { automationId: string; canManage: boolean 
       <div className="grid gap-5 xl:grid-cols-[18rem_minmax(0,1fr)_20rem]">
         <StepList definition={definition} />
         {view === "client" ? (
-          <ScheduleFormView
-            automationId={props.automationId}
-            connectionName={definition.connectionName}
-            live={Boolean(detail.live)}
-            form={form}
-            onChange={setForm}
-            onScheduled={async (message) => {
-              setNotice(message);
-              await reload();
-            }}
-          />
+          <ScheduleFormView connectionName={definition.connectionName} form={form} onChange={setForm} />
         ) : (
           <TechnicalView definition={definition} />
         )}
@@ -463,47 +461,19 @@ function TechnicalCard(props: { title: string; rows: readonly (readonly [string,
 }
 
 function ScheduleFormView(props: {
-  automationId: string;
   connectionName: string;
-  live: boolean;
   form: ScheduleForm;
   onChange(form: ScheduleForm): void;
-  onScheduled(message: string): Promise<void>;
 }): ReactNode {
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
-    event.preventDefault();
-    if (!props.live) {
-      setError("This automation must be published before it can schedule Gmail drafts.");
-      return;
-    }
-    setBusy(true);
-    try {
-      const schedule = await apiPost<AutomationSchedule>(`/api/automations/${props.automationId}/schedules`, {
-        ...props.form,
-        cadence: props.form.repeat ? props.form.cadence : undefined,
-        endAt:
-          props.form.repeat && props.form.endAt ? new Date(`${props.form.endAt}T23:59:59`).toISOString() : undefined,
-      });
-      await props.onScheduled(
-        `Schedule created. Next draft: ${schedule.nextRunAt ? displayDate(schedule.nextRunAt) : "not available"}.`,
-      );
-      setError(null);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not create the schedule.");
-    } finally {
-      setBusy(false);
-    }
-  };
   return (
     <section className="rounded-xl border bg-card p-5">
       <div className="mb-5">
-        <h3 className="font-semibold">Schedule Gmail draft</h3>
-        <p className="text-sm text-muted-foreground">Prepare a draft only; this automation never sends email.</p>
+        <h3 className="font-semibold">Configure Gmail draft</h3>
+        <p className="text-sm text-muted-foreground">
+          Publish schedules a draft at the selected time; this automation never sends email.
+        </p>
       </div>
-      {error ? <InlineError message={error} /> : null}
-      <form className="space-y-4" onSubmit={(event) => void submit(event)}>
+      <div className="space-y-4">
         <div className="rounded-lg border bg-muted/30 px-4 py-3 text-sm">
           <span className="text-muted-foreground">Sender account</span>
           <strong className="ml-2">{props.connectionName}</strong>
@@ -583,10 +553,7 @@ function ScheduleFormView(props: {
             </Field>
           </div>
         ) : null}
-        <Button type="submit" disabled={busy || !props.live}>
-          <CalendarClock size={16} /> {busy ? "Scheduling…" : "Schedule Gmail draft"}
-        </Button>
-      </form>
+      </div>
     </section>
   );
 }
@@ -708,5 +675,13 @@ function scheduleFormFromConfiguration(input: NonNullable<AutomationDetail["conf
     repeat: input.repeat,
     cadence: input.cadence ?? "daily",
     endAt: input.endAt ? input.endAt.slice(0, 10) : "",
+  };
+}
+
+function scheduleInput(form: ScheduleForm) {
+  return {
+    ...form,
+    cadence: form.repeat ? form.cadence : undefined,
+    endAt: form.repeat && form.endAt ? new Date(`${form.endAt}T23:59:59`).toISOString() : undefined,
   };
 }

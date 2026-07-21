@@ -181,6 +181,20 @@ export class AutomationService {
     return next;
   }
 
+  async publishAndSchedule(
+    actor: AutomationActor,
+    automationId: string,
+    input: AutomationScheduleInput,
+    confirmed: boolean,
+  ): Promise<AutomationSchedule> {
+    assertManager(actor);
+    if (!confirmed) throw new AutomationError("approval_required", "Publishing requires explicit approval.");
+    validateScheduleInput(input);
+    await this.saveConfiguration(actor, automationId, input);
+    await this.publish(actor, automationId, confirmed);
+    return await this.schedule(actor, automationId, input);
+  }
+
   async saveConfiguration(
     actor: AutomationActor,
     automationId: string,

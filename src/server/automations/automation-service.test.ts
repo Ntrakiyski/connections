@@ -30,7 +30,7 @@ afterEach(async () => {
 });
 
 describe("AutomationService", () => {
-  it("tests the draft through Gmail without scheduling it, then runs the published automation", async () => {
+  it("tests the draft through Gmail without scheduling it, then publishes and schedules the automation", async () => {
     const database = new SqliteRuntimeDatabase(await createDatabasePath());
     await database.workspaceStore.create({
       id: actor.workspaceId,
@@ -56,6 +56,10 @@ describe("AutomationService", () => {
       } as unknown as WorkspaceControlService,
       gmailDraftAction: { id: "gmail.create_email_draft" } as RuntimeActionDefinition,
     });
+
+    const publishOnly = await service.build(actor, { ...definition, slug: "publish-only-gmail-draft" });
+    await service.publish(actor, publishOnly.automation.id, true);
+    await expect(service.get(actor, publishOnly.automation.id)).resolves.toMatchObject({ schedules: [] });
 
     const built = await service.build(actor, definition);
     await expect(
@@ -99,15 +103,20 @@ describe("AutomationService", () => {
     await expect(service.listRuns(actor, built.automation.id)).resolves.toEqual(
       expect.arrayContaining([expect.objectContaining({ status: "success", draftId: "draft-1" })]),
     );
-    await service.publish(actor, built.automation.id, true);
-    const scheduled = await service.schedule(actor, built.automation.id, {
-      to: "recipient@example.com",
-      subject: "Subject",
-      body: "Private body",
-      scheduledFor: "2026-07-20T12:00",
-      timeZone: "Europe/Sofia",
-      repeat: false,
-    });
+    const scheduled = await service.publishAndSchedule(
+      actor,
+      built.automation.id,
+      {
+        to: "recipient@example.com",
+        subject: "Subject",
+        body: "Private body",
+        scheduledFor: "2026-07-20T12:00",
+        timeZone: "Europe/Sofia",
+        repeat: false,
+      },
+      true,
+    );
+    expect(scheduled.state).toBe("active");
     expect(scheduled.nextRunAt).toBe("2026-07-20T09:00:00.000Z");
 
     await service.processDue("2026-07-20T09:00:00.000Z");
