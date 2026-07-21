@@ -2,6 +2,34 @@
 
 ## Goal
 
+Add a persistent, encrypted automation configuration so the client form has an explicit Save configuration action.
+
+## Constraints
+
+- Saving must not create a Gmail draft, publish the automation, or create an active schedule.
+- Preserve workspace scoping and encrypt recipient/body values at rest.
+- Reuse the saved configuration as the initial value for test and schedule inputs.
+
+## Steps
+
+- [ ] Add the smallest configuration storage contract and migration.
+- [ ] Expose authenticated save/load operations through the browser API and MCP detail response.
+- [ ] Add Save configuration to the client form and reload saved defaults.
+- [ ] Verify persistence, authorization, UI behavior, and deployment.
+
+## Verification
+
+- [ ] Saved input is encrypted and workspace-scoped.
+- [ ] Save never invokes Gmail or creates a schedule.
+- [ ] Reloaded form values match saved values.
+- [ ] Tests, typecheck, web build, and production health pass.
+
+---
+
+# Task Plan
+
+## Goal
+
 Make Gmail automation tests create one real Gmail draft using the current form input while bypassing only the schedule.
 
 ## Constraints

@@ -1,5 +1,6 @@
 import type {
   AutomationApprovalGrant,
+  AutomationConfiguration,
   AutomationDetail,
   AutomationRecord,
   AutomationRun,
@@ -152,6 +153,22 @@ export class SqliteAutomationStore implements AutomationStore {
       this.database.exec("rollback");
       throw error;
     }
+  }
+
+  async saveConfiguration(configuration: AutomationConfiguration): Promise<void> {
+    const input = await this.codec.encode(JSON.stringify(configuration.input));
+    this.database
+      .prepare(`insert into automation_configurations (automation_id, workspace_id, encrypted_input, updated_by, updated_at)
+        values (?, ?, ?, ?, ?)
+        on conflict(automation_id) do update set encrypted_input = excluded.encrypted_input, updated_by = excluded.updated_by, updated_at = excluded.updated_at
+        where automation_configurations.workspace_id = excluded.workspace_id`)
+      .run(
+        configuration.automationId,
+        configuration.workspaceId,
+        input,
+        configuration.updatedBy,
+        configuration.updatedAt,
+      );
   }
 
   async createSchedule(schedule: AutomationSchedule): Promise<void> {
@@ -328,6 +345,7 @@ export class SqliteAutomationStore implements AutomationStore {
       automation,
       draft: await draft,
       live: await live,
+      configuration: await this.getConfiguration(automation.workspaceId, automation.id),
       schedules: await this.listSchedules(automation.workspaceId, automation.id),
       runs: await this.listRuns(automation.workspaceId, automation.id),
     };
@@ -336,6 +354,23 @@ export class SqliteAutomationStore implements AutomationStore {
   private getVersion(id: string): AutomationVersionRecord | undefined {
     const row = this.database.prepare("select * from automation_versions where id = ?").get(id);
     return row ? readVersion(row) : undefined;
+  }
+
+  private async getConfiguration(
+    workspaceId: string,
+    automationId: string,
+  ): Promise<AutomationConfiguration | undefined> {
+    const row = this.database
+      .prepare("select * from automation_configurations where workspace_id = ? and automation_id = ?")
+      .get(workspaceId, automationId);
+    if (!row) return undefined;
+    return {
+      workspaceId: text(row, "workspace_id"),
+      automationId: text(row, "automation_id"),
+      input: JSON.parse(await this.codec.decode(text(row, "encrypted_input"))) as AutomationConfiguration["input"],
+      updatedBy: text(row, "updated_by"),
+      updatedAt: text(row, "updated_at"),
+    };
   }
 
   private insertVersion(version: AutomationVersionRecord): void {

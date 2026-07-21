@@ -345,6 +345,20 @@ describe("SqliteRuntimeDatabase", () => {
       createdAt: "2026-07-20T08:01:00.000Z",
       updatedAt: "2026-07-20T08:01:00.000Z",
     });
+    await database.automationStore.saveConfiguration({
+      workspaceId: "workspace-automation",
+      automationId: "automation-1",
+      input: {
+        to: "recipient@example.com",
+        subject: "Saved private subject",
+        body: "secret saved email body",
+        scheduledFor: "2026-07-20T12:00",
+        timeZone: "Europe/Sofia",
+        repeat: false,
+      },
+      updatedBy: "user-1",
+      updatedAt: "2026-07-20T08:01:00.000Z",
+    });
 
     const claimed = await database.automationStore.claimDueSchedules("2026-07-20T09:00:00.000Z", 10);
     expect(claimed).toMatchObject([
@@ -354,10 +368,14 @@ describe("SqliteRuntimeDatabase", () => {
     database.close();
 
     await expectDatabaseDirectoryNotToContain(databasePath, "secret scheduled email body");
+    await expectDatabaseDirectoryNotToContain(databasePath, "secret saved email body");
     const reopened = new SqliteRuntimeDatabase(databasePath, { secretCodec: codec });
     await expect(reopened.automationStore.getSchedule("workspace-automation", "schedule-1")).resolves.toMatchObject({
       input: { subject: "Private subject", body: "secret scheduled email body" },
       state: "running",
+    });
+    await expect(reopened.automationStore.get("workspace-automation", "automation-1")).resolves.toMatchObject({
+      configuration: { input: { subject: "Saved private subject", body: "secret saved email body" } },
     });
     reopened.close();
   });

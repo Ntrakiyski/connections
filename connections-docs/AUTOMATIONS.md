@@ -179,6 +179,11 @@ The client view is generated from the published version's input and output schem
 simple form, file uploads through the existing transit-file service, validation feedback, a run
 button, and a result view. It must not show code, raw action payloads, or credentials.
 
+For fields explicitly declared as safe configuration, the form has a **Save configuration** action.
+It stores the workspace-scoped defaults encrypted at rest and restores them when the automation is
+reopened. Saving never runs an action, creates a schedule, publishes a version, or changes the
+automation's structural definition.
+
 The run button describes its real consequence. For example, a button that calls
 `olx.create_advert` says **Create OLX listing**, not **Generate listing**.
 

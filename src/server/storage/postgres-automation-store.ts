@@ -1,5 +1,6 @@
 import type {
   AutomationApprovalGrant,
+  AutomationConfiguration,
   AutomationDetail,
   AutomationRecord,
   AutomationRun,
@@ -136,6 +137,17 @@ export class PostgresAutomationStore implements AutomationStore {
     });
   }
 
+  async saveConfiguration(configuration: AutomationConfiguration): Promise<void> {
+    const input = await this.codec.encode(JSON.stringify(configuration.input));
+    await this.pool.query(
+      `insert into automation_configurations (automation_id, workspace_id, encrypted_input, updated_by, updated_at)
+       values ($1, $2, $3, $4, $5)
+       on conflict (automation_id) do update set encrypted_input = excluded.encrypted_input, updated_by = excluded.updated_by, updated_at = excluded.updated_at
+       where automation_configurations.workspace_id = excluded.workspace_id`,
+      [configuration.automationId, configuration.workspaceId, input, configuration.updatedBy, configuration.updatedAt],
+    );
+  }
+
   async createSchedule(schedule: AutomationSchedule): Promise<void> {
     await this.saveSchedule(schedule);
   }
@@ -268,13 +280,14 @@ export class PostgresAutomationStore implements AutomationStore {
   }
 
   private async detail(automation: AutomationRecord): Promise<AutomationDetail> {
-    const [draft, live, schedules, runs] = await Promise.all([
+    const [draft, live, configuration, schedules, runs] = await Promise.all([
       automation.draftVersionId ? this.getVersion(automation.draftVersionId) : undefined,
       automation.liveVersionId ? this.getVersion(automation.liveVersionId) : undefined,
+      this.getConfiguration(automation.workspaceId, automation.id),
       this.listSchedules(automation.workspaceId, automation.id),
       this.listRuns(automation.workspaceId, automation.id),
     ]);
-    return { automation, draft: await draft, live: await live, schedules, runs };
+    return { automation, draft: await draft, live: await live, configuration, schedules, runs };
   }
 
   private async getAutomation(workspaceId: string, id: string): Promise<AutomationRecord | undefined> {
@@ -288,6 +301,25 @@ export class PostgresAutomationStore implements AutomationStore {
   private async getVersion(id: string): Promise<AutomationVersionRecord | undefined> {
     const result = await this.pool.query("select * from automation_versions where id = $1", [id]);
     return result.rows[0] ? readVersion(result.rows[0]) : undefined;
+  }
+
+  private async getConfiguration(
+    workspaceId: string,
+    automationId: string,
+  ): Promise<AutomationConfiguration | undefined> {
+    const result = await this.pool.query(
+      "select * from automation_configurations where workspace_id = $1 and automation_id = $2",
+      [workspaceId, automationId],
+    );
+    const row = result.rows[0];
+    if (!row) return undefined;
+    return {
+      workspaceId: text(row.workspace_id),
+      automationId: text(row.automation_id),
+      input: JSON.parse(await this.codec.decode(text(row.encrypted_input))) as AutomationConfiguration["input"],
+      updatedBy: text(row.updated_by),
+      updatedAt: text(row.updated_at),
+    };
   }
 
   private async insertVersion(version: AutomationVersionRecord, client: Pool | PoolClient = this.pool): Promise<void> {

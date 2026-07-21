@@ -1,7 +1,7 @@
 import type { FormEvent, ReactNode } from "react";
 
 import { AlertCircle, CalendarClock, CheckCircle2, ListChecks, Play, Power, RefreshCw } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { apiGet, apiPost } from "./api";
 import { Badge, EmptyState, InlineError } from "./shared-ui";
@@ -59,6 +59,19 @@ interface AutomationDetail {
   };
   draft?: { version: number; definition: AutomationDefinition };
   live?: { version: number; definition: AutomationDefinition };
+  configuration?: {
+    input: {
+      to: string;
+      subject: string;
+      body: string;
+      scheduledFor: string;
+      timeZone: string;
+      repeat: boolean;
+      cadence?: Cadence;
+      endAt?: string;
+    };
+    updatedAt: string;
+  };
   schedules: AutomationSchedule[];
   runs: AutomationRun[];
 }
@@ -209,10 +222,16 @@ function AutomationDetailPage(props: { automationId: string; canManage: boolean 
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState<ScheduleForm>(() => defaultScheduleForm());
+  const loadedConfigurationFor = useRef<string | null>(null);
 
   const reload = async (): Promise<void> => {
     try {
-      setDetail(await apiGet<AutomationDetail>(`/api/automations/${props.automationId}`));
+      const next = await apiGet<AutomationDetail>(`/api/automations/${props.automationId}`);
+      setDetail(next);
+      if (loadedConfigurationFor.current !== props.automationId) {
+        if (next.configuration) setForm(scheduleFormFromConfiguration(next.configuration.input));
+        loadedConfigurationFor.current = props.automationId;
+      }
       setError(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not load this automation.");
@@ -223,6 +242,22 @@ function AutomationDetailPage(props: { automationId: string; canManage: boolean 
   }, [props.automationId]);
 
   const definition = detail?.live?.definition ?? detail?.draft?.definition;
+  const saveConfiguration = async (): Promise<void> => {
+    setBusy(true);
+    try {
+      await apiPost(`/api/automations/${props.automationId}/configuration`, {
+        ...form,
+        cadence: form.repeat ? form.cadence : undefined,
+        endAt: form.repeat && form.endAt ? form.endAt : undefined,
+      });
+      setNotice("Configuration saved. No Gmail draft or schedule was created.");
+      await reload();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not save the configuration.");
+    } finally {
+      setBusy(false);
+    }
+  };
   const runTest = async (): Promise<void> => {
     if (!form.to || !form.subject || !form.body) {
       setError("Enter a recipient, subject, and body before testing.");
@@ -288,6 +323,9 @@ function AutomationDetailPage(props: { automationId: string; canManage: boolean 
           <p>{definition.description}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => void saveConfiguration()} disabled={busy}>
+            Save configuration
+          </Button>
           {props.canManage && detail.draft ? (
             <Button variant="outline" onClick={() => void runTest()} disabled={busy}>
               <Play size={15} /> Test
@@ -658,4 +696,17 @@ function defaultScheduleForm(): ScheduleForm {
 function dateTimeLocal(value: Date): string {
   const offset = value.getTimezoneOffset() * 60_000;
   return new Date(value.getTime() - offset).toISOString().slice(0, 16);
+}
+
+function scheduleFormFromConfiguration(input: NonNullable<AutomationDetail["configuration"]>["input"]): ScheduleForm {
+  return {
+    to: input.to,
+    subject: input.subject,
+    body: input.body,
+    scheduledFor: input.scheduledFor,
+    timeZone: input.timeZone,
+    repeat: input.repeat,
+    cadence: input.cadence ?? "daily",
+    endAt: input.endAt ? input.endAt.slice(0, 10) : "",
+  };
 }

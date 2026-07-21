@@ -59,6 +59,22 @@ describe("AutomationService", () => {
 
     const built = await service.build(actor, definition);
     await expect(
+      service.saveConfiguration(actor, built.automation.id, {
+        to: "recipient@example.com",
+        subject: "Saved subject",
+        body: "Saved private body",
+        scheduledFor: "2026-07-20T12:00",
+        timeZone: "Europe/Sofia",
+        repeat: false,
+      }),
+    ).resolves.toMatchObject({
+      configuration: {
+        input: { subject: "Saved subject", body: "Saved private body" },
+        updatedBy: actor.userId,
+      },
+    });
+    expect(actionRun).not.toHaveBeenCalled();
+    await expect(
       service.test(
         actor,
         built.automation.id,
