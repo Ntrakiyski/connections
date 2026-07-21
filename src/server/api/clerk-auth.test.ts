@@ -29,15 +29,25 @@ describe("createClerkAuthMiddleware", () => {
     verifyToken.mockReset();
   });
 
-  it("rejects a Meetings request whose OAuth token has no audience", async () => {
+  it("accepts an existing Clerk session on a Meetings request without OAuth claims", async () => {
     verifyToken.mockResolvedValue(claims());
 
     const response = await createApp().request("/api/meetings", {
       headers: { authorization: "Bearer token" },
     });
 
-    expect(response.status).toBe(401);
-    await expect(response.json()).resolves.toMatchObject({ error: { code: "oauth_audience_missing" } });
+    expect(response.status).toBe(200);
+  });
+
+  it("accepts a Clerk OAuth access token whose client is in azp instead of aud", async () => {
+    verifyToken.mockResolvedValue(claims({ azp: "meetings-client", scope: "openid profile email user:org:read" }));
+
+    const response = await createApp().request("/api/meetings", {
+      headers: { authorization: "Bearer token" },
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ workspaceId: "workspace-a", userId: "user-a" });
   });
 
   it.each([

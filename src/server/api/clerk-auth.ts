@@ -129,17 +129,20 @@ async function authenticateClerkRequest(context: Context, options: ClerkAuthOpti
 const MEETINGS_SCOPES = ["openid", "profile", "email", "user:org:read"];
 
 function validateMeetingsOAuthAccess(context: Context, claims: Record<string, unknown>, clientId?: string): void {
-  const audience = claims.aud;
   const meetingsPath = isMeetingsPath(context.req.path);
-  if (meetingsPath && audience === undefined) {
-    throw new HttpRequestError("oauth_audience_missing", "The OAuth token audience is required.", 401);
-  }
-  if (audience === undefined) return;
+  const scopes =
+    typeof claims.scope === "string" ? claims.scope.split(/\s+/) : Array.isArray(claims.scp) ? claims.scp : [];
+  if (scopes.length === 0) return;
   if (meetingsPath && !clientId) {
     throw new HttpRequestError("oauth_client_unconfigured", "Meetings OAuth is not configured.", 500);
   }
-  const audiences = typeof audience === "string" ? [audience] : Array.isArray(audience) ? audience : [];
-  const isMeetingsToken = Boolean(clientId && audiences.includes(clientId));
+  const clientClaims = [claims.aud, claims.azp, claims.client_id]
+    .flat()
+    .filter((value): value is string => typeof value === "string");
+  if (meetingsPath && clientClaims.length === 0) {
+    throw new HttpRequestError("oauth_audience_missing", "The OAuth token client identity is required.", 401);
+  }
+  const isMeetingsToken = Boolean(clientId && clientClaims.includes(clientId));
   if (meetingsPath && !isMeetingsToken) {
     throw new HttpRequestError("oauth_audience_invalid", "The OAuth token audience is invalid.", 401);
   }
@@ -147,8 +150,6 @@ function validateMeetingsOAuthAccess(context: Context, claims: Record<string, un
     throw new HttpRequestError("oauth_scope_forbidden", "The Meetings OAuth token cannot access this endpoint.", 403);
   }
   if (!isMeetingsToken) return;
-  const scopes =
-    typeof claims.scope === "string" ? claims.scope.split(/\s+/) : Array.isArray(claims.scp) ? claims.scp : [];
   if (!MEETINGS_SCOPES.every((scope) => scopes.includes(scope))) {
     throw new HttpRequestError("oauth_scope_missing", "The OAuth token is missing required scopes.", 403);
   }
