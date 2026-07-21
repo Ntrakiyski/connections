@@ -2,6 +2,7 @@ import type { IWorkspaceMembershipStore, IWorkspaceStore, Workspace } from "../s
 import type { WorkspaceContext } from "../storage/runtime-token-service.ts";
 import type { Context, MiddlewareHandler } from "hono";
 
+import { decodeJwt } from "@clerk/backend/jwt";
 import { getCookie } from "hono/cookie";
 import { optionalRecord } from "../../core/cast.ts";
 import { isConsoleShellRequest } from "./console-paths.ts";
@@ -43,7 +44,12 @@ const localWorkspace: WorkspaceContext = {
 };
 
 interface ClerkBackendModule {
-  verifyToken(token: string, options: { secretKey: string }): Promise<Record<string, unknown>>;
+  createClerkClient(options: { secretKey: string; publishableKey: string }): {
+    authenticateRequest(
+      request: Request,
+      options: { acceptsToken: ["session_token", "oauth_token"] },
+    ): Promise<{ isAuthenticated: boolean }>;
+  };
 }
 
 /**
@@ -98,7 +104,7 @@ async function authenticateClerkRequest(context: Context, options: ClerkAuthOpti
 
   let claims: Record<string, unknown>;
   try {
-    claims = await verifyClerkToken(token, options.secretKey);
+    claims = await authenticateClerkToken(context.req.raw, token, options.secretKey, options.publishableKey);
   } catch {
     throw new HttpRequestError("unauthorized", "A valid Clerk session is required.", 401);
   }
@@ -205,11 +211,22 @@ async function findOrCreateWorkspace(
   return workspace;
 }
 
-async function verifyClerkToken(token: string, secretKey: string): Promise<Record<string, unknown>> {
+async function authenticateClerkToken(
+  request: Request,
+  token: string,
+  secretKey: string,
+  publishableKey?: string,
+): Promise<Record<string, unknown>> {
+  if (!publishableKey) throw new Error("Clerk publishable key is required.");
   // Keep the dependency lazy so local development does not require Clerk to be installed or configured.
   const packageName = "@clerk/backend";
   const clerk = (await import(packageName)) as ClerkBackendModule;
-  return await clerk.verifyToken(token, { secretKey });
+  const client = clerk.createClerkClient({ secretKey, publishableKey });
+  const state = await client.authenticateRequest(request, {
+    acceptsToken: ["session_token", "oauth_token"],
+  });
+  if (!state.isAuthenticated) throw new Error("Clerk token is invalid.");
+  return decodeJwt(token).payload as Record<string, unknown>;
 }
 
 function isPublicPath(path: string, method: string): boolean {

@@ -5,8 +5,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createClerkAuthMiddleware, readClerkOrganization } from "./clerk-auth.ts";
 import { HttpRequestError } from "./http-utils.ts";
 
-const verifyToken = vi.hoisted(() => vi.fn());
-vi.mock("@clerk/backend", () => ({ verifyToken }));
+const authenticateRequest = vi.hoisted(() => vi.fn());
+const createClerkClient = vi.hoisted(() => vi.fn(() => ({ authenticateRequest })));
+vi.mock("@clerk/backend", () => ({ createClerkClient }));
 
 describe("readClerkOrganization", () => {
   it("reads Clerk's current compact version-2 organization claim", () => {
@@ -26,24 +27,25 @@ describe("readClerkOrganization", () => {
 
 describe("createClerkAuthMiddleware", () => {
   beforeEach(() => {
-    verifyToken.mockReset();
+    authenticateRequest.mockReset();
+    authenticateRequest.mockResolvedValue({ isAuthenticated: true });
+    createClerkClient.mockClear();
   });
 
   it("accepts an existing Clerk session on a Meetings request without OAuth claims", async () => {
-    verifyToken.mockResolvedValue(claims());
-
     const response = await createApp().request("/api/meetings", {
-      headers: { authorization: "Bearer token" },
+      headers: authorization(claims()),
     });
 
     expect(response.status).toBe(200);
+    expect(authenticateRequest).toHaveBeenCalledWith(expect.any(Request), {
+      acceptsToken: ["session_token", "oauth_token"],
+    });
   });
 
   it("accepts a Clerk OAuth access token whose client is in azp instead of aud", async () => {
-    verifyToken.mockResolvedValue(claims({ azp: "meetings-client", scope: "openid profile email user:org:read" }));
-
     const response = await createApp().request("/api/meetings", {
-      headers: { authorization: "Bearer token" },
+      headers: authorization(claims({ azp: "meetings-client", scope: "openid profile email user:org:read" })),
     });
 
     expect(response.status).toBe(200);
@@ -73,10 +75,8 @@ describe("createClerkAuthMiddleware", () => {
       code: "oauth_client_unconfigured",
     },
   ])("rejects a Meetings request with $name", async ({ claims: tokenClaims, clientId, status, code }) => {
-    verifyToken.mockResolvedValue(claims(tokenClaims));
-
     const response = await createApp({ meetingsOAuthClientId: clientId }).request("/api/meetings", {
-      headers: { authorization: "Bearer token" },
+      headers: authorization(claims(tokenClaims)),
     });
 
     expect(response.status).toBe(status);
@@ -84,10 +84,8 @@ describe("createClerkAuthMiddleware", () => {
   });
 
   it("accepts a Meetings OAuth token with its exact audience and required scopes", async () => {
-    verifyToken.mockResolvedValue(claims({ aud: "meetings-client", scope: "openid profile email user:org:read" }));
-
     const response = await createApp().request("/api/meetings", {
-      headers: { authorization: "Bearer token" },
+      headers: authorization(claims({ aud: "meetings-client", scope: "openid profile email user:org:read" })),
     });
 
     expect(response.status).toBe(200);
@@ -95,10 +93,8 @@ describe("createClerkAuthMiddleware", () => {
   });
 
   it("rejects a Meetings OAuth token on non-Meetings endpoints", async () => {
-    verifyToken.mockResolvedValue(claims({ aud: "meetings-client", scope: "openid profile email user:org:read" }));
-
     const response = await createApp().request("/api/connections", {
-      headers: { authorization: "Bearer token" },
+      headers: authorization(claims({ aud: "meetings-client", scope: "openid profile email user:org:read" })),
     });
 
     expect(response.status).toBe(403);
@@ -106,20 +102,16 @@ describe("createClerkAuthMiddleware", () => {
   });
 
   it("does not treat another Clerk audience as a Meetings token", async () => {
-    verifyToken.mockResolvedValue(claims({ aud: "connections-web-client" }));
-
     const response = await createApp().request("/api/connections", {
-      headers: { authorization: "Bearer token" },
+      headers: authorization(claims({ aud: "connections-web-client" })),
     });
 
     expect(response.status).toBe(200);
   });
 
   it("does not treat a Meetings-like sibling path as the Meetings API", async () => {
-    verifyToken.mockResolvedValue(claims());
-
     const response = await createApp().request("/api/meetingship", {
-      headers: { authorization: "Bearer token" },
+      headers: authorization(claims()),
     });
 
     expect(response.status).toBe(200);
@@ -141,6 +133,12 @@ function claims(overrides: Record<string, unknown> = {}): Record<string, unknown
     org_role: "org:member",
     ...overrides,
   };
+}
+
+function authorization(tokenClaims: Record<string, unknown>): { authorization: string } {
+  const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
+  const payload = Buffer.from(JSON.stringify(tokenClaims)).toString("base64url");
+  return { authorization: `Bearer ${header}.${payload}.c2ln` };
 }
 
 function createApp(options: { optional?: boolean; meetingsOAuthClientId?: string | null } = {}): Hono {
@@ -176,6 +174,7 @@ function createApp(options: { optional?: boolean; meetingsOAuthClientId?: string
     "*",
     createClerkAuthMiddleware({
       secretKey: "secret",
+      publishableKey: "pk_test_example",
       workspaceStore,
       membershipStore,
       meetingsOAuthClientId:
