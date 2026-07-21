@@ -12,17 +12,27 @@ Add a persistent, encrypted automation configuration so the client form has an e
 
 ## Steps
 
-- [ ] Add the smallest configuration storage contract and migration.
-- [ ] Expose authenticated save/load operations through the browser API and MCP detail response.
-- [ ] Add Save configuration to the client form and reload saved defaults.
-- [ ] Verify persistence, authorization, UI behavior, and deployment.
+- [x] Add the smallest configuration storage contract and migration.
+- [x] Expose authenticated save/load operations through the browser API and MCP detail response.
+- [x] Add Save configuration to the client form and reload saved defaults.
+- [x] Verify persistence, authorization, UI behavior, and deployment.
 
 ## Verification
 
-- [ ] Saved input is encrypted and workspace-scoped.
-- [ ] Save never invokes Gmail or creates a schedule.
-- [ ] Reloaded form values match saved values.
-- [ ] Tests, typecheck, web build, and production health pass.
+- [x] Saved input is encrypted and workspace-scoped.
+- [x] Save never invokes Gmail or creates a schedule.
+- [x] Reloaded form values match saved values.
+- [x] Tests, typecheck, web build, and production health pass.
+
+## Review
+
+Released `957917d`. The client form now saves its recipient, subject, body, date/time, time zone,
+and recurrence defaults through the authenticated workspace API. The values are encrypted at rest,
+returned by `get_automation`, and loaded only on the initial detail view so a refresh after testing
+or scheduling cannot overwrite unsaved edits. Saving records an audit event only; it never invokes
+Gmail, publishes, or creates a schedule. Verified with 64 test files / 479 tests, `fix-check`, web
+build, the applied `20260721090000_automation-configurations` migration, Coolify deployment
+`t6xdz4iyfhqarqkrn8yn9pco`, production health, and the deployed UI bundle text.
 
 ---
 
