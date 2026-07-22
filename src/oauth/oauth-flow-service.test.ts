@@ -226,7 +226,7 @@ describe("OAuthFlowService", () => {
       clientSecret: "client-secret",
     });
 
-    const started = await services.flow.startAuthorization({ service: "youtube", scopes: [youtubeReadScope] });
+    const started = await services.flow.startAuthorization({ service: "youtube" });
     const scope = new URL(started.authorizationUrl).searchParams.get("scope");
     expect(scope).toBe(youtubeReadScope);
     expect(scope).not.toContain(youtubeWriteScope);

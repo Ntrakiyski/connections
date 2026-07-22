@@ -3,4 +3,3 @@ export const youtubeWriteScope = "https://www.googleapis.com/auth/youtube.force-
 
 export const youtubeReadScopes: string[] = [youtubeReadScope];
 export const youtubeWriteScopes: string[] = [youtubeWriteScope];
-export const youtubeProviderScopes: string[] = [youtubeReadScope, youtubeWriteScope];

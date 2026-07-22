@@ -7,7 +7,6 @@ Why it happened: Local verification and commit state were treated as sufficient 
 Rule for next time: Immediately before a shared-branch push, fetch `origin` and compare `HEAD` with `origin/main`; rebase before the push when it has advanced.
 Example check: `git fetch origin && git log --oneline HEAD..origin/main` must be empty before `git push origin main`.
 
-
 ## 2026-07-22 - Keep OAuth-only tests independent of lazy action executors
 
 Mistake: Tested the real YouTube definition through an OAuth harness whose empty provider loader marks action-bearing providers unavailable.

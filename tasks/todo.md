@@ -44,14 +44,14 @@ Extend the existing YouTube provider with the read-only controlled-feed path, in
 ## Constraints
 
 - Keep all OAuth and YouTube API access in `src/providers/youtube` and existing shared runtime services.
-- Feed connections must request only `youtube.readonly`; existing mutations must continue to require `youtube.force-ssl`.
+- The default YouTube connection must request only `youtube.readonly`; existing mutations must continue to require `youtube.force-ssl`.
 - Preserve existing connections and provider contracts; no UI or recommendation logic.
 
 ## Steps
 
 - [x] Trace the YouTube action/runtime and OAuth connection flow.
 - [x] Add subscription support and verify the feed-read action contracts.
-- [x] Add scoped OAuth selection with a safe default and compatibility coverage.
+- [x] Make the default OAuth scope read-only and preserve explicit scope selection compatibility.
 - [x] Generate the catalog, run focused tests and repository checks, and review the diff.
 
 ## Verification
@@ -65,7 +65,7 @@ Extend the existing YouTube provider with the read-only controlled-feed path, in
 
 Added `youtube.list_subscriptions` using `subscriptions.list` with `mine`/`channelId`, bounded pagination, normalized subscription/channel data, and `youtube.readonly`. The feed read path now defaults video requests to include `liveStreamingDetails`; existing search, channels, playlist-items, categories, language, and region actions already cover the remaining documented feed endpoints.
 
-OAuth authorization now accepts an optional validated subset of a provider's declared scopes. Send `{ "service": "youtube", "scopes": ["https://www.googleapis.com/auth/youtube.readonly"] }` for a feed-only connection. Omitted scopes retain the existing all-declared-scopes behavior, and completed connections record the requested scope when a token response omits it; no existing connection migration is needed. Write actions continue to require `youtube.force-ssl`.
+YouTube's default OAuth request now contains only `youtube.readonly`. Completed connections record requested scopes when a token response omits them; existing write-capable connections remain intact, but a newly reconnected default connection is read-only. Write actions continue to require `youtube.force-ssl` and will correctly fail scope preflight until a dedicated write-capable flow is added.
 
 Verified with focused YouTube/OAuth tests (21 tests), `npm run generate:catalog`, `npm run fix-check`, and `git diff --check`. The catalog marks `youtube.list_subscriptions` read-only through its single `youtube.readonly` requirement. The API does not reliably identify Shorts: consumers should use duration/metadata and an explicit heuristic. YouTube Data API quota remains account/project-limited.
 
