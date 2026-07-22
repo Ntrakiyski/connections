@@ -93,6 +93,16 @@ const youtubeInputSchemas: Record<YoutubeActionName, JsonSchema> = {
     },
     { optional: ["ids", "forHandle", "forUsername", "mine", "part", "maxResults", "pageToken"] },
   ),
+  list_subscriptions: s.object(
+    "The input payload for listing YouTube subscriptions.",
+    {
+      mine: s.boolean("Whether to list subscriptions for the authenticated user."),
+      channelId: nonEmptyString("The YouTube channel ID whose subscriptions should be listed."),
+      maxResults,
+      pageToken,
+    },
+    { optional: ["mine", "channelId", "maxResults", "pageToken"] },
+  ),
   list_playlists: s.object(
     "The input payload for listing YouTube playlists.",
     {
@@ -350,6 +360,7 @@ export type YoutubeActionName =
   | "search"
   | "list_videos"
   | "list_channels"
+  | "list_subscriptions"
   | "list_playlists"
   | "list_playlist_items"
   | "create_playlist"
@@ -415,6 +426,17 @@ const actionSpecs: Array<{
       "channels",
       "The response returned when listing YouTube channels.",
       "The channels returned by YouTube.",
+    ),
+  },
+  {
+    name: "list_subscriptions",
+    description: "List YouTube channel subscriptions for the authenticated user or a channel.",
+    requiredScopes: youtubeReadScopes,
+    inputSchema: youtubeInputSchemas.list_subscriptions,
+    outputSchema: collectionPage(
+      "subscriptions",
+      "The response returned when listing YouTube subscriptions.",
+      "The subscriptions returned by YouTube.",
     ),
   },
   {

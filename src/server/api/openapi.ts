@@ -871,6 +871,9 @@ function createOAuthAuthorizationPath(): Record<string, unknown> {
                 connectionName: jsonSchema.string({
                   description: "Optional local connection name. Defaults to default.",
                 }),
+                scopes: jsonSchema.array(jsonSchema.string({ description: "One declared provider OAuth scope." }), {
+                  description: "Optional least-privilege subset of the provider's declared OAuth scopes.",
+                }),
               },
               {
                 required: ["service"],

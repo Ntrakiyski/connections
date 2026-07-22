@@ -1,5 +1,20 @@
 # Lessons
 
+## 2026-07-22 - Fetch before pushing a shared main branch
+
+Mistake: Attempted to push `main` without first incorporating the current remote head.
+Why it happened: Local verification and commit state were treated as sufficient even though another workspace can update the shared branch at any time.
+Rule for next time: Immediately before a shared-branch push, fetch `origin` and compare `HEAD` with `origin/main`; rebase before the push when it has advanced.
+Example check: `git fetch origin && git log --oneline HEAD..origin/main` must be empty before `git push origin main`.
+
+
+## 2026-07-22 - Keep OAuth-only tests independent of lazy action executors
+
+Mistake: Tested the real YouTube definition through an OAuth harness whose empty provider loader marks action-bearing providers unavailable.
+Why it happened: The authorization test was scoped to OAuth behavior but inherited the connection service's executor-availability check.
+Rule for next time: In an OAuth-only test, retain the provider's actual auth definition and omit its actions unless the test also supplies its executor loader.
+Example check: Start authorization with the provider auth fixture and assert the authorization URL before involving any action runtime.
+
 ## 2026-07-21 - Update run-history assertions when tests become persisted executions
 
 Mistake: The automation test expected one schedule/run after adding a persisted real test execution, but the new test intentionally adds its own completed run before the scheduled run.

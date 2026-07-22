@@ -7,6 +7,8 @@ import type { IOAuthStateStore, OAuthAuthorizationState } from "./oauth-flow-ser
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createCatalogStore } from "../catalog-store.ts";
 import { ConnectionService } from "../connection-service.ts";
+import { provider as youtubeProvider } from "../providers/youtube/definition.ts";
+import { youtubeReadScope, youtubeWriteScope } from "../providers/youtube/scopes.ts";
 import { OAuthClientConfigService } from "./oauth-client-config-service.ts";
 import { OAuthFlowService } from "./oauth-flow-service.ts";
 
@@ -196,6 +198,72 @@ describe("OAuthFlowService", () => {
     expect(await services.states.take(started.state)).toMatchObject({
       service: "example",
       connectionName: "work",
+    });
+  });
+
+  it("uses an explicitly requested declared OAuth scope without changing the default connection scope set", async () => {
+    const services = createServices([oauthProvider]);
+    await services.clientConfigs.upsertConfig({
+      service: "example",
+      clientId: "client-id",
+      clientSecret: "client-secret",
+      extra: { tenant: "default" },
+    });
+
+    const feedOnly = await services.flow.startAuthorization({ service: "example", scopes: ["read"] });
+    expect(new URL(feedOnly.authorizationUrl).searchParams.get("scope")).toBe("read");
+    expect(await services.states.take(feedOnly.state)).toMatchObject({ scopes: ["read"] });
+
+    const defaultScopes = await services.flow.startAuthorization({ service: "example" });
+    expect(new URL(defaultScopes.authorizationUrl).searchParams.get("scope")).toBe("read write");
+  });
+
+  it("requests only youtube.readonly for a feed-only YouTube connection", async () => {
+    const services = createServices([{ ...youtubeProvider, actions: [] }]);
+    await services.clientConfigs.upsertConfig({
+      service: "youtube",
+      clientId: "client-id",
+      clientSecret: "client-secret",
+    });
+
+    const started = await services.flow.startAuthorization({ service: "youtube", scopes: [youtubeReadScope] });
+    const scope = new URL(started.authorizationUrl).searchParams.get("scope");
+    expect(scope).toBe(youtubeReadScope);
+    expect(scope).not.toContain(youtubeWriteScope);
+  });
+
+  it("rejects OAuth scopes the provider does not declare", async () => {
+    const services = createServices([oauthProvider]);
+    await services.clientConfigs.upsertConfig({
+      service: "example",
+      clientId: "client-id",
+      clientSecret: "client-secret",
+      extra: { tenant: "default" },
+    });
+
+    await expect(services.flow.startAuthorization({ service: "example", scopes: ["admin"] })).rejects.toMatchObject({
+      code: "invalid_oauth_scope",
+    });
+  });
+
+  it("records requested OAuth scopes when the token response omits them", async () => {
+    const services = createServices([oauthProvider]);
+    await services.clientConfigs.upsertConfig({
+      service: "example",
+      clientId: "client-id",
+      clientSecret: "client-secret",
+      extra: { tenant: "default" },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ access_token: "access-token", token_type: "Bearer" })),
+    );
+
+    const started = await services.flow.startAuthorization({ service: "example", scopes: ["read"] });
+    await services.flow.completeAuthorization({ state: started.state, code: "code" });
+
+    await expect(services.connections.getCredential("example")).resolves.toMatchObject({
+      profile: { grantedScopes: ["read"] },
     });
   });
 

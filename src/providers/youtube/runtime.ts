@@ -31,6 +31,8 @@ interface YoutubeResource {
   statistics?: unknown;
   status?: unknown;
   player?: unknown;
+  liveStreamingDetails?: unknown;
+  subscriberSnippet?: unknown;
   replies?: unknown;
 }
 
@@ -57,6 +59,9 @@ export const youtubeActionHandlers: Record<YoutubeActionName, YoutubeActionHandl
   },
   list_channels(input, context) {
     return listChannels(input, context);
+  },
+  list_subscriptions(input, context) {
+    return listSubscriptions(input, context);
   },
   list_playlists(input, context) {
     return listPlaylists(input, context);
@@ -161,7 +166,7 @@ async function searchYoutube(input: Record<string, unknown>, context: YoutubeAct
 
 async function listVideos(input: Record<string, unknown>, context: YoutubeActionContext): Promise<unknown> {
   const query = compactObject({
-    part: joinStringArray(input.part) ?? "snippet,contentDetails,statistics,status",
+    part: joinStringArray(input.part) ?? "snippet,contentDetails,statistics,status,liveStreamingDetails",
     id: joinStringArray(input.ids),
     chart: optionalString(input.chart),
     mine: stringifyTrueBoolean(optionalBoolean(input.mine)),
@@ -187,6 +192,19 @@ async function listChannels(input: Record<string, unknown>, context: YoutubeActi
   requireOneFilter(query, ["id", "forHandle", "forUsername", "mine"], "one channel filter is required");
   const payload = await youtubeJsonRequest<YoutubeCollectionPayload>("/channels", { context, query });
   return { channels: normalizeItems(payload.items, normalizeChannel), ...normalizePaging(payload) };
+}
+
+async function listSubscriptions(input: Record<string, unknown>, context: YoutubeActionContext): Promise<unknown> {
+  const query = compactObject({
+    part: "snippet,contentDetails,subscriberSnippet",
+    mine: stringifyTrueBoolean(optionalBoolean(input.mine)),
+    channelId: optionalString(input.channelId),
+    maxResults: stringifyInteger(optionalInteger(input.maxResults)),
+    pageToken: optionalString(input.pageToken),
+  });
+  requireOneFilter(query, ["mine", "channelId"], "mine or channelId is required");
+  const payload = await youtubeJsonRequest<YoutubeCollectionPayload>("/subscriptions", { context, query });
+  return { subscriptions: normalizeItems(payload.items, normalizeSubscription), ...normalizePaging(payload) };
 }
 
 async function listPlaylists(input: Record<string, unknown>, context: YoutubeActionContext): Promise<unknown> {
@@ -670,6 +688,20 @@ function normalizeVideo(value: unknown): Record<string, unknown> {
     statistics: asNullableLooseObject(item.statistics),
     status: asNullableLooseObject(item.status),
     player: asNullableLooseObject(item.player),
+    liveStreamingDetails: asNullableLooseObject(item.liveStreamingDetails),
+    raw: item,
+  };
+}
+
+function normalizeSubscription(value: unknown): Record<string, unknown> {
+  const item = asLooseResource(value);
+  return {
+    id: asNullableString(item.id),
+    kind: asNullableString(item.kind),
+    etag: asNullableString(item.etag),
+    snippet: asNullableLooseObject(item.snippet),
+    contentDetails: asNullableLooseObject(item.contentDetails),
+    subscriberSnippet: asNullableLooseObject(item.subscriberSnippet),
     raw: item,
   };
 }

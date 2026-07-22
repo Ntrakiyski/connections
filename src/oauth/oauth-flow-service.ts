@@ -15,6 +15,8 @@ export type OAuthAuthorizationStart = {
 export interface OAuthAuthorizationStartInput {
   service: string;
   connectionName?: string;
+  /** Optional least-privilege subset of the provider's declared OAuth scopes. */
+  scopes?: string[];
 }
 
 export interface OAuthFlowServiceOptions {
@@ -37,6 +39,7 @@ export interface OAuthAuthorizationCompleteInput {
 export type OAuthAuthorizationState = {
   service: string;
   connectionName?: string;
+  scopes?: string[];
   state: string;
   createdAt: string;
   pkceCodeVerifier?: string;
@@ -75,6 +78,7 @@ export class OAuthFlowService {
     const { service, connectionName } = input;
     this.connections.assertProviderAvailable(service);
     const auth = this.clientConfigs.getOAuthDefinition(service);
+    const scopes = resolveAuthorizationScopes(auth.scopes, input.scopes);
     const config = await this.clientConfigs.getConfig(service);
     if (!config) {
       throw new OAuthFlowError("oauth_client_config_required", `Configure an OAuth client for ${service} first.`);
@@ -85,6 +89,7 @@ export class OAuthFlowService {
     await this.states.set({
       service,
       connectionName,
+      scopes,
       state,
       createdAt: new Date().toISOString(),
       pkceCodeVerifier,
@@ -104,10 +109,10 @@ export class OAuthFlowService {
     );
     setAuthorizationParam(authorizationUrl, auth.authorizationRequestFields?.responseType, "response_type", "code");
     setAuthorizationParam(authorizationUrl, auth.authorizationRequestFields?.state, "state", state);
-    if (auth.scopes.length > 0 && auth.authorizationRequestFields?.scope !== false) {
+    if (scopes.length > 0 && auth.authorizationRequestFields?.scope !== false) {
       authorizationUrl.searchParams.set(
         auth.authorizationRequestFields?.scope ?? "scope",
-        auth.scopes.join(auth.scopeSeparator ?? " "),
+        scopes.join(auth.scopeSeparator ?? " "),
       );
     }
     if (pkceCodeVerifier) {
@@ -156,6 +161,7 @@ export class OAuthFlowService {
       ...tokenResponse,
       metadata: {
         ...tokenResponse.metadata,
+        scope: tokenResponse.metadata.scope ?? pending.scopes?.join(" "),
         oauthClientId: config.clientId,
         oauthClientExtra: config.extra,
         oauthClientSecretExtra: config.secretExtra,
@@ -168,6 +174,15 @@ export class OAuthFlowService {
       connected: true,
     };
   }
+}
+
+function resolveAuthorizationScopes(declaredScopes: string[], requestedScopes: string[] | undefined): string[] {
+  if (requestedScopes === undefined) return declaredScopes;
+  const scopes = [...new Set(requestedScopes.map((scope) => scope.trim()).filter(Boolean))];
+  if (scopes.length !== requestedScopes.length || scopes.some((scope) => !declaredScopes.includes(scope))) {
+    throw new OAuthFlowError("invalid_oauth_scope", "Requested OAuth scopes must be declared by the provider.");
+  }
+  return scopes;
 }
 
 function setAuthorizationParam(

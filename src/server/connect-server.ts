@@ -28,7 +28,7 @@ import { Scalar } from "@scalar/hono-api-reference";
 import { Hono } from "hono";
 import { ConnectionError } from "../connection-service.ts";
 import { DEFAULT_ACTION_SEARCH_LIMIT, createActionSearchIndexProvider, searchActions } from "../core/action-search.ts";
-import { optionalRecord, optionalString, requiredString } from "../core/cast.ts";
+import { optionalRecord, optionalString, requiredString, requiredStringArray } from "../core/cast.ts";
 import { createMcpServer, listMcpToolSummaries } from "../mcp.ts";
 import { OAuthClientConfigError, OAuthClientConfigService } from "../oauth/oauth-client-config-service.ts";
 import { OAuthFlowError, OAuthFlowService } from "../oauth/oauth-flow-service.ts";
@@ -1054,6 +1054,10 @@ export class ConnectServer {
         "service",
         (message) => new OAuthFlowError("invalid_input", message),
       );
+      const scopes =
+        body.scopes === undefined
+          ? undefined
+          : requiredStringArray(body.scopes, "scopes", (message) => new OAuthFlowError("invalid_input", message));
       await this.services(context).controls.assertProviderEnabled(service);
       const logContext = {
         path: context.req.path,
@@ -1062,7 +1066,11 @@ export class ConnectServer {
       };
       this.options.logger?.info(logContext, "oauth authorization started");
 
-      const authorization = await this.services(context).oauthFlow.startAuthorization({ service, connectionName });
+      const authorization = await this.services(context).oauthFlow.startAuthorization({
+        service,
+        connectionName,
+        scopes,
+      });
       const authorizationUrl = new URL(authorization.authorizationUrl);
       this.options.logger?.info(
         {
