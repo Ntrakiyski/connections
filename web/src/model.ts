@@ -92,7 +92,7 @@ export interface RunLog {
   id: string;
   service: string;
   actionId: string;
-  caller: "http" | "mcp" | "web" | "automation";
+  caller: "http" | "mcp" | "web";
   startedAt: string;
   completedAt: string;
   durationMs: number;

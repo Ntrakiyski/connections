@@ -40,7 +40,6 @@
     "overview": "Vue d’ensemble",
     "providers": "Fournisseurs",
     "actions": "Actions",
-    "automations": "Automatisations",
     "runs": "Exécutions",
     "access": "API Key",
     "docs": "Docs",
@@ -73,10 +72,6 @@
       "actions": {
         "title": "Actions",
         "subtitle": "Recherchez, inspectez et déboguez les actions du runtime local."
-      },
-      "automations": {
-        "title": "Automatisations",
-        "subtitle": "Inspectez et planifiez les automatisations de l’espace de travail."
       },
       "runs": {
         "title": "Exécutions",

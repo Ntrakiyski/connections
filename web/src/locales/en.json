@@ -40,7 +40,6 @@
     "overview": "Overview",
     "providers": "Providers",
     "actions": "Actions",
-    "automations": "Automations",
     "runs": "Runs",
     "access": "API Key",
     "docs": "Docs",
@@ -73,10 +72,6 @@
       "actions": {
         "title": "Actions",
         "subtitle": "Search, inspect, and debug local runtime actions."
-      },
-      "automations": {
-        "title": "Automations",
-        "subtitle": "Inspect and schedule managed workspace automations."
       },
       "runs": {
         "title": "Runs",

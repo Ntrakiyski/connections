@@ -2,7 +2,6 @@ import type { IConnectionStore, StoredConnection } from "../../connection-servic
 import type { ResolvedCredential } from "../../core/types.ts";
 import type { IOAuthClientConfigStore, OAuthClientConfig } from "../../oauth/oauth-client-config-service.ts";
 import type { IOAuthStateStore, OAuthAuthorizationState } from "../../oauth/oauth-flow-service.ts";
-import type { AutomationStore } from "../automations/automation-store.ts";
 import type { ISecretCodec } from "../secrets/secret-codec-core.ts";
 import type {
   IWorkspaceMembershipStore,
@@ -29,7 +28,6 @@ import { DatabaseSync } from "node:sqlite";
 import { PlainTextSecretCodec } from "../secrets/secret-codec-core.ts";
 import { SqliteMeetingStore } from "./meeting-store.ts";
 import { decodeRunLogCursor, encodeRunLogCursor } from "./runtime-store.ts";
-import { SqliteAutomationStore } from "./sqlite-automation-store.ts";
 
 type RuntimeRow = Record<string, unknown>;
 const migrationDirectory = new URL("../../../sqlite-migrations/", import.meta.url);
@@ -50,7 +48,6 @@ export class SqliteRuntimeDatabase implements RuntimeDatabase {
   readonly workspaceLifecycleStore: SqliteWorkspaceLifecycleStore;
   readonly membershipStore: SqliteWorkspaceMembershipStore;
   readonly workspaceControlStore: SqliteWorkspaceControlStore;
-  readonly automationStore: AutomationStore;
   readonly meetingStore: IMeetingStore;
 
   private readonly database: DatabaseSync;
@@ -73,7 +70,6 @@ export class SqliteRuntimeDatabase implements RuntimeDatabase {
     this.workspaceLifecycleStore = new SqliteWorkspaceLifecycleStore(this.database);
     this.membershipStore = new SqliteWorkspaceMembershipStore(this.database);
     this.workspaceControlStore = new SqliteWorkspaceControlStore(this.database);
-    this.automationStore = new SqliteAutomationStore(this.database, this.secretCodec);
     this.meetingStore = new SqliteMeetingStore(this.database);
   }
 

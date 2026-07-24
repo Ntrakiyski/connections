@@ -27,7 +27,6 @@ import {
   Sun,
   TerminalSquare,
   UserRound,
-  Workflow,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router";
@@ -35,7 +34,6 @@ import { AccessPage } from "./access-page";
 import { ActionsPage } from "./actions-page";
 import { apiGet } from "./api";
 import oomolConnectLogoUrl from "./assets/oomol-connect-logo.png";
-import { AutomationsPage } from "./automations-page";
 import { persistLang, supportedLangs } from "./i18n";
 import { emptyData } from "./model";
 import { OverviewPage } from "./overview-page";
@@ -58,7 +56,6 @@ const navItems: readonly NavItem[] = [
   { path: "/overview", labelKey: "nav.overview", icon: Home },
   { path: "/providers", labelKey: "nav.providers", icon: Cable },
   { path: "/actions", labelKey: "nav.actions", icon: TerminalSquare },
-  { path: "/automations", labelKey: "nav.automations", icon: Workflow },
   { path: "/runs", labelKey: "nav.runs", icon: Activity },
   { path: "/access", labelKey: "nav.access", icon: KeyRound },
   { path: "/resources", labelKey: "nav.docs", icon: BookOpen },
@@ -405,11 +402,6 @@ function AppShell(props: {
             />
             <Route path="/actions" element={<ActionsPage data={props.data} onRefresh={props.onRefresh} />} />
             <Route path="/actions/:actionId" element={<ActionsPage data={props.data} onRefresh={props.onRefresh} />} />
-            <Route path="/automations" element={<AutomationsPage canManage={props.data.role !== "member"} />} />
-            <Route
-              path="/automations/:automationId"
-              element={<AutomationsPage canManage={props.data.role !== "member"} />}
-            />
             <Route
               path="/runs"
               element={
@@ -503,7 +495,6 @@ function headingForPath(pathname: string): string {
   const section = pathname.split("/").filter(Boolean)[0];
   if (section === "providers") return "providers";
   if (section === "actions") return "actions";
-  if (section === "automations") return "automations";
   if (section === "runs") return "runs";
   if (section === "access") return "access";
   if (section === "resources") return "resources";

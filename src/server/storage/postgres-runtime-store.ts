@@ -2,7 +2,6 @@ import type { IConnectionStore, StoredConnection } from "../../connection-servic
 import type { ResolvedCredential } from "../../core/types.ts";
 import type { IOAuthClientConfigStore, OAuthClientConfig } from "../../oauth/oauth-client-config-service.ts";
 import type { IOAuthStateStore, OAuthAuthorizationState } from "../../oauth/oauth-flow-service.ts";
-import type { AutomationStore } from "../automations/automation-store.ts";
 import type { ISecretCodec } from "../secrets/secret-codec-core.ts";
 import type {
   IWorkspaceMembershipStore,
@@ -26,8 +25,6 @@ import type { IRuntimeTokenStore, RuntimeTokenRecord, WorkspaceRole } from "./ru
 import type { Pool, QueryResultRow } from "pg";
 
 import { PostgresMeetingStore } from "./meeting-store.ts";
-import { PostgresAutomationStore } from "./postgres-automation-store.ts";
-
 function now(): string {
   return new Date().toISOString();
 }
@@ -42,7 +39,6 @@ export class PostgresRuntimeDatabase implements RuntimeDatabase {
   readonly workspaceLifecycleStore: IWorkspaceLifecycleStore;
   readonly membershipStore: IWorkspaceMembershipStore;
   readonly workspaceControlStore: IWorkspaceControlStore;
-  readonly automationStore: AutomationStore;
   readonly meetingStore: IMeetingStore;
   readonly #pool: Pool;
   readonly #codec: ISecretCodec;
@@ -60,7 +56,6 @@ export class PostgresRuntimeDatabase implements RuntimeDatabase {
     this.workspaceLifecycleStore = new PostgresWorkspaceLifecycleStore(pool);
     this.membershipStore = new PostgresMembershipStore(pool);
     this.workspaceControlStore = new PostgresWorkspaceControlStore(pool);
-    this.automationStore = new PostgresAutomationStore(pool, secretCodec);
     this.meetingStore = new PostgresMeetingStore(pool);
   }
 
