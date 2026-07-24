@@ -2,43 +2,6 @@
 
 ## Goal
 
-Remove the separate Gmail scheduling action: publishing from the client form must persist the entered values and create the first schedule, while tests still ignore date and time.
-
-## Constraints
-
-- Keep MCP `publish_automation` as a publish-only tool; it has no client form input.
-- Publish from the browser must clearly create a schedule and never send email immediately.
-- Preserve the existing real Gmail-draft test behavior and current authorization checks.
-
-## Steps
-
-- [x] Trace the publish, save, and schedule paths and add one browser publish-and-schedule operation.
-- [x] Replace the UI scheduling control with the revised publish action.
-- [x] Add regression coverage for a published schedule and run focused checks.
-- [x] Deploy and verify the live UI bundle and health.
-
-## Verification
-
-- [x] Test ignores date/time and invokes only Gmail draft creation.
-- [x] Browser publish persists the values and creates an active schedule at the selected time.
-- [x] MCP publish remains publish-only.
-- [x] Tests, typecheck, web build, migration state, and production health pass.
-
-## Review
-
-Released `0e1d149`. The client form now treats its date/time as publish input: **Publish & schedule**
-saves the form, publishes the draft, and creates one active schedule. The separate Schedule Gmail
-draft button was removed. Tests still create one Gmail draft immediately and ignore date/time.
-`publish_automation` over MCP remains publish-only, verified by its service-path regression test.
-Verified with 64 test files / 479 tests, `fix-check`, web build, Coolify deployment
-`h25hhukvy45unce70lb20opm`, production health, and the deployed UI bundle.
-
----
-
-# Task Plan
-
-## Goal
-
 Extend the existing YouTube provider with the read-only controlled-feed path, including subscription import and least-privilege OAuth scope selection.
 
 ## Constraints
