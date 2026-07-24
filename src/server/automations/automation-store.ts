@@ -65,14 +65,6 @@ export interface AutomationTestInput {
   body: string;
 }
 
-export interface AutomationConfiguration {
-  workspaceId: string;
-  automationId: string;
-  input: AutomationScheduleInput;
-  updatedBy: string;
-  updatedAt: string;
-}
-
 export interface AutomationSchedule {
   id: string;
   workspaceId: string;
@@ -124,7 +116,6 @@ export interface AutomationDetail {
   automation: AutomationRecord;
   draft?: AutomationVersionRecord;
   live?: AutomationVersionRecord;
-  configuration?: AutomationConfiguration;
   schedules: AutomationSchedule[];
   runs: AutomationRun[];
 }
@@ -146,7 +137,6 @@ export interface AutomationStore {
     publishedAt: string,
   ): Promise<AutomationDetail | undefined>;
   disable(workspaceId: string, automationId: string, updatedAt: string): Promise<boolean>;
-  saveConfiguration(configuration: AutomationConfiguration): Promise<void>;
   createSchedule(schedule: AutomationSchedule): Promise<void>;
   getSchedule(workspaceId: string, scheduleId: string): Promise<AutomationSchedule | undefined>;
   listSchedules(workspaceId: string, automationId: string): Promise<AutomationSchedule[]>;

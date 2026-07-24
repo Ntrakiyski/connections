@@ -210,9 +210,6 @@ export class ConnectServer {
     app.post("/api/automations/:automationId/test", (context) =>
       this.testAutomation(context, context.req.param("automationId")),
     );
-    app.post("/api/automations/:automationId/configuration", (context) =>
-      this.saveAutomationConfiguration(context, context.req.param("automationId")),
-    );
     app.post("/api/automations/:automationId/publish", (context) =>
       this.publishAutomation(context, context.req.param("automationId")),
     );
@@ -404,18 +401,6 @@ export class ConnectServer {
         automationId,
         body as unknown as AutomationTestInput,
         body.confirmed === true,
-      ),
-    );
-  }
-
-  private async saveAutomationConfiguration(context: Context, automationId: string): Promise<Response> {
-    const body = await readJsonBody(context);
-    return this.writeAutomationResult(
-      context,
-      this.services(context).automation.saveConfiguration(
-        this.automationActor(context),
-        automationId,
-        body as unknown as AutomationScheduleInput,
       ),
     );
   }

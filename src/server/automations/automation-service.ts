@@ -4,7 +4,6 @@ import type { ActionRunner } from "../actions/action-runner.ts";
 import type { WorkspaceControlService } from "../workspace-control-service.ts";
 import type {
   AutomationDetail,
-  AutomationConfiguration,
   AutomationRun,
   AutomationSchedule,
   AutomationScheduleInput,
@@ -179,26 +178,6 @@ export class AutomationService {
     if (!next) throw new AutomationError("automation_not_found", "Automation was not found.");
     await this.services.controls.audit("automation.published", "automation", automationId);
     return next;
-  }
-
-  async saveConfiguration(
-    actor: AutomationActor,
-    automationId: string,
-    input: AutomationScheduleInput,
-  ): Promise<AutomationDetail> {
-    await this.requireAutomation(actor.workspaceId, automationId);
-    validateScheduleInput(input);
-    const updatedAt = new Date().toISOString();
-    const configuration: AutomationConfiguration = {
-      workspaceId: actor.workspaceId,
-      automationId,
-      input,
-      updatedBy: actor.userId,
-      updatedAt,
-    };
-    await this.services.store.saveConfiguration(configuration);
-    await this.services.controls.audit("automation.configuration_saved", "automation", automationId);
-    return await this.requireAutomation(actor.workspaceId, automationId);
   }
 
   async schedule(

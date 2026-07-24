@@ -38,44 +38,6 @@ Verified with focused YouTube/OAuth tests (21 tests), `npm run generate:catalog`
 
 ## Goal
 
-Add a persistent, encrypted automation configuration so the client form has an explicit Save configuration action.
-
-## Constraints
-
-- Saving must not create a Gmail draft, publish the automation, or create an active schedule.
-- Preserve workspace scoping and encrypt recipient/body values at rest.
-- Reuse the saved configuration as the initial value for test and schedule inputs.
-
-## Steps
-
-- [x] Add the smallest configuration storage contract and migration.
-- [x] Expose authenticated save/load operations through the browser API and MCP detail response.
-- [x] Add Save configuration to the client form and reload saved defaults.
-- [x] Verify persistence, authorization, UI behavior, and deployment.
-
-## Verification
-
-- [x] Saved input is encrypted and workspace-scoped.
-- [x] Save never invokes Gmail or creates a schedule.
-- [x] Reloaded form values match saved values.
-- [x] Tests, typecheck, web build, and production health pass.
-
-## Review
-
-Released `957917d`. The client form now saves its recipient, subject, body, date/time, time zone,
-and recurrence defaults through the authenticated workspace API. The values are encrypted at rest,
-returned by `get_automation`, and loaded only on the initial detail view so a refresh after testing
-or scheduling cannot overwrite unsaved edits. Saving records an audit event only; it never invokes
-Gmail, publishes, or creates a schedule. Verified with 64 test files / 479 tests, `fix-check`, web
-build, the applied `20260721090000_automation-configurations` migration, Coolify deployment
-`t6xdz4iyfhqarqkrn8yn9pco`, production health, and the deployed UI bundle text.
-
----
-
-# Task Plan
-
-## Goal
-
 Make Gmail automation tests create one real Gmail draft using the current form input while bypassing only the schedule.
 
 ## Constraints
