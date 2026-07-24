@@ -19,6 +19,9 @@ export const provider: ProviderDefinition = {
       refreshTokenUrl: "https://www.olx.bg/api/open/oauth/token",
       scopes: olxOAuthScopes,
       tokenEndpointAuthMethod: "client_secret_post",
+      authorizationCodeTokenParams: {
+        scope: olxOAuthScopes.join(" "),
+      },
     },
   ],
   homepageUrl: "https://www.olx.bg",

@@ -138,6 +138,8 @@ export type OAuth2AuthDefinition = {
   };
   /** Extra static authorization URL parameters, such as Google `access_type=offline`. */
   authorizationParams?: Record<string, string>;
+  /** Extra static parameters sent only when exchanging an authorization code. */
+  authorizationCodeTokenParams?: Record<string, string>;
   /** Provider-specific OAuth authorization request field names. */
   authorizationRequestFields?: {
     clientId?: string | false;

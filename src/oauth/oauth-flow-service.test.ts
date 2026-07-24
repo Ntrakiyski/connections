@@ -111,6 +111,23 @@ const customOAuthProvider: ProviderDefinition = {
   ],
 };
 
+const staticTokenParamsProvider: ProviderDefinition = {
+  ...oauthProvider,
+  service: "static_token_params",
+  auth: [
+    {
+      type: "oauth2",
+      authorizationUrl: "https://example.com/oauth/authorize",
+      tokenUrl: "https://example.com/oauth/token",
+      scopes: ["v2", "read", "write"],
+      tokenEndpointAuthMethod: "client_secret_post",
+      authorizationCodeTokenParams: {
+        scope: "v2 read write",
+      },
+    },
+  ],
+};
+
 const baseUrlOAuthProvider: ProviderDefinition = {
   ...oauthProvider,
   service: "base_url_oauth",
@@ -333,6 +350,29 @@ describe("OAuthFlowService", () => {
       accessToken: "access-token",
     });
     await expect(services.connections.getCredential("example")).resolves.toBeUndefined();
+  });
+
+  it("sends provider-defined static parameters when exchanging an authorization code", async () => {
+    const services = createServices([staticTokenParamsProvider]);
+    await services.clientConfigs.upsertConfig({
+      service: "static_token_params",
+      clientId: "client-id",
+      clientSecret: "client-secret",
+    });
+    const fetcher = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) =>
+      Response.json({ access_token: "access-token", token_type: "Bearer" }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+
+    const started = await services.flow.startAuthorization({ service: "static_token_params" });
+    await services.flow.completeAuthorization({ state: started.state, code: "code" });
+
+    const request = fetcher.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(request?.body).toBeInstanceOf(URLSearchParams);
+    if (!(request?.body instanceof URLSearchParams)) {
+      throw new Error("Expected a form-encoded token request.");
+    }
+    expect(request.body.get("scope")).toBe("v2 read write");
   });
 
   it("rejects expired OAuth authorization states", async () => {

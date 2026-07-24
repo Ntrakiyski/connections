@@ -154,7 +154,10 @@ export class OAuthFlowService {
       tokenEndpointAuthMethod: auth.tokenEndpointAuthMethod,
       tokenRequestFormat: auth.tokenRequestFormat,
       tokenUrl: this.clientConfigs.resolveEndpointUrl(pending.service, auth.tokenUrl, config),
-      extraFields: createTokenExtraFields(pending),
+      extraFields: {
+        ...auth.authorizationCodeTokenParams,
+        ...createTokenExtraFields(pending),
+      },
       createError: (message) => new OAuthFlowError("oauth_token_exchange_failed", message),
     });
     const oauthCredential = {
