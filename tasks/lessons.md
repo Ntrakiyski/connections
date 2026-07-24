@@ -14,13 +14,6 @@ Why it happened: The authorization test was scoped to OAuth behavior but inherit
 Rule for next time: In an OAuth-only test, retain the provider's actual auth definition and omit its actions unless the test also supplies its executor loader.
 Example check: Start authorization with the provider auth fixture and assert the authorization URL before involving any action runtime.
 
-## 2026-07-21 - Update run-history assertions when tests become persisted executions
-
-Mistake: The automation test expected one schedule/run after adding a persisted real test execution, but the new test intentionally adds its own completed run before the scheduled run.
-Why it happened: The original dry-run did not create history, so its assertions encoded a single-run assumption.
-Rule for next time: When changing a dry-run into a persisted execution, update cardinality and ordering assertions before running the suite.
-Example check: Assert the intended run with `arrayContaining` and separately verify the total number of expected occurrences.
-
 ## 2026-07-19 - Inspect table ownership before access-control migrations
 
 Mistake: The first hardening migration assumed every application table was owned by the InsForge migration role.
