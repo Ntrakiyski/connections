@@ -74,11 +74,7 @@ const mcpToolSummaries: IMcpToolSummary[] = [
     title: "Edit Automation Draft",
     description: "Replace a Gmail draft automation definition.",
   },
-  {
-    name: "test_automation",
-    title: "Test Automation",
-    description: "Create one real Gmail draft from a draft automation without scheduling it.",
-  },
+  { name: "test_automation", title: "Test Automation", description: "Validate a draft without calling Gmail." },
   {
     name: "publish_automation",
     title: "Publish Automation",
@@ -234,7 +230,6 @@ function registerAutomationTools(server: McpServer, options: IMcpServerOptions):
     cadence: z.enum(["daily", "weekly"]).optional(),
     endAt: z.string().optional(),
   });
-  const testInput = runInput.pick({ to: true, subject: true, body: true });
   const tool =
     <T>(operation: () => Promise<T>) =>
     async (): Promise<CallToolResult> =>
@@ -276,15 +271,11 @@ function registerAutomationTools(server: McpServer, options: IMcpServerOptions):
     "test_automation",
     {
       title: "Test Automation",
-      description: "Create one real Gmail draft from this draft version without creating a schedule.",
-      inputSchema: {
-        automationId: id,
-        input: testInput,
-        confirmed: z.literal(true).describe("Set only after the user explicitly approves creating one Gmail draft."),
-      },
+      description: "Validate a draft without invoking Gmail.",
+      inputSchema: { automationId: id },
     },
-    async ({ automationId, input, confirmed }) =>
-      toolResult(await automationResult(async () => await automation.test(actor, automationId, input, confirmed))),
+    async ({ automationId }) =>
+      toolResult(await automationResult(async () => await automation.test(actor, automationId))),
   );
   server.registerTool(
     "publish_automation",

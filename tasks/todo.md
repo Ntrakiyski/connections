@@ -38,38 +38,6 @@ Verified with focused YouTube/OAuth tests (21 tests), `npm run generate:catalog`
 
 ## Goal
 
-Make Gmail automation tests create one real Gmail draft using the current form input while bypassing only the schedule.
-
-## Constraints
-
-- Preserve the existing workspace, connection, action-policy, and ActionRunner boundaries.
-- Require explicit confirmation before the test creates a Gmail draft; it must never send email.
-- Reuse the existing encrypted schedule/run storage so successful and failed tests appear in automation history.
-
-## Steps
-
-- [x] Trace the current dry-run test flow and its action-runner/schedule boundaries.
-- [x] Execute the draft definition with form input after explicit test confirmation, without waiting for a due schedule.
-- [x] Update the browser and MCP test contracts and user-facing result state.
-- [x] Add focused regression coverage and run the relevant checks.
-
-## Verification
-
-- [x] Test invokes only `gmail.create_email_draft` with the exact bound connection and form input.
-- [x] The test never creates an active schedule or sends email.
-- [x] Successful and failed tests are recorded in automation run history.
-- [x] Type, unit, UI bundle, and deployed MCP flow checks pass; browser visual QA was blocked by the unsigned in-app session.
-
-## Review
-
-Released `4ef4f5f`. Tests now require explicit confirmation and execute the draft version through the same bound Gmail action as the scheduler, while recording a completed run and no active schedule. Production verification created Gmail draft `r5592286513199890623`, reported a successful automation run, and confirmed no active schedules. `fix-check`, 64 test files / 479 tests, web build, Coolify health, and the deployed UI bundle passed.
-
----
-
-# Task Plan
-
-## Goal
-
 Apply the approved InsForge table-access hardening through a durable repository migration and verify the live result.
 
 ## Constraints
