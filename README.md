@@ -1,4 +1,13 @@
-# Connections
+<p align="center">
+  <img src="docs/readme-assets/hero.svg" width="100%" alt="Connections — a shared, governed connection layer for people and AI agents">
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/auth-clerk_orgs-8FC2F7?style=flat-square&labelColor=1E1B16" alt="Auth: Clerk Organizations">
+  <img src="https://img.shields.io/badge/protocol-MCP-8FC2F7?style=flat-square&labelColor=1E1B16" alt="Protocol: MCP">
+  <img src="https://img.shields.io/badge/license-Apache--2.0-8FC2F7?style=flat-square&labelColor=1E1B16" alt="License: Apache-2.0">
+  <a href="https://github.com/Ntrakiyski"><img src="https://img.shields.io/badge/fractals-studio-FA5C2C?style=flat-square&labelColor=1E1B16" alt="Fractals Studio"></a>
+</p>
 
 Connections is a shared SaaS for workspace-scoped provider connections and MCP access. It is built on the OpenConnector provider runtime, but the product is a multi-workspace application: a Clerk Organization maps to one Connections workspace.
 
@@ -147,3 +156,7 @@ npm run build --workspace web
 ## License
 
 Unless otherwise noted, this repository is licensed under Apache-2.0. Provider names and trademarks belong to their respective owners and are used only for identification and interoperability.
+
+---
+
+<p align="center"><sub>Built by <a href="https://github.com/Ntrakiyski">Fractals</a></sub></p>
