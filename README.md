@@ -13,6 +13,12 @@ Connections is a shared SaaS for workspace-scoped provider connections and MCP a
 
 People connect their work accounts once, then approved AI agents use those accounts through MCP or the runtime API. Provider credentials stay on the server; agents receive only safe account metadata, action schemas, and execution results.
 
+## Interactive architecture map
+
+[![Connections architecture diagram](docs/architecture/architecture.png)](docs/architecture/architecture.html)
+
+The image links to the committed self-contained map. After cloning or downloading the repository, open [`docs/architecture/architecture.html`](docs/architecture/architecture.html) locally to search components, trace relationships, switch themes, and export the diagram.
+
 ## Why Connections?
 
 Teams should not have to share credentials, recreate integrations for every teammate, or give an AI agent a blanket key to everything. Connections turns individual provider accounts into a shared, governed workspace capability.
