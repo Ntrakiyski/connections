@@ -72,6 +72,21 @@ async function createCloudflareApp(env: CloudflareEnv, publicOrigin: string): Pr
   const secretCodec = await createSecretCodec(env.OOMOL_CONNECT_ENCRYPTION_KEY);
   const database = new D1RuntimeDatabase(env.DB, { secretCodec });
   const authMailDelivery = authSettings.kind === "sessions" ? createAuthMailDelivery(authSettings) : undefined;
+  const humanAuth =
+    authMailDelivery && authSettings.kind === "sessions"
+      ? createHumanAuth(
+          {
+            baseURL: authSettings.baseURL,
+            secret: authSettings.secret,
+            trustedOrigins: authSettings.trustedOrigins,
+            sendMail: authMailDelivery,
+          },
+          createD1AuthDatabase(env.DB),
+        )
+      : undefined;
+  // OAuth resource initialization performs D1 I/O. Finish it in the current
+  // request before caching auth, so a completed health request cannot strand it.
+  if (humanAuth) await humanAuth.$context;
   return await createConnectApp({
     catalog: await loadCatalogOnce(assets),
     providerLoader: new ProviderLoader(executorModules),
@@ -95,18 +110,7 @@ async function createCloudflareApp(env: CloudflareEnv, publicOrigin: string): Pr
     publicOrigin,
     secretCodec,
     authMailDelivery,
-    humanAuth:
-      authMailDelivery && authSettings.kind === "sessions"
-        ? createHumanAuth(
-            {
-              baseURL: authSettings.baseURL,
-              secret: authSettings.secret,
-              trustedOrigins: authSettings.trustedOrigins,
-              sendMail: authMailDelivery,
-            },
-            createD1AuthDatabase(env.DB),
-          )
-        : undefined,
+    humanAuth,
     trustedAuthOrigins: authSettings.kind === "sessions" ? authSettings.trustedOrigins : undefined,
     clerkOptional: authSettings.kind === "development-bypass",
     actionPolicy: new ActionPolicyService({

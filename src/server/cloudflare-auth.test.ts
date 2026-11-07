@@ -1,6 +1,8 @@
+import type { D1PreparedStatementBinding } from "./cloudflare/cloudflare-bindings.ts";
 import type { CloudflareEnv } from "./cloudflare/cloudflare-env.ts";
 import type { AuthMail } from "./human-auth.ts";
 
+import { setImmediate } from "node:timers/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import worker from "./cloudflare.ts";
 import { FixtureD1Database } from "./test-fixtures/sqlite-d1.ts";
@@ -81,6 +83,40 @@ describe("Worker authentication entry point", () => {
     env.HOST = "127.0.0.1";
     env.CONNECTIONS_DEV_AUTH_BYPASS = "true";
     await expect(request(env, "/health")).rejects.toThrow("loopback request URL");
+  });
+
+  it("finishes request-bound auth initialization before returning the first health response", async () => {
+    const env = environment();
+    const database = env.DB as FixtureD1Database;
+    const initialization = Promise.withResolvers<void>();
+    const started = Promise.withResolvers<void>();
+    const prepare = database.prepare.bind(database);
+    function gateReads(statement: D1PreparedStatementBinding): D1PreparedStatementBinding {
+      const bind = statement.bind.bind(statement);
+      const all = statement.all.bind(statement);
+      statement.bind = (...values) => gateReads(bind(...values));
+      statement.all = async <T>() => {
+        started.resolve();
+        await initialization.promise;
+        return all<T>();
+      };
+      return statement;
+    }
+    vi.spyOn(database, "prepare").mockImplementation((query) => gateReads(prepare(query)));
+    let ready = false;
+    const health = request(env, "/health").then((response) => {
+      ready = true;
+      return response;
+    });
+    try {
+      await started.promise;
+      await setImmediate();
+      expect(ready).toBe(false);
+    } finally {
+      initialization.resolve();
+      expect((await health).status).toBe(200);
+    }
+    expect((await request(env, "/api/account")).status).toBe(401);
   });
 
   it("serves verified secure-cookie sessions through the real Hono handler and D1 dialect", async () => {
