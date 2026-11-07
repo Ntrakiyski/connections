@@ -112,3 +112,9 @@ Issue #12 requires a staging cutover and rollback rehearsal with evidence before
 The companion Meetings implementation adds issuer/company/workspace/user ownership, pre-migration preservation and independently verified local legacy recovery. The server legacy proof endpoint returns only mappings from a verified import ledger matching the live grant's original user, company and workspace. Pending imports and sibling/client workspaces return no proof. Offboarding is rejected before provider introspection and again before accepting the verified identity.
 
 Validation at this update: `npm run fix-check` passed; 736 tests in 78 files passed with PostgreSQL enabled and no skips. The three new real-issuer tests cover legacy proof across SQLite, D1 and PostgreSQL. The companion's 18 portable production Rust tests and five frontend recovery tests pass. Full native macOS CI and paired staging/OS-keychain/capture evidence remain pending; #10/#11/#12 are not complete.
+
+### Isolated staging preparation (2026-11-07)
+
+`docker-compose.staging.yml` uses separate connector/database volumes, a fresh PostgreSQL 16 schema, a private captured-mail service and independent runtime-only staging secrets. It contains no Clerk human-auth settings. The PostgreSQL initialization uses the existing baseline and unchanged checked migrations before the server can become healthy; this bootstrap is for fresh staging databases only.
+
+Validation: Compose configuration validates with synthetic settings. The exact baseline and ordered checked scripts ran successfully on a fresh isolated PostgreSQL 16 cluster; the readiness marker was true. This is preparation evidence, not a Coolify deployment or rollback rehearsal. The actual reverse-proxy, provider/mail pilot, paired desktop and restore gates remain open.
