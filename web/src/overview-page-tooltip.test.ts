@@ -4,7 +4,7 @@ import { I18nProvider } from "@embra/i18n/react";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppI18n } from "./i18n";
 
 vi.mock("recharts", async () => {
@@ -45,6 +45,15 @@ vi.mock("recharts", async () => {
 });
 
 describe("OverviewPage chart tooltip", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-07-04T12:00:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("disables tooltip fly-in animation while keeping transform positioning", async () => {
     const { OverviewPage } = await import("./overview-page");
     const markup = renderToStaticMarkup(

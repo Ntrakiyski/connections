@@ -1,4 +1,4 @@
-import type { IConnectionStore, StoredConnection } from "../../connection-service.ts";
+import type { ConnectionActor, IConnectionStore, StoredConnection } from "../../connection-service.ts";
 import type { ResolvedCredential } from "../../core/types.ts";
 import type { IOAuthClientConfigStore, OAuthClientConfig } from "../../oauth/oauth-client-config-service.ts";
 import type { IOAuthStateStore, OAuthAuthorizationState } from "../../oauth/oauth-flow-service.ts";
@@ -24,6 +24,7 @@ import type { IRunLogStore, RunLog, RunLogCaller, RunLogListInput, RunLogPage } 
 import type { IRuntimeTokenStore, RuntimeTokenRecord, WorkspaceRole } from "./runtime-token-service.ts";
 import type { Pool, QueryResultRow } from "pg";
 
+import { ConnectionError } from "../../connection-service.ts";
 import { PostgresMeetingStore } from "./meeting-store.ts";
 function now(): string {
   return new Date().toISOString();
@@ -115,22 +116,62 @@ class PostgresConnectionStore implements IConnectionStore {
     };
   }
 
-  async set(service: string, connectionName: string, credential: ResolvedCredential, createdBy = ""): Promise<void> {
+  async set(
+    service: string,
+    connectionName: string,
+    credential: ResolvedCredential,
+    createdBy = "",
+    actor?: ConnectionActor,
+  ): Promise<void> {
     const encoded = await this.#codec.encode(JSON.stringify(credential));
-    await this.#pool.query(
+    const result = await this.#pool.query(
       `insert into connections (workspace_id, service, connection_name, label, value, created_by, updated_at)
        values ($1, $2, $3, $4, $5, $6, $7)
        on conflict (workspace_id, service, connection_name) do update
-       set label = $4, value = $5, created_by = case when connections.created_by = '' then excluded.created_by else connections.created_by end, updated_at = $7`,
-      [this.#workspaceId, service, connectionName, connectionName, encoded, createdBy, now()],
+       set label = $4, value = $5, created_by = case when connections.created_by = '' then excluded.created_by else connections.created_by end, updated_at = $7
+       where $8::boolean or connections.created_by = $9`,
+      [
+        this.#workspaceId,
+        service,
+        connectionName,
+        connectionName,
+        encoded,
+        createdBy,
+        now(),
+        !actor || actor.canManageWorkspace,
+        actor?.userId ?? "",
+      ],
+    );
+    if (result.rowCount === 0)
+      throw new ConnectionError("connection_not_found", `${service} connection not found: ${connectionName}.`);
+  }
+
+  async delete(service: string, connectionName: string, actor?: ConnectionActor): Promise<void> {
+    await this.#pool.query(
+      `delete from connections where workspace_id = $1 and service = $2 and connection_name = $3 and ($4::boolean or created_by = $5)`,
+      [this.#workspaceId, service, connectionName, !actor || actor.canManageWorkspace, actor?.userId ?? ""],
     );
   }
 
-  async delete(service: string, connectionName: string): Promise<void> {
-    await this.#pool.query(
-      `delete from connections where workspace_id = $1 and service = $2 and connection_name = $3`,
-      [this.#workspaceId, service, connectionName],
+  async rename(
+    service: string,
+    currentConnectionName: string,
+    connectionName: string,
+    actor?: ConnectionActor,
+  ): Promise<boolean> {
+    const result = await this.#pool.query(
+      "update connections set connection_name = $1, label = $1, updated_at = $2 where workspace_id = $3 and service = $4 and connection_name = $5 and ($6::boolean or created_by = $7)",
+      [
+        connectionName,
+        now(),
+        this.#workspaceId,
+        service,
+        currentConnectionName,
+        !actor || actor.canManageWorkspace,
+        actor?.userId ?? "",
+      ],
     );
+    return (result.rowCount ?? 0) > 0;
   }
 
   async deleteByOwner(userId: string): Promise<void> {
@@ -422,7 +463,7 @@ class PostgresWorkspaceStore implements IWorkspaceStore {
 
   async getByClerkOrgId(clerkOrgId: string): Promise<Workspace | undefined> {
     const result = await this.#pool.query(
-      `select id, clerk_org_id, name, created_at, updated_at, deleted_at, purge_at from workspaces where clerk_org_id = $1`,
+      `select id, organization_id, clerk_org_id, name, created_at, updated_at, deleted_at, purge_at from workspaces where clerk_org_id = $1`,
       [clerkOrgId],
     );
     if (result.rows.length === 0) return undefined;
@@ -431,7 +472,7 @@ class PostgresWorkspaceStore implements IWorkspaceStore {
 
   async getById(id: string): Promise<Workspace | undefined> {
     const result = await this.#pool.query(
-      `select id, clerk_org_id, name, created_at, updated_at, deleted_at, purge_at from workspaces where id = $1`,
+      `select id, organization_id, clerk_org_id, name, created_at, updated_at, deleted_at, purge_at from workspaces where id = $1`,
       [id],
     );
     if (result.rows.length === 0) return undefined;
@@ -440,9 +481,16 @@ class PostgresWorkspaceStore implements IWorkspaceStore {
 
   async create(workspace: Workspace): Promise<void> {
     await this.#pool.query(
-      `insert into workspaces (id, clerk_org_id, name, created_at, updated_at)
-       values ($1, $2, $3, $4, $5)`,
-      [workspace.id, workspace.clerkOrgId, workspace.name, workspace.createdAt, workspace.updatedAt],
+      `insert into workspaces (id, organization_id, clerk_org_id, name, created_at, updated_at)
+       values ($1, $2, $3, $4, $5, $6)`,
+      [
+        workspace.id,
+        workspace.organizationId ?? null,
+        workspace.clerkOrgId,
+        workspace.name,
+        workspace.createdAt,
+        workspace.updatedAt,
+      ],
     );
   }
 
@@ -533,8 +581,8 @@ class PostgresMembershipStore implements IWorkspaceMembershipStore {
   async setRole(workspaceId: string, userId: string, role: WorkspaceRole): Promise<void> {
     const n = now();
     await this.#pool.query(
-      `insert into workspace_memberships (workspace_id, user_id, role, created_at, updated_at)
-       values ($1, $2, $3, $4, $4)
+      `insert into workspace_memberships (workspace_id, user_id, role, created_at, updated_at, organization_id)
+       values ($1, $2, $3, $4, $4, (select organization_id from workspaces where id = $1))
        on conflict (workspace_id, user_id) do update set role = $3, updated_at = $4`,
       [workspaceId, userId, role, n],
     );
@@ -774,6 +822,7 @@ function mapTokenRow(r: QueryResultRow): RuntimeTokenRecord {
 function mapWorkspaceRow(r: QueryResultRow): Workspace {
   return {
     id: r.id as string,
+    organizationId: typeof r.organization_id === "string" ? r.organization_id : undefined,
     clerkOrgId: r.clerk_org_id as string,
     name: r.name as string,
     createdAt: r.created_at as string,

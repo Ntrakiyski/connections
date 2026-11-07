@@ -1,4 +1,4 @@
-import type { IConnectionStore, StoredConnection } from "../../connection-service.ts";
+import type { ConnectionActor, IConnectionStore, StoredConnection } from "../../connection-service.ts";
 import type { ResolvedCredential } from "../../core/types.ts";
 import type { IOAuthClientConfigStore, OAuthClientConfig } from "../../oauth/oauth-client-config-service.ts";
 import type { IOAuthStateStore, OAuthAuthorizationState } from "../../oauth/oauth-flow-service.ts";
@@ -24,6 +24,7 @@ import type {
 import type { IRunLogStore, RunLog, RunLogListInput, RunLogPage } from "./runtime-store.ts";
 import type { IRuntimeTokenStore, RuntimeTokenRecord, WorkspaceRole } from "./runtime-token-service.ts";
 
+import { ConnectionError } from "../../connection-service.ts";
 import { PlainTextSecretCodec } from "../secrets/secret-codec-core.ts";
 import { D1MeetingStore } from "./meeting-store.ts";
 import { decodeRunLogCursor, encodeRunLogCursor } from "./runtime-store.ts";
@@ -111,8 +112,14 @@ export class D1ConnectionStore implements IConnectionStore {
       : undefined;
   }
 
-  async set(service: string, connectionName: string, credential: ResolvedCredential, createdBy = ""): Promise<void> {
-    await this.database
+  async set(
+    service: string,
+    connectionName: string,
+    credential: ResolvedCredential,
+    createdBy = "",
+    actor?: ConnectionActor,
+  ): Promise<void> {
+    const result = await this.database
       .prepare(
         `
           insert into connections (workspace_id, service, connection_name, label, value, created_by, updated_at)
@@ -121,6 +128,7 @@ export class D1ConnectionStore implements IConnectionStore {
             value = excluded.value,
             created_by = case when connections.created_by = '' then excluded.created_by else connections.created_by end,
             updated_at = excluded.updated_at
+          where ? = 1 or connections.created_by = ?
         `,
       )
       .bind(
@@ -130,15 +138,45 @@ export class D1ConnectionStore implements IConnectionStore {
         await this.secretCodec.encode(JSON.stringify(credential)),
         createdBy,
         new Date().toISOString(),
+        !actor || actor.canManageWorkspace ? 1 : 0,
+        actor?.userId ?? "",
       )
+      .run();
+    if (result.meta.changes === 0)
+      throw new ConnectionError("connection_not_found", `${service} connection not found: ${connectionName}.`);
+  }
+
+  async delete(service: string, connectionName: string, actor?: ConnectionActor): Promise<void> {
+    await this.database
+      .prepare(
+        "delete from connections where workspace_id = ? and service = ? and connection_name = ? and (? = 1 or created_by = ?)",
+      )
+      .bind(this.workspaceId, service, connectionName, !actor || actor.canManageWorkspace ? 1 : 0, actor?.userId ?? "")
       .run();
   }
 
-  async delete(service: string, connectionName: string): Promise<void> {
-    await this.database
-      .prepare("delete from connections where workspace_id = ? and service = ? and connection_name = ?")
-      .bind(this.workspaceId, service, connectionName)
+  async rename(
+    service: string,
+    currentConnectionName: string,
+    connectionName: string,
+    actor?: ConnectionActor,
+  ): Promise<boolean> {
+    const result = await this.database
+      .prepare(
+        "update connections set connection_name = ?, label = ?, updated_at = ? where workspace_id = ? and service = ? and connection_name = ? and (? = 1 or created_by = ?)",
+      )
+      .bind(
+        connectionName,
+        connectionName,
+        new Date().toISOString(),
+        this.workspaceId,
+        service,
+        currentConnectionName,
+        !actor || actor.canManageWorkspace ? 1 : 0,
+        actor?.userId ?? "",
+      )
       .run();
+    return (result.meta.changes ?? 0) > 0;
   }
 
   async deleteByOwner(userId: string): Promise<void> {
@@ -428,7 +466,7 @@ class D1WorkspaceStore implements IWorkspaceStore {
   async getByClerkOrgId(clerkOrgId: string): Promise<Workspace | undefined> {
     const row = await this.database
       .prepare(
-        "select id, clerk_org_id, name, created_at, updated_at, deleted_at, purge_at from workspaces where clerk_org_id = ?",
+        "select id, organization_id, clerk_org_id, name, created_at, updated_at, deleted_at, purge_at from workspaces where clerk_org_id = ?",
       )
       .bind(clerkOrgId)
       .first<RuntimeRow>();
@@ -438,7 +476,7 @@ class D1WorkspaceStore implements IWorkspaceStore {
   async getById(id: string): Promise<Workspace | undefined> {
     const row = await this.database
       .prepare(
-        "select id, clerk_org_id, name, created_at, updated_at, deleted_at, purge_at from workspaces where id = ?",
+        "select id, organization_id, clerk_org_id, name, created_at, updated_at, deleted_at, purge_at from workspaces where id = ?",
       )
       .bind(id)
       .first<RuntimeRow>();
@@ -447,8 +485,17 @@ class D1WorkspaceStore implements IWorkspaceStore {
 
   async create(workspace: Workspace): Promise<void> {
     await this.database
-      .prepare("insert into workspaces (id, clerk_org_id, name, created_at, updated_at) values (?, ?, ?, ?, ?)")
-      .bind(workspace.id, workspace.clerkOrgId, workspace.name, workspace.createdAt, workspace.updatedAt)
+      .prepare(
+        "insert into workspaces (id, organization_id, clerk_org_id, name, created_at, updated_at) values (?, ?, ?, ?, ?, ?)",
+      )
+      .bind(
+        workspace.id,
+        workspace.organizationId ?? null,
+        workspace.clerkOrgId,
+        workspace.name,
+        workspace.createdAt,
+        workspace.updatedAt,
+      )
       .run();
   }
 
@@ -528,9 +575,9 @@ class D1WorkspaceMembershipStore implements IWorkspaceMembershipStore {
     const now = new Date().toISOString();
     await this.database
       .prepare(
-        "insert into workspace_memberships (workspace_id, user_id, role, created_at, updated_at) values (?, ?, ?, ?, ?) on conflict(workspace_id, user_id) do update set role = excluded.role, updated_at = excluded.updated_at",
+        "insert into workspace_memberships (workspace_id, user_id, role, created_at, updated_at, organization_id) values (?, ?, ?, ?, ?, (select organization_id from workspaces where id = ?)) on conflict(workspace_id, user_id) do update set role = excluded.role, updated_at = excluded.updated_at",
       )
-      .bind(workspaceId, userId, role, now, now)
+      .bind(workspaceId, userId, role, now, now, workspaceId)
       .run();
   }
 
@@ -781,6 +828,7 @@ function readRunLogRow(row: RuntimeRow): RunLog {
 function readWorkspace(row: RuntimeRow): Workspace {
   return {
     id: readString(row, "id"),
+    organizationId: readOptionalString(row, "organization_id"),
     clerkOrgId: readString(row, "clerk_org_id"),
     name: readString(row, "name"),
     createdAt: readString(row, "created_at"),

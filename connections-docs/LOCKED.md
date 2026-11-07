@@ -2,16 +2,15 @@
 
 ## Product model
 
-- OpenConnector is a shared SaaS platform, not an agency-admin control plane.
-- Registered users can create and join multiple workspaces.
-- Users sign in to the Connections web app through Clerk.
-- Clerk validates identity and workspace membership; the application database owns the effective `member`, `manager`, and `admin` role used by runtime tokens and authorization.
-- One Clerk Organization maps to one workspace.
-- Clerk's Organization UI is the workspace profile and membership surface: organization creation, switching, naming, invitations, and member removal happen there. Connections does not duplicate those screens.
-- Clerk's UserProfile UI is the personal profile and account-security surface. Connections does not duplicate those screens.
-- Connections synchronizes Clerk membership changes into its authorization store so runtime tokens and workspace access reflect Clerk membership immediately.
-- A private workspace has only its owner. A shared workspace has invited members.
-- The workspace creator is its first admin, and every workspace must retain at least one admin.
+- Connections is a shared SaaS platform. One verified account can belong to several client companies, and each company can own several workspaces.
+- Better Auth owns stable user identity, human sessions, company directory memberships, and organization invitations. InsForge Auth is not used.
+- Connections owns workspace provisioning, explicit workspace grants, resource authorization, audit, and scoped offboarding. Application services control invitation and membership workflows; a public auth-plugin endpoint must not bypass them.
+- A user ID is stable and independent of email aliases or profile changes. Email verification establishes a sign-in/invitation identity; matching unverified email text never establishes ownership.
+- Company directory roles are `owner`, `admin`, and `member`. Owners/admins manage company people and provision workspaces; every company retains an owner. A company role alone grants no access to connections, tokens, runs, files, or provider configuration.
+- Workspace grants are independently `admin`, `manager`, or `member`. A grant is valid only while the user belongs to the parent company. Company owners/admins assign an initial workspace admin during atomic provisioning; every workspace retains an admin.
+- A member can belong to A and B with different directory roles and receive different grants in A1, A2, and B1. Removing access in one scope preserves independent access elsewhere.
+- The console owns account/company/workspace management screens. Each tab carries explicit workspace intent in its URL and requests; global active-company/session state is never a resource authorization boundary.
+- Existing Clerk organizations map to one company and their existing initial workspace through a verified importer. Preserve workspace IDs, user/resource ownership mappings, encrypted credentials, token hashes and revocation history.
 - A physically isolated deployment is an optional customer-demand exception, not the default.
 
 ## Provider connections
@@ -35,9 +34,9 @@
 - **Member:** sees and chats only with their own connections.
 - **Manager:** sees, chats with, and can select all workspace connections and providers; configures provider OAuth apps, provider availability, and the actions shared with the team.
 - **Admin:** has manager capabilities plus archive and restore of Connections workspace data.
-- Clerk's Organization UI owns invitations, member removal, and role assignment.
+- Connections application services own workspace invitations, grants, removals, and role changes; Better Auth stores company directory membership.
 - Members cannot change workspace configuration.
-- Clerk's Organization roles map to Connections roles until Connections needs product-specific roles beyond Clerk's membership model.
+- Company roles and workspace resource roles are independent. Directory membership without a workspace grant cannot access provider resources.
 
 ## MCP and runtime tokens
 
@@ -50,8 +49,8 @@
 ## Platform and data boundary
 
 - Insforge's free tier is the initial managed PostgreSQL and private-storage platform.
-- SQLite remains for local/single-user development compatibility only.
-- Clerk remains the only human-authentication system; Insforge Auth is not used.
+- PostgreSQL is the hosted production contract. SQLite supports local compatibility; D1 uses the corresponding checked-in SQLite expansion migrations. Human-session serving in each adapter is gated by issue #5.
+- Better Auth is the human-authentication system; InsForge supplies server-only PostgreSQL and private storage.
 - The Connections Hono API is the sole browser-to-data boundary. The browser does not access Insforge directly.
 - Connections owns authorization, audit logging, OAuth handling, MCP token validation, and provider-action execution.
 - Workspace provider OAuth client secrets are encrypted, workspace-scoped application data. They are never browser-visible, MCP-visible, or stored as shared project secrets.
@@ -82,3 +81,13 @@
 - Removing a member immediately revokes their runtime tokens.
 - Their provider connections are disconnected and unavailable for all future use.
 - Historical run logs can remain available to managers and admins; no future activity is possible through the removed member's connections.
+
+## Schema expansion and release boundary
+
+- Issue #3 introduces the pinned Better Auth schema and company/workspace constraints; it does not switch the running Clerk session handler. Issues #5–#12 gate human auth, provisioning, import, Meetings compatibility and release.
+- `auth_user`, `auth_session`, `auth_account`, `auth_verification`, `organizations`, `organization_memberships`, and `organization_invitations` are Better Auth-owned server tables. `workspace_memberships` remains Connections-owned.
+- `workspaces.organization_id` and `workspace_memberships.organization_id` stay nullable only for pre-import Clerk/local compatibility. Every mapped workspace grant must reference the same parent company and an independent company membership. NULL grants in mapped workspaces and company reassignment are rejected by the database.
+- Do not synthesize verified identities or company roles during schema expansion. The importer first verifies stable source mappings, inserts identity/company memberships, sets each legacy grant's parent, and then binds the workspace in one transaction. Composite parent foreign keys are deferred until commit; directory membership keys are immediate. Binding is blocked while any legacy grant remains unmapped.
+- Keep `clerk_org_id` unique and required during expansion so the currently deployed Clerk paths remain compatible. Until retirement, a new company-owned workspace uses a unique `connections-workspace:<workspaceId>` compatibility value, never another workspace's Clerk mapping. It is not a company identifier or an authentication claim.
+- After a verified backfill, require zero NULL organization references outside the explicit local compatibility workspace before validating NOT NULL production constraints. The importer/release tickets own that validation and the eventual removal of legacy mapping requirements.
+- Never roll schema expansion back by dropping identity or grants after new membership/security writes. Reconcile removals and revoked keys or roll forward according to the release runbook.

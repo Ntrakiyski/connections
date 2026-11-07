@@ -1,4 +1,4 @@
-import type { IConnectionStore, StoredConnection } from "../../connection-service.ts";
+import type { ConnectionActor, IConnectionStore, StoredConnection } from "../../connection-service.ts";
 import type { ResolvedCredential } from "../../core/types.ts";
 import type { IOAuthClientConfigStore, OAuthClientConfig } from "../../oauth/oauth-client-config-service.ts";
 import type { IOAuthStateStore, OAuthAuthorizationState } from "../../oauth/oauth-flow-service.ts";
@@ -25,6 +25,7 @@ import type { IRuntimeTokenStore, RuntimeTokenRecord, WorkspaceRole } from "./ru
 
 import { readFileSync, readdirSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
+import { ConnectionError } from "../../connection-service.ts";
 import { PlainTextSecretCodec } from "../secrets/secret-codec-core.ts";
 import { SqliteMeetingStore } from "./meeting-store.ts";
 import { decodeRunLogCursor, encodeRunLogCursor } from "./runtime-store.ts";
@@ -140,6 +141,7 @@ export class SqliteRuntimeDatabase implements RuntimeDatabase {
 
   private initialize(): void {
     this.database.exec("pragma journal_mode = wal;");
+    this.database.exec("pragma foreign_keys = on;");
     runSqliteMigrations(this.database);
   }
 }
@@ -174,8 +176,14 @@ export class SqliteConnectionStore implements IConnectionStore {
       : undefined;
   }
 
-  async set(service: string, connectionName: string, credential: ResolvedCredential, createdBy = ""): Promise<void> {
-    this.database
+  async set(
+    service: string,
+    connectionName: string,
+    credential: ResolvedCredential,
+    createdBy = "",
+    actor?: ConnectionActor,
+  ): Promise<void> {
+    const result = this.database
       .prepare(
         `
           insert into connections (workspace_id, service, connection_name, label, value, created_by, updated_at)
@@ -184,6 +192,7 @@ export class SqliteConnectionStore implements IConnectionStore {
             value = excluded.value,
             created_by = case when connections.created_by = '' then excluded.created_by else connections.created_by end,
             updated_at = excluded.updated_at
+          where ? = 1 or connections.created_by = ?
         `,
       )
       .run(
@@ -193,13 +202,42 @@ export class SqliteConnectionStore implements IConnectionStore {
         await this.secretCodec.encode(JSON.stringify(credential)),
         createdBy,
         new Date().toISOString(),
+        !actor || actor.canManageWorkspace ? 1 : 0,
+        actor?.userId ?? "",
       );
+    if (result.changes === 0)
+      throw new ConnectionError("connection_not_found", `${service} connection not found: ${connectionName}.`);
   }
 
-  async delete(service: string, connectionName: string): Promise<void> {
+  async delete(service: string, connectionName: string, actor?: ConnectionActor): Promise<void> {
     this.database
-      .prepare("delete from connections where workspace_id = ? and service = ? and connection_name = ?")
-      .run(this.workspaceId, service, connectionName);
+      .prepare(
+        "delete from connections where workspace_id = ? and service = ? and connection_name = ? and (? = 1 or created_by = ?)",
+      )
+      .run(this.workspaceId, service, connectionName, !actor || actor.canManageWorkspace ? 1 : 0, actor?.userId ?? "");
+  }
+
+  async rename(
+    service: string,
+    currentConnectionName: string,
+    connectionName: string,
+    actor?: ConnectionActor,
+  ): Promise<boolean> {
+    const result = this.database
+      .prepare(
+        "update connections set connection_name = ?, label = ?, updated_at = ? where workspace_id = ? and service = ? and connection_name = ? and (? = 1 or created_by = ?)",
+      )
+      .run(
+        connectionName,
+        connectionName,
+        new Date().toISOString(),
+        this.workspaceId,
+        service,
+        currentConnectionName,
+        !actor || actor.canManageWorkspace ? 1 : 0,
+        actor?.userId ?? "",
+      );
+    return result.changes > 0;
   }
 
   async deleteByOwner(userId: string): Promise<void> {
@@ -484,7 +522,7 @@ class SqliteWorkspaceStore implements IWorkspaceStore {
   async getByClerkOrgId(clerkOrgId: string): Promise<Workspace | undefined> {
     const row = this.database
       .prepare(
-        "select id, clerk_org_id, name, created_at, updated_at, deleted_at, purge_at from workspaces where clerk_org_id = ?",
+        "select id, organization_id, clerk_org_id, name, created_at, updated_at, deleted_at, purge_at from workspaces where clerk_org_id = ?",
       )
       .get(clerkOrgId);
     return row ? readWorkspace(row) : undefined;
@@ -493,7 +531,7 @@ class SqliteWorkspaceStore implements IWorkspaceStore {
   async getById(id: string): Promise<Workspace | undefined> {
     const row = this.database
       .prepare(
-        "select id, clerk_org_id, name, created_at, updated_at, deleted_at, purge_at from workspaces where id = ?",
+        "select id, organization_id, clerk_org_id, name, created_at, updated_at, deleted_at, purge_at from workspaces where id = ?",
       )
       .get(id);
     return row ? readWorkspace(row) : undefined;
@@ -501,8 +539,17 @@ class SqliteWorkspaceStore implements IWorkspaceStore {
 
   async create(workspace: Workspace): Promise<void> {
     this.database
-      .prepare("insert into workspaces (id, clerk_org_id, name, created_at, updated_at) values (?, ?, ?, ?, ?)")
-      .run(workspace.id, workspace.clerkOrgId, workspace.name, workspace.createdAt, workspace.updatedAt);
+      .prepare(
+        "insert into workspaces (id, organization_id, clerk_org_id, name, created_at, updated_at) values (?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        workspace.id,
+        workspace.organizationId ?? null,
+        workspace.clerkOrgId,
+        workspace.name,
+        workspace.createdAt,
+        workspace.updatedAt,
+      );
   }
 
   async updateName(workspaceId: string, name: string, updatedAt: string): Promise<void> {
@@ -591,12 +638,12 @@ class SqliteWorkspaceMembershipStore implements IWorkspaceMembershipStore {
     this.database
       .prepare(
         `
-          insert into workspace_memberships (workspace_id, user_id, role, created_at, updated_at)
-          values (?, ?, ?, ?, ?)
+          insert into workspace_memberships (workspace_id, user_id, role, created_at, updated_at, organization_id)
+          values (?, ?, ?, ?, ?, (select organization_id from workspaces where id = ?))
           on conflict(workspace_id, user_id) do update set role = excluded.role, updated_at = excluded.updated_at
         `,
       )
-      .run(workspaceId, userId, role, now, now);
+      .run(workspaceId, userId, role, now, now, workspaceId);
   }
 
   async listMembers(workspaceId: string): Promise<WorkspaceMember[]> {
@@ -826,10 +873,17 @@ function runSqliteMigrations(database: DatabaseSync): void {
     .sort()) {
     const legacyName = file.replace(/-/g, "_");
     if (!applied.has(file) && !applied.has(legacyName)) {
-      database.exec(readFileSync(new URL(file, migrationDirectory), "utf8"));
-      database
-        .prepare("insert into runtime_migrations (name, applied_at) values (?, ?)")
-        .run(file, new Date().toISOString());
+      database.exec("begin");
+      try {
+        database.exec(readFileSync(new URL(file, migrationDirectory), "utf8"));
+        database
+          .prepare("insert into runtime_migrations (name, applied_at) values (?, ?)")
+          .run(file, new Date().toISOString());
+        database.exec("commit");
+      } catch (error) {
+        database.exec("rollback");
+        throw error;
+      }
     }
   }
 }
@@ -854,6 +908,7 @@ function readRunLogRow(row: unknown): RunLog {
 function readWorkspace(row: unknown): Workspace {
   return {
     id: readString(row, "id"),
+    organizationId: readOptionalString(row, "organization_id"),
     clerkOrgId: readString(row, "clerk_org_id"),
     name: readString(row, "name"),
     createdAt: readString(row, "created_at"),

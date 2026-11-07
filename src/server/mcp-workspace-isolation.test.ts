@@ -6,6 +6,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { createCatalogStore } from "../catalog-store.ts";
 import { createConnectApp } from "./connect-app.ts";
@@ -13,6 +14,7 @@ import { TransitFileService } from "./files/transit-files.ts";
 import { PlainTextSecretCodec } from "./secrets/secret-codec-core.ts";
 import { RuntimeTokenService } from "./storage/runtime-token-service.ts";
 import { SqliteRuntimeDatabase } from "./storage/sqlite-runtime-store.ts";
+import { seedTwoCompanies, sentinelCatalog, SentinelProviderLoader } from "./test-fixtures/two-company.ts";
 
 const tempDirs: string[] = [];
 
@@ -41,6 +43,91 @@ afterEach(async () => {
 });
 
 describe("MCP workspace isolation", () => {
+  it("routes the two-company fixture by token and requires an explicit authorized label", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "connections-two-company-mcp-"));
+    tempDirs.push(directory);
+    const path = join(directory, "connect.sqlite");
+    const database = new SqliteRuntimeDatabase(path);
+    const raw = new DatabaseSync(path);
+    try {
+      await seedTwoCompanies(database, {
+        write: async (sql, values) => {
+          raw.prepare(sql).run(...values);
+        },
+        placeholder: () => "?",
+        authTimestamp: Date.parse("2026-07-15T00:00:00.000Z"),
+        verifiedBoolean: 1,
+      });
+      const loader = new SentinelProviderLoader();
+      const connect = await createConnectApp({
+        catalog: sentinelCatalog,
+        providerLoader: loader,
+        runtimeDatabase: database,
+        transitFiles: new TransitFileService({
+          rootDir: join(directory, "files"),
+          publicOrigin: "http://localhost",
+          ttlSeconds: 60,
+          maxBytes: 1024,
+        }),
+        publicOrigin: "http://localhost",
+        secretCodec: new PlainTextSecretCodec(),
+        clerkSecretKey: "sk_test_two_company_fixture",
+      });
+      const tokens = new RuntimeTokenService(database.runtimeTokenStore);
+      for (const [workspaceId, expected] of [
+        ["A1", "A1-alice"],
+        ["A2", "A2-operator"],
+        ["B1", "B1-employee"],
+      ]) {
+        if (!workspaceId || !expected) throw new Error("Incomplete fixture selection.");
+        const token = await tokens.createToken(workspaceId, "operator", `Operator ${workspaceId}`);
+        await withMcpClient(
+          (input, init) => Promise.resolve(connect.app.request(input, init)),
+          token.token,
+          async (client) => {
+            const before = loader.selectedAccounts.length;
+            const missingLabel = await client.callTool({
+              name: "execute_action",
+              arguments: { actionId: "sentinel.get_account", input: {} },
+            });
+            expect(missingLabel.isError).toBe(true);
+            expect(loader.selectedAccounts).toHaveLength(before);
+            const result = await client.callTool({
+              name: "execute_action",
+              arguments: { actionId: "sentinel.get_account", connectionName: "shared", input: {} },
+            });
+            expect(toolPayload(result)).toMatchObject({ ok: true, data: { selectedAccount: expected, workspaceId } });
+          },
+        );
+      }
+      const token = await tokens.createToken("A1", "alice", "A1 member");
+      await withMcpClient(
+        (input, init) => Promise.resolve(connect.app.request(input, init)),
+        token.token,
+        async (client) => {
+          const result = await client.callTool({
+            name: "execute_action",
+            arguments: { actionId: "sentinel.get_account", connectionName: "bob", input: {} },
+          });
+          expect(toolPayload(result)).toMatchObject({ ok: false, error: { code: "connection_not_found" } });
+        },
+      );
+      expect(loader.selectedAccounts).toEqual(["A1-alice", "A2-operator", "B1-employee"]);
+      await expect(database.createScopedStores("A1").connectionStore.get("sentinel", "shared")).resolves.toMatchObject({
+        apiKey: "A1-alice",
+      });
+      await expect(database.createScopedStores("A2").connectionStore.get("sentinel", "shared")).resolves.toMatchObject({
+        apiKey: "A2-operator",
+      });
+      await expect(database.createScopedStores("B1").connectionStore.get("sentinel", "shared")).resolves.toMatchObject({
+        apiKey: "B1-employee",
+      });
+    } finally {
+      raw.close();
+      database.close();
+    }
+  });
+
   it("binds each API key to its own workspace and rejects another workspace's connection label", async () => {
     const directory = await mkdtemp(join(tmpdir(), "oomol-connect-mcp-"));
     tempDirs.push(directory);

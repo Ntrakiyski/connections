@@ -17,7 +17,7 @@ People connect their work accounts once, then approved AI agents use those accou
 
 [![Connections architecture diagram](docs/architecture/architecture.png)](docs/architecture/architecture.html)
 
-The image links to the committed self-contained map. After cloning or downloading the repository, open [`docs/architecture/architecture.html`](docs/architecture/architecture.html) locally to search components, trace relationships, switch themes, and export the diagram.
+The image links to the target company/workspace architecture. After cloning or downloading the repository, open [`docs/architecture/architecture.html`](docs/architecture/architecture.html) locally to search components, trace relationships, switch themes, and export the diagram. [`architecture.json`](docs/architecture/architecture.json) is its regeneration source. Better Auth session serving follows the schema expansion in [migration tracker #2](https://github.com/Ntrakiyski/connections/issues/2).
 
 ## Why Connections?
 

@@ -84,8 +84,22 @@ export interface RenameConnectionInput {
 export interface IConnectionStore {
   get(service: string, connectionName: string): Promise<ResolvedCredential | undefined>;
   getStored(service: string, connectionName: string): Promise<StoredConnection | undefined>;
-  set(service: string, connectionName: string, credential: ResolvedCredential, createdBy?: string): Promise<void>;
-  delete(service: string, connectionName: string): Promise<void>;
+  /** Actor-aware writes must check existing ownership atomically and preserve it on update. */
+  set(
+    service: string,
+    connectionName: string,
+    credential: ResolvedCredential,
+    createdBy?: string,
+    actor?: ConnectionActor,
+  ): Promise<void>;
+  delete(service: string, connectionName: string, actor?: ConnectionActor): Promise<void>;
+  /** Atomically moves an existing label without replacing another account. */
+  rename?(
+    service: string,
+    currentConnectionName: string,
+    connectionName: string,
+    actor?: ConnectionActor,
+  ): Promise<boolean>;
   deleteByOwner(userId: string): Promise<void>;
   list(): Promise<StoredConnection[]>;
 }
@@ -257,6 +271,8 @@ export class ConnectionService {
       throw new ConnectionError("unsupported_auth_type", `${service} does not support api_key.`);
     }
 
+    const connectionName = normalizeConnectionName(input.connectionName);
+    await this.assertCanWrite(service, connectionName);
     const auth = this.getApiKeyDefinition(provider);
     const values = normalizeCredentialValues({
       fields: createApiKeyFields(auth),
@@ -277,8 +293,7 @@ export class ConnectionService {
         await this.validateApiKeyCredential(service, { apiKey, values }),
       ),
     };
-    const connectionName = normalizeConnectionName(input.connectionName);
-    await this.store.set(service, connectionName, credential, this.createdBy());
+    await this.store.set(service, connectionName, credential, this.createdBy(), this.actor);
 
     return this.createStoredConnectionSummary(provider, connectionName, credential);
   }
@@ -289,6 +304,8 @@ export class ConnectionService {
       throw new ConnectionError("unsupported_auth_type", `${service} does not support custom_credential.`);
     }
 
+    const connectionName = normalizeConnectionName(input.connectionName);
+    await this.assertCanWrite(service, connectionName);
     const auth = this.getCustomCredentialDefinition(provider);
     const values = normalizeCredentialValues({
       fields: auth.fields,
@@ -306,8 +323,7 @@ export class ConnectionService {
         await this.validateCustomCredential(service, { values }),
       ),
     };
-    const connectionName = normalizeConnectionName(input.connectionName);
-    await this.store.set(service, connectionName, credential, this.createdBy());
+    await this.store.set(service, connectionName, credential, this.createdBy(), this.actor);
 
     return this.createStoredConnectionSummary(provider, connectionName, credential);
   }
@@ -323,6 +339,7 @@ export class ConnectionService {
     }
 
     const connectionName = normalizeConnectionName(connectionNameInput);
+    await this.assertCanWrite(service, connectionName);
     let validation: CredentialValidationResult = {};
     try {
       validation = await this.validateOAuthCredential(service, credential);
@@ -335,7 +352,7 @@ export class ConnectionService {
       ...credential,
       ...this.mergeCredentialRuntimeData(provider, "oauth2", credential, validation),
     };
-    await this.store.set(service, connectionName, storedCredential, this.createdBy());
+    await this.store.set(service, connectionName, storedCredential, this.createdBy(), this.actor);
     return this.createStoredConnectionSummary(provider, connectionName, storedCredential);
   }
 
@@ -348,7 +365,7 @@ export class ConnectionService {
     if (stored && !this.canAccess(stored)) {
       throw new ConnectionError("connection_not_found", `${service} connection not found: ${connectionName}.`);
     }
-    await this.store.delete(service, connectionName);
+    await this.store.delete(service, connectionName, this.actor);
     const provider = this.catalog.providers.find((provider) => provider.service === service);
     if (provider && this.supportsAuth(provider, "no_auth")) {
       return this.connectWithoutAuth(service, { connectionName });
@@ -381,8 +398,30 @@ export class ConnectionService {
       throw new ConnectionError("connection_name_taken", `${service} connection already exists: ${connectionName}.`);
     }
 
-    await this.store.set(service, connectionName, stored.credential, stored.createdBy);
-    await this.store.delete(service, currentConnectionName);
+    if (this.store.rename) {
+      let renamed: boolean;
+      try {
+        renamed = await this.store.rename(service, currentConnectionName, connectionName, this.actor);
+      } catch (error) {
+        if (await this.store.getStored(service, connectionName)) {
+          throw new ConnectionError(
+            "connection_name_taken",
+            `${service} connection already exists: ${connectionName}.`,
+          );
+        }
+        throw error;
+      }
+      if (!renamed) {
+        throw new ConnectionError("connection_not_found", `${service} connection not found: ${currentConnectionName}.`);
+      }
+      const moved = await this.store.getStored(service, connectionName);
+      if (!moved)
+        throw new ConnectionError("connection_not_found", `${service} connection not found: ${connectionName}.`);
+      return this.createConfiguredConnectionSummary(provider, connectionName, moved.credential);
+    }
+
+    await this.store.set(service, connectionName, stored.credential, stored.createdBy, this.actor);
+    await this.store.delete(service, currentConnectionName, this.actor);
     return this.createConfiguredConnectionSummary(provider, connectionName, stored.credential);
   }
 
@@ -528,8 +567,15 @@ export class ConnectionService {
     }
 
     const nextCredential = await this.oauthCredentials.refresh(service, credential);
-    await this.store.set(service, connectionName, nextCredential, this.createdBy());
+    await this.store.set(service, connectionName, nextCredential, this.createdBy(), this.actor);
     return nextCredential;
+  }
+
+  private async assertCanWrite(service: string, connectionName: string): Promise<void> {
+    const stored = await this.store.getStored(service, connectionName);
+    if (stored && !this.canAccess(stored)) {
+      throw new ConnectionError("connection_not_found", `${service} connection not found: ${connectionName}.`);
+    }
   }
 
   private canAccess(connection: StoredConnection): boolean {
