@@ -124,4 +124,3 @@ when (old.organization_id is not null and new.organization_id is not old.organiz
 begin
   select raise(abort, 'backfill grants before binding workspace; company parent is immutable');
 end;
-
