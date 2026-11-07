@@ -88,6 +88,9 @@ for (const adapter of ["SQLite", "D1", "PostgreSQL"]) {
           service.setOrganizationRole("alice", { organizationId: "company-A", userId: "alice", role: "member" }),
         ]);
         expect(owners.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+        expect(owners.find((result) => result.status === "rejected")).toMatchObject({
+          reason: { code: "last_company_owner" },
+        });
         const remainingOwner =
           (await database.identityDirectory?.getOrganizationRole("company-A", "operator")) === "owner"
             ? "operator"
@@ -113,6 +116,9 @@ for (const adapter of ["SQLite", "D1", "PostgreSQL"]) {
           }),
         ]);
         expect(admins.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+        expect(admins.find((result) => result.status === "rejected")).toMatchObject({
+          reason: { code: "last_workspace_admin" },
+        });
         expect(
           (await database.membershipStore.listMembers("A1")).filter((member) => member.role === "admin"),
         ).toHaveLength(1);
@@ -178,6 +184,10 @@ for (const adapter of ["SQLite", "D1", "PostgreSQL"]) {
         await b.connectionStore.set("sentinel", "operator", sentinelCredential("B1-operator"), "operator");
         const aToken = await new RuntimeTokenService(a.runtimeTokenStore).createToken("A2", "operator", "A");
         const bToken = await new RuntimeTokenService(b.runtimeTokenStore).createToken("B1", "operator", "B");
+        await service.removeWorkspaceGrant("bob", "company-A", "A1", "operator");
+        expect(await database.membershipStore.getRole("A1", "operator")).toBeUndefined();
+        expect(await database.membershipStore.getRole("A2", "operator")).toBe("manager");
+        expect(await database.membershipStore.getRole("B1", "operator")).toBe("admin");
         await service.removeOrganizationMember("bob", "company-A", "operator");
         expect(await database.identityDirectory?.getOrganizationRole("company-A", "operator")).toBeUndefined();
         expect(await database.membershipStore.getRole("A1", "operator")).toBeUndefined();

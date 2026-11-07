@@ -13,12 +13,14 @@ export interface IdentityMutationResult {
 }
 
 export interface IIdentityMutationStore {
+  readonly currentTimeSQL: string;
   read(statement: IdentityStatement): Promise<Record<string, unknown>[]>;
   /** The company lock serializes concurrent governance changes on PostgreSQL. D1 batches and SQLite writes are atomic. */
   commit(statements: IdentityStatement[], organizationId?: string): Promise<IdentityMutationResult[]>;
 }
 
 export class PostgresIdentityMutationStore implements IIdentityMutationStore {
+  readonly currentTimeSQL = "clock_timestamp()";
   private readonly pool: Pool;
   constructor(pool: Pool) {
     this.pool = pool;
@@ -32,7 +34,12 @@ export class PostgresIdentityMutationStore implements IIdentityMutationStore {
     const client = await this.pool.connect();
     try {
       await client.query("begin");
-      if (organizationId) await client.query("select id from organizations where id = $1 for update", [organizationId]);
+      if (organizationId) {
+        await client.query("select id from organizations where id = $1 for update", [organizationId]);
+        await client.query("select id from workspaces where organization_id = $1 order by id for update", [
+          organizationId,
+        ]);
+      }
       const results: IdentityMutationResult[] = [];
       for (const statement of statements) {
         const result = await client.query(postgresSql(statement.sql), statement.values);
@@ -50,6 +57,7 @@ export class PostgresIdentityMutationStore implements IIdentityMutationStore {
 }
 
 export class SqliteIdentityMutationStore implements IIdentityMutationStore {
+  readonly currentTimeSQL = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
   private readonly database: DatabaseSync;
   constructor(database: DatabaseSync) {
     this.database = database;
@@ -78,6 +86,7 @@ export class SqliteIdentityMutationStore implements IIdentityMutationStore {
 }
 
 export class D1IdentityMutationStore implements IIdentityMutationStore {
+  readonly currentTimeSQL = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
   private readonly database: D1DatabaseBinding;
   constructor(database: D1DatabaseBinding) {
     this.database = database;

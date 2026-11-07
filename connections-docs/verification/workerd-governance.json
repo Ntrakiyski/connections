@@ -1,0 +1,120 @@
+{
+  "runtime": "Wrangler 4.107.0 / native local Workerd",
+  "database": "native D1 with shipped migrations through 0010",
+  "mail": "real local SMTP",
+  "verified_invariants": [
+    "one account joins A and B",
+    "concurrent acceptance commits once",
+    "replayed acceptance cannot restore removed grant",
+    "company A offboarding preserves B",
+    "last owner removal fails atomically",
+    "company and workspace audit retained"
+  ],
+  "checks": [
+    {
+      "method": "POST",
+      "surface": "/api/identity/sign-in/email",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "surface": "/api/companies",
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "surface": "/api/companies",
+      "status": 201
+    },
+    {
+      "method": "GET",
+      "surface": "/api/companies/:id",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "surface": "/api/companies/:id/invitations",
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "surface": "/api/companies/:id/invitations",
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "surface": "/api/identity/sign-up/email",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "surface": "/api/identity/sign-in/email",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "surface": "/api/account/invitations",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "surface": "/api/account/invitations/:id/accept",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "surface": "/api/account/invitations/:id/accept",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "surface": "/api/account/invitations/:id/accept",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "surface": "/api/account",
+      "status": 200
+    },
+    {
+      "method": "DELETE",
+      "surface": "/api/companies/:id/workspaces/:id/grants/iiK9uSJqlPijFcPH5zopCXWgWSTXURmE",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "surface": "/api/account/invitations/:id/accept",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "surface": "/api/account",
+      "status": 200
+    },
+    {
+      "method": "DELETE",
+      "surface": "/api/companies/:id/members/iiK9uSJqlPijFcPH5zopCXWgWSTXURmE",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "surface": "/api/account",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "surface": "/api/account",
+      "status": 200
+    },
+    {
+      "method": "DELETE",
+      "surface": "/api/companies/:id/members/AMO60G6DS0wfto20IR4KYQPZxt2Qqmlo",
+      "status": 409
+    },
+    {
+      "method": "GET",
+      "surface": "/api/companies/:id",
+      "status": 200
+    }
+  ]
+}

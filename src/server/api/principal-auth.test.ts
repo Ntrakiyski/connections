@@ -58,6 +58,9 @@ async function createFixture(adapter: string): Promise<Fixture> {
     await pool.query(
       readFileSync(new URL("../../../migrations/20261107200000_organization-identity.sql", import.meta.url), "utf8"),
     );
+    await pool.query(
+      readFileSync(new URL("../../../migrations/20261107210000_identity-governance.sql", import.meta.url), "utf8"),
+    );
     const runtime = new PostgresRuntimeDatabase(pool, new PlainTextSecretCodec());
     database = runtime;
     authDatabase = runtime.authDatabase;
@@ -116,6 +119,9 @@ async function createFixture(adapter: string): Promise<Fixture> {
     publicOrigin: origin,
     secretCodec: new PlainTextSecretCodec(),
     humanAuth: auth,
+    authMailDelivery: async (message) => {
+      mail.push(message);
+    },
   });
   cleanups.push(async () => {
     await rm(directory, { recursive: true, force: true });
@@ -133,23 +139,24 @@ function post(app: Hono, path: string, body: unknown, cookie = "", requestOrigin
   );
 }
 
-async function register(fixture: Fixture): Promise<{ cookie: string; userId: string }> {
+async function register(
+  fixture: Fixture,
+  email = "operator@example.test",
+): Promise<{ cookie: string; userId: string }> {
   const { app, mail } = fixture;
   const created = await post(app, "/api/identity/sign-up/email", {
     name: "Operator",
-    email: "operator@example.test",
+    email,
     password,
   });
   expect(created.status).toBe(200);
-  expect((await post(app, "/api/identity/sign-in/email", { email: "operator@example.test", password })).status).toBe(
-    403,
-  );
-  const message = mail.find((item) => item.subject === "Verify your Connections email");
+  expect((await post(app, "/api/identity/sign-in/email", { email, password })).status).toBe(403);
+  const message = mail.find((item) => item.subject === "Verify your Connections email" && item.to === email);
   if (!message) throw new Error("Verification delivery was not requested.");
   const verified = await app.request(message.text.replace("Verify your email: ", ""));
   expect(verified.status).toBe(302);
   expect(new URL(verified.headers.get("location") ?? "", origin).searchParams.has("error")).toBe(false);
-  const signedIn = await post(app, "/api/identity/sign-in/email", { email: "operator@example.test", password });
+  const signedIn = await post(app, "/api/identity/sign-in/email", { email, password });
   expect(signedIn.status).toBe(200);
   const cookie = signedIn.headers
     .getSetCookie()
@@ -353,6 +360,99 @@ for (const adapter of ["SQLite", "D1", "PostgreSQL"]) {
           (await fixture.app.request(`${origin}/v1/providers`, { headers: { authorization: `Bearer ${token.token}` } }))
             .status,
         ).toBe(401);
+      });
+
+      it("routes company governance through verified cookies and rechecks each grant after acceptance and removal", async () => {
+        const fixture = await setup();
+        const operator = await register(fixture);
+        await seed(fixture, operator.userId);
+        const companies = await fixture.app.request(`${origin}/api/companies`, {
+          headers: { cookie: operator.cookie },
+        });
+        expect(companies.status).toBe(200);
+        expect(await companies.json()).toMatchObject([{ id: "A" }, { id: "B" }]);
+        const overview = await fixture.app.request(`${origin}/api/companies/A`, {
+          headers: { cookie: operator.cookie },
+        });
+        expect(overview.status).toBe(200);
+        expect(await overview.json()).toMatchObject({
+          members: [{ userId: operator.userId, role: "owner" }],
+          workspaces: [{ id: "A1" }],
+        });
+        expect(
+          (
+            await post(
+              fixture.app,
+              "/api/companies/B/invitations",
+              { email: "invitee@example.test", role: "member", grants: [] },
+              operator.cookie,
+              "https://attacker.example",
+            )
+          ).status,
+        ).toBe(403);
+        const created = await post(
+          fixture.app,
+          "/api/companies/B/invitations",
+          { email: "invitee@example.test", role: "member", grants: [{ workspaceId: "B1", role: "manager" }] },
+          operator.cookie,
+        );
+        expect(created.status).toBe(201);
+        const invitation: unknown = await created.json();
+        if (
+          !invitation ||
+          typeof invitation !== "object" ||
+          !("invitationId" in invitation) ||
+          typeof invitation.invitationId !== "string"
+        )
+          throw new Error("Invitation ID missing.");
+        const invitee = await register(fixture, "invitee@example.test");
+        expect(
+          (
+            await fixture.app.request(`${origin}/api/connections`, {
+              headers: { cookie: invitee.cookie, "x-workspace-id": "B1" },
+            })
+          ).status,
+        ).toBe(403);
+        expect(
+          (await post(fixture.app, `/api/account/invitations/${invitation.invitationId}/accept`, {}, invitee.cookie))
+            .status,
+        ).toBe(200);
+        expect(
+          (
+            await fixture.app.request(`${origin}/api/connections`, {
+              headers: { cookie: invitee.cookie, "x-workspace-id": "B1" },
+            })
+          ).status,
+        ).toBe(200);
+        const removed = await fixture.app.request(`${origin}/api/companies/B/workspaces/B1/grants/${invitee.userId}`, {
+          method: "DELETE",
+          headers: { cookie: operator.cookie, origin },
+        });
+        expect(removed.status).toBe(200);
+        expect(
+          (
+            await fixture.app.request(`${origin}/api/connections`, {
+              headers: { cookie: invitee.cookie, "x-workspace-id": "B1" },
+            })
+          ).status,
+        ).toBe(403);
+        expect(
+          (await post(fixture.app, `/api/account/invitations/${invitation.invitationId}/accept`, {}, invitee.cookie))
+            .status,
+        ).toBe(200);
+        expect(await fixture.database.membershipStore.getRole("B1", invitee.userId)).toBeUndefined();
+        const lastAdmin = await fixture.app.request(
+          `${origin}/api/companies/A/workspaces/A1/grants/${operator.userId}`,
+          { method: "DELETE", headers: { cookie: operator.cookie, origin } },
+        );
+        expect(lastAdmin.status).toBe(409);
+        const invalid = await post(
+          fixture.app,
+          "/api/companies",
+          { name: "", slug: "invalid", workspaceName: "empty" },
+          operator.cookie,
+        );
+        expect(invalid.status).toBe(400);
       });
 
       it("invalidates the stored session on server-side logout", async () => {

@@ -8,14 +8,15 @@ create table identity_mutation_checks (
   invitation_valid integer not null default 1 constraint identity_invitation_invalid check(invitation_valid = 1)
 );
 create unique index organization_invitations_parent_idx on organization_invitations(id, organization_id);
+-- Grant recipes retain their intended workspace IDs after purge, so stale invitations
+-- fail acceptance instead of silently becoming company-only invitations.
 create table workspace_invitation_grants (
   invitation_id text not null,
   organization_id text not null,
   workspace_id text not null,
   role text not null check(role in ('admin', 'manager', 'member')),
   primary key(invitation_id, workspace_id),
-  foreign key(invitation_id, organization_id) references organization_invitations(id, organization_id) on delete cascade,
-  foreign key(workspace_id, organization_id) references workspaces(id, organization_id) on delete cascade
+  foreign key(invitation_id, organization_id) references organization_invitations(id, organization_id) on delete cascade
 );
 create table invitation_acceptances (
   invitation_id text primary key references organization_invitations(id) on delete cascade,

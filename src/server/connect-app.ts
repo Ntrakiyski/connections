@@ -3,7 +3,7 @@ import type { ActionPolicyService } from "../core/action-policy.ts";
 import type { IProviderLoader } from "../providers/provider-loader.ts";
 import type { WorkspaceServerServices } from "./connect-server.ts";
 import type { ITransitFileService } from "./files/transit-file-store.ts";
-import type { ConnectionsHumanAuth } from "./human-auth.ts";
+import type { AuthMailDelivery, ConnectionsHumanAuth } from "./human-auth.ts";
 import type { Logger } from "./logger.ts";
 import type { ISecretCodec } from "./secrets/secret-codec-core.ts";
 import type { RuntimeDatabase } from "./storage/runtime-database.ts";
@@ -15,6 +15,9 @@ import { OAuthClientConfigService } from "../oauth/oauth-client-config-service.t
 import { OAuthCredentialRefreshService } from "../oauth/oauth-credential-refresh-service.ts";
 import { OAuthFlowService } from "../oauth/oauth-flow-service.ts";
 import { ActionRunner } from "./actions/action-runner.ts";
+import { CompanyDirectoryService } from "./company-directory.ts";
+import { CompanyInvitationService } from "./company-invitations.ts";
+import { CompanyService } from "./company-service.ts";
 import { ConnectServer } from "./connect-server.ts";
 import { RuntimeTokenService } from "./storage/runtime-token-service.ts";
 import { WorkspaceControlService } from "./workspace-control-service.ts";
@@ -28,6 +31,7 @@ export interface ConnectAppOptions {
   publicOrigin: string;
   secretCodec: ISecretCodec;
   humanAuth?: ConnectionsHumanAuth;
+  authMailDelivery?: AuthMailDelivery;
   trustedAuthOrigins?: string[];
   clerkSecretKey?: string;
   clerkPublishableKey?: string;
@@ -47,6 +51,9 @@ export interface ConnectApp {
 export async function createConnectApp(options: ConnectAppOptions): Promise<ConnectApp> {
   if (options.humanAuth && !options.runtimeDatabase.identityDirectory) {
     throw new Error("Human authentication requires a live identity directory.");
+  }
+  if (options.humanAuth && (!options.runtimeDatabase.identityMutations || !options.authMailDelivery)) {
+    throw new Error("Human authentication requires transactional company governance and invitation mail delivery.");
   }
   const runtimeTokens = new RuntimeTokenService(options.runtimeDatabase.runtimeTokenStore);
   const hasStoredRuntimeTokens = async (): Promise<boolean> => (await runtimeTokens.listTokens()).length > 0;
@@ -149,6 +156,17 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
               workspaceStore: options.runtimeDatabase.workspaceStore,
               membershipStore: options.runtimeDatabase.membershipStore,
               runtimeTokens,
+            }
+          : undefined,
+      companyServices:
+        options.humanAuth && options.runtimeDatabase.identityMutations && options.authMailDelivery
+          ? {
+              companies: new CompanyService(options.runtimeDatabase.identityMutations),
+              directory: new CompanyDirectoryService(options.runtimeDatabase.identityMutations),
+              invitations: new CompanyInvitationService(options.runtimeDatabase.identityMutations, {
+                publicOrigin: options.publicOrigin,
+                sendMail: options.authMailDelivery,
+              }),
             }
           : undefined,
       meetingStore: options.runtimeDatabase.meetingStore,

@@ -71,6 +71,7 @@ async function createCloudflareApp(env: CloudflareEnv, publicOrigin: string): Pr
   }
   const secretCodec = await createSecretCodec(env.OOMOL_CONNECT_ENCRYPTION_KEY);
   const database = new D1RuntimeDatabase(env.DB, { secretCodec });
+  const authMailDelivery = authSettings.kind === "sessions" ? createAuthMailDelivery(authSettings) : undefined;
   return await createConnectApp({
     catalog: await loadCatalogOnce(assets),
     providerLoader: new ProviderLoader(executorModules),
@@ -93,14 +94,15 @@ async function createCloudflareApp(env: CloudflareEnv, publicOrigin: string): Pr
     })(),
     publicOrigin,
     secretCodec,
+    authMailDelivery,
     humanAuth:
-      authSettings.kind === "sessions"
+      authMailDelivery && authSettings.kind === "sessions"
         ? createHumanAuth(
             {
               baseURL: authSettings.baseURL,
               secret: authSettings.secret,
               trustedOrigins: authSettings.trustedOrigins,
-              sendMail: createAuthMailDelivery(authSettings),
+              sendMail: authMailDelivery,
             },
             createD1AuthDatabase(env.DB),
           )

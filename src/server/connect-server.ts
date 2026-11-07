@@ -5,6 +5,7 @@ import type { ActionSearchIndexProvider, ActionSearchResult } from "../core/acti
 import type { IProviderLoader } from "../providers/provider-loader.ts";
 import type { ClerkAuthOptions } from "./api/clerk-auth.ts";
 import type { ClerkWebhookOptions } from "./api/clerk-webhooks.ts";
+import type { CompanyRouteOptions } from "./api/company-routes.ts";
 import type { PrincipalAuthOptions } from "./api/principal-auth.ts";
 import type { RuntimeTokenAuthOptions } from "./api/runtime-token-auth.ts";
 import type { ITransitFileService } from "./files/transit-file-store.ts";
@@ -21,6 +22,7 @@ import type { Context } from "hono";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { Scalar } from "@scalar/hono-api-reference";
 import { Hono } from "hono";
+import { ZodError } from "zod";
 import { ConnectionError } from "../connection-service.ts";
 import { DEFAULT_ACTION_SEARCH_LIMIT, createActionSearchIndexProvider, searchActions } from "../core/action-search.ts";
 import { optionalRecord, optionalString, requiredString, requiredStringArray } from "../core/cast.ts";
@@ -33,6 +35,7 @@ import { getResponseCachePolicy } from "./api/cache-policy.ts";
 import { createClerkAuthMiddleware } from "./api/clerk-auth.ts";
 import { registerClerkRoutes } from "./api/clerk-routes.ts";
 import { registerClerkWebhookRoutes } from "./api/clerk-webhooks.ts";
+import { registerCompanyRoutes } from "./api/company-routes.ts";
 import { HttpRequestError, internalError, jsonError, notFound, readJsonBody } from "./api/http-utils.ts";
 import { registerHumanAuthRoutes } from "./api/human-auth-routes.ts";
 import { registerMeetingRoutes } from "./api/meeting-routes.ts";
@@ -51,6 +54,7 @@ import {
 } from "./api/runtime-api.ts";
 import { createRuntimeTokenAuthMiddleware } from "./api/runtime-token-auth.ts";
 import { getWorkspaceContext, requireManager } from "./api/workspace-helpers.ts";
+import { CompanyOperationError } from "./company-governance.ts";
 import { createTransitFileResponse, TransitFileError } from "./files/transit-file-store.ts";
 import { ProxyRunner } from "./proxy/proxy-runner.ts";
 import { decodeRunLogCursor } from "./storage/runtime-store.ts";
@@ -82,6 +86,7 @@ export interface IConnectServerOptions {
   staticRoot?: string;
   auth?: ClerkAuthOptions;
   principalAuth?: PrincipalAuthOptions;
+  companyServices?: Pick<CompanyRouteOptions, "companies" | "directory" | "invitations">;
   clerkWebhooks?: ClerkWebhookOptions;
   runtimeTokenAuth?: RuntimeTokenAuthOptions;
   createWorkspaceServices?(workspace: WorkspaceContext): WorkspaceServerServices;
@@ -137,6 +142,12 @@ export class ConnectServer {
         this.options.principalAuth.directory,
         this.options.principalAuth.trustedOrigins,
       );
+      if (this.options.companyServices)
+        registerCompanyRoutes(app, {
+          ...this.options.companyServices,
+          auth: this.options.principalAuth.auth,
+          trustedOrigins: this.options.principalAuth.trustedOrigins,
+        });
     } else if (this.options.clerkWebhooks) {
       registerClerkWebhookRoutes(app, this.options.clerkWebhooks);
     }
@@ -268,6 +279,8 @@ export class ConnectServer {
 
     this.options.registerStaticRoutes?.(app);
     app.onError((error, context) => {
+      if (error instanceof CompanyOperationError) return jsonError(context, error.status, error.code, error.message);
+      if (error instanceof ZodError) return jsonError(context, 400, "invalid_input", "Request fields are invalid.");
       if (error instanceof HttpRequestError) {
         return jsonError(context, error.status, error.code, error.message);
       }

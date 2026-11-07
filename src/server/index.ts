@@ -57,6 +57,7 @@ const transitFiles = new TransitFileService({
   maxBytes: transitFileMaxBytes,
 });
 await transitFiles.cleanupExpired();
+const authMailDelivery = authSettings.kind === "sessions" ? createAuthMailDelivery(authSettings) : undefined;
 const { app, runtimeAuthConfigured } = await createConnectApp({
   catalog,
   providerLoader,
@@ -64,14 +65,15 @@ const { app, runtimeAuthConfigured } = await createConnectApp({
   transitFiles,
   publicOrigin,
   secretCodec,
+  authMailDelivery,
   humanAuth:
-    authSettings.kind === "sessions"
+    authMailDelivery && authSettings.kind === "sessions"
       ? createHumanAuth(
           {
             baseURL: authSettings.baseURL,
             secret: authSettings.secret,
             trustedOrigins: authSettings.trustedOrigins,
-            sendMail: createAuthMailDelivery(authSettings),
+            sendMail: authMailDelivery,
           },
           runtimeDatabase.authDatabase,
         )

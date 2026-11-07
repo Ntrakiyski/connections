@@ -25,3 +25,13 @@ The explicit development bypass requires `NODE_ENV=development`, a loopback `HOS
 `principal-auth.test.ts` exercises real Better Auth cookies through Hono on SQLite, D1 and PostgreSQL. Set `CONNECTIONS_TEST_POSTGRES_URL` to include the PostgreSQL cases. `auth-startup.test.ts` starts the actual Node entry point with each required setting absent and verifies failure before data initialization. `cloudflare-auth.test.ts` exercises the Worker entry point, D1 sessions, secure cookies and startup rejection.
 
 The recorded [native Workerd smoke checks](verification/workerd-auth.json) used local D1 with the shipped migrations and a real local SMTP receiver. They cover verification, recovery, rejected foreign-origin logout, password-reset session revocation and server-side logout. These local checks do not establish the staging cutover, desktop pilot or production promotion gates in #11–#12.
+
+## Company governance
+
+Company directory and invitation operations use verified sessions without a workspace selector. `/api/companies` lists the account's companies and creates a company with its initial owner/admin. `/api/companies/:organizationId` supplies the company administrator's directory, workspace-grant and audit view. Company/workspace IDs in route parameters define scope; a body field never changes it.
+
+Company owners/admins provision workspaces and govern people. Existing workspace admins can govern their workspace grants. Both paths check live parent-company membership and verified identity. A company role grants no provider-resource access; a resource request still needs its independent workspace grant.
+
+Invitation recipes retain their original workspace IDs after archival or purge. Acceptance requires the verified recipient email, unexpired pending invitation, current company-admin inviter and active matching workspaces. Memberships and grants commit in one PostgreSQL transaction or SQLite/D1 batch. A receipt makes concurrent acceptance and lost-response retries idempotent; replay never recreates subsequently removed access. Failed email delivery leaves the invitation available for an authorized resend.
+
+Offboarding revokes runtime hashes, removes the subject's credentials and pending provider consent in the selected scope, and preserves company/workspace audit. Final-owner and final-workspace-admin guards share the mutation's atomic write unit. [Native Workerd governance evidence](verification/workerd-governance.json) records the paired-account A/B isolation and retry checks; staging and desktop release gates remain pending.

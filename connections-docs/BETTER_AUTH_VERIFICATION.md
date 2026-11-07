@@ -16,20 +16,20 @@ This is a working evidence ledger for tracker [#2](https://github.com/Ntrakiyski
 - #5 authentication checks now cover SQLite, D1 and PostgreSQL. Production startup checks exercise the actual Node and Worker entry points. Wrangler dry-run bundling passed. Native local Workerd/D1 plus real local SMTP passed 12 checks: verification, recovery, secure session behavior, wrong-origin rejection, password-reset revocation and server logout. The issue remains open until the coordinated change is merged and reviewed.
 - Runtime token stores now enforce scope consistently and retain individual token revocation records. The PostgreSQL global store preserves the workspace supplied at creation.
 - Authentication foundation validation: `npm run fix-check` and all **539 tests** passed, including PostgreSQL. Native Workerd evidence is recorded in `verification/workerd-auth.json`.
-- #6 company/workspace provisioning, direct grants, role changes, atomic final-owner/admin checks and scoped offboarding are implemented in the application service. Targeted cross-adapter governance and permission tests pass (39 tests). The latest full suite passes all 557 tests, including PostgreSQL; lint/format/type checks pass. Invitations, acceptance retries and HTTP integration are outstanding.
+- #6 company/workspace provisioning, direct grants, role changes, final-owner/admin checks, invitation delivery/acceptance/retries, scoped offboarding and cookie-authenticated HTTP routes are implemented. All 584 tests pass, including PostgreSQL; lint/format/type checks pass. Native Workerd/D1 plus real SMTP passed 21 checks and six governance invariants, recorded in `verification/workerd-governance.json`. The ticket remains open for coordinated PR review.
 - Other tickets below remain pending implementation and/or their full acceptance evidence.
 
 ## [#5: Serve Better Auth sessions from Hono and authenticate each principal explicitly](https://github.com/Ntrakiyski/connections/issues/5)
 
-- [ ] Real cookie integration tests cover sign-in, verified email/recovery, session resolution, server-side logout and a rejected wrong-origin mutation.
-- [ ] The same account can operate in A1 and B1 in different browser tabs. A supplied workspace ID never grants membership, and unrecognized or conflicting credentials fail per the route matrix.
-- [ ] A direct organization mutation through an unapproved auth endpoint cannot bypass the application service. Production startup tests cover absent required settings in supported entry points.
+- [x] Real cookie integration tests cover sign-in, verified email/recovery, session resolution, server-side logout and a rejected wrong-origin mutation.
+- [x] The same account can operate in A1 and B1 in different browser tabs. A supplied workspace ID never grants membership, and unrecognized or conflicting credentials fail per the route matrix.
+- [x] A direct organization mutation through an unapproved auth endpoint cannot bypass the application service. Production startup tests cover absent required settings in supported entry points.
 
 ## [#6: Implement organization invitations, workspace grants and scoped offboarding](https://github.com/Ntrakiyski/connections/issues/6)
 
-- [ ] An existing member of company A can join B with the same verified account and later receive A2 access without another company invitation.
-- [ ] Wrong-recipient, expired, replayed and stale-workspace invitations cannot create extra grants. A retry after interrupted acceptance completes once. Concurrent demotions cannot remove the final owner/admin.
-- [ ] Removing someone from A1 leaves A2 and B intact. Removing their organization-A membership removes access to all A workspaces and preserves B. Demotion is reflected in the next authorized operation.
+- [x] An existing member of company A can join B with the same verified account and later receive A2 access without another company invitation.
+- [x] Wrong-recipient, expired, replayed and stale-workspace invitations cannot create extra grants. A retry after interrupted acceptance completes once. Concurrent demotions cannot remove the final owner/admin.
+- [x] Removing someone from A1 leaves A2 and B intact. Removing their organization-A membership removes access to all A workspaces and preserves B. Demotion is reflected in the next authorized operation.
 
 ## [#7: Enforce live workspace access across MCP, REST and provider OAuth](https://github.com/Ntrakiyski/connections/issues/7)
 
