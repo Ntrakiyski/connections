@@ -1,5 +1,7 @@
+import type { IClerkImportStore } from "../migration/clerk-import-store.ts";
 import type { RuntimeDatabase } from "../storage/runtime-database.ts";
 import type { FixtureSql } from "./two-company.ts";
+import type { BetterAuthOptions } from "better-auth";
 
 import { readFileSync, readdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -7,6 +9,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Pool } from "pg";
+import { createD1AuthDatabase } from "../cloudflare/d1-auth-database.ts";
+import {
+  D1ClerkImportStore,
+  PostgresClerkImportStore,
+  SqliteClerkImportStore,
+} from "../migration/clerk-import-store.ts";
 import { AesGcmSecretCodec } from "../secrets/secret-codec.ts";
 import { D1RuntimeDatabase } from "../storage/d1-runtime-store.ts";
 import { PostgresRuntimeDatabase } from "../storage/postgres-runtime-store.ts";
@@ -14,6 +22,8 @@ import { SqliteRuntimeDatabase } from "../storage/sqlite-runtime-store.ts";
 import { FixtureD1Database } from "./sqlite-d1.ts";
 export interface FixtureDatabase {
   database: RuntimeDatabase;
+  importStore: IClerkImportStore;
+  authDatabase: BetterAuthOptions["database"];
   sql: FixtureSql;
   close(): Promise<void>;
 }
@@ -25,6 +35,8 @@ export async function createFixtureDatabase(adapter: string): Promise<FixtureDat
     const binding = new FixtureD1Database();
     return {
       database: new D1RuntimeDatabase(binding, { secretCodec: codec }),
+      importStore: new D1ClerkImportStore(binding),
+      authDatabase: createD1AuthDatabase(binding),
       sql: {
         write: async (sql, values) => {
           binding.sqlite.prepare(sql).run(...values);
@@ -51,6 +63,7 @@ export async function createFixtureDatabase(adapter: string): Promise<FixtureDat
           (name) =>
             name.includes("organization-identity") ||
             name.includes("identity-governance") ||
+            name.includes("identity-import") ||
             name.includes("workspace-safety-settings"),
         )
         .sort()) {
@@ -64,6 +77,8 @@ export async function createFixtureDatabase(adapter: string): Promise<FixtureDat
     }
     return {
       database: new PostgresRuntimeDatabase(pool, codec),
+      importStore: new PostgresClerkImportStore(pool),
+      authDatabase: pool,
       sql: {
         write: async (sql, values) => {
           await pool.query(sql, values);
@@ -86,6 +101,8 @@ export async function createFixtureDatabase(adapter: string): Promise<FixtureDat
   raw.exec("pragma foreign_keys = on");
   return {
     database,
+    importStore: new SqliteClerkImportStore(raw),
+    authDatabase: raw,
     sql: {
       write: async (sql, values) => {
         raw.prepare(sql).run(...values);

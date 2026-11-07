@@ -67,6 +67,8 @@ The previous `workspace-security-controls` and `seed-workspace-providers` previe
 
 ## Company identity schema expansion (#3)
 
+The migration branch's [authentication contract](AUTHENTICATION.md), [Clerk importer runbook](CLERK_IMPORT.md) and [verification ledger](BETTER_AUTH_VERIFICATION.md) describe the Better Auth transition. The deployment instructions above describe the currently deployed Clerk release; production promotion of the transition is gated by issue #12.
+
 This step changes the schema while existing Clerk human-auth paths remain in use. It does not deploy Better Auth sessions or enable new membership workflows. The target ownership and permission contract is in `LOCKED.md`.
 
 Pin: `better-auth@1.7.18`; organization plugin and field/table mappings live in `src/server/auth-schema.ts`. The checked-in migrations match those mappings, including core session/account/verification tables. Upgrade the pin only with schema compatibility review. Do not run automatic auth-schema generation during server startup.

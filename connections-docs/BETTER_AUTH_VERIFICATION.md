@@ -65,10 +65,16 @@ Local browser verification used actual Hono, Better Auth and encrypted SQLite wi
 
 ## [#9: Build an idempotent Clerk identity and workspace importer](https://github.com/Ntrakiyski/connections/issues/9)
 
-- [ ] Two runs over the same sanitized staging snapshot produce identical mappings and role counts without duplicate grants. Dry run makes zero writes.
-- [ ] Duplicate identities, ambiguous ownership, unmapped active records and zero-admin workspaces block cutover with actionable, sanitized diagnostics.
-- [ ] A verified active token still resolves to the correct user and workspace. A revoked token stays denied. Synthetic encrypted credentials decrypt and route to the correct provider account.
-- [ ] Logs and reports contain counts and exception identifiers suitable for operators, with no raw credentials, tokens, password hashes or exported authentication factors.
+- [x] Two runs over the same sanitized staging snapshot produce identical mappings and role counts without duplicate grants. Dry run makes zero writes.
+- [x] Duplicate identities, ambiguous ownership, unmapped active records and zero-admin workspaces block cutover with actionable, sanitized diagnostics.
+- [x] A verified active token still resolves to the correct user and workspace. A revoked token stays denied. Synthetic encrypted credentials decrypt and route to the correct provider account.
+- [x] Logs and reports contain counts and exception identifiers suitable for operators, with no raw credentials, tokens, password hashes or exported authentication factors.
+
+Importer checkpoint validation: `npm run fix-check`, `npm run build:web`, and all **700 tests in 77 files**, including PostgreSQL, passed. The importer/exporter contribute 29 checks across SQLite, D1 contract and disposable PostgreSQL schemas. Source export uses real Clerk SDK pagination against a synthetic Backend API transport; it never exports passwords, MFA factors or invitation links.
+
+The synthetic staging snapshot includes independent A1/B1 grants, same-label encrypted sentinel accounts, active and revoked original runtime tokens, meetings, and a real local transit file. Read-only previews preserve every observed row and file; repeated apply retains identical mappings/roles without duplicates. Recovery runs through actual Hono/Better Auth emailed password-reset and sign-in while retaining original user and runtime workspace IDs. Collision, stale-plan, inventory-race, interrupted-commit and final-verification tests fail closed. The ledger keeps identity commit separate from verified preservation; retries resume the check without replaying grants. The [import runbook](CLERK_IMPORT.md) defines operator inputs, recovery, invitation reissue and stop conditions.
+
+This is local synthetic evidence. #9 remains open for coordinated PR review and merge. Actual Coolify staging export/import counts, delta reconciliation, paired desktop compatibility and restored-backup rehearsal remain #12 gates.
 
 ## [#10: Issue workspace-bound OAuth grants for the Meetings desktop client](https://github.com/Ntrakiyski/connections/issues/10)
 
