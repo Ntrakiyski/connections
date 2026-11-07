@@ -47,7 +47,12 @@ export async function createFixtureDatabase(adapter: string): Promise<FixtureDat
       await pool.query(readFileSync(new URL("../../../connections-docs/insforge-schema.sql", import.meta.url), "utf8"));
       const directory = new URL("../../../migrations/", import.meta.url);
       for (const name of readdirSync(directory)
-        .filter((name) => name.includes("organization-identity") || name.includes("identity-governance"))
+        .filter(
+          (name) =>
+            name.includes("organization-identity") ||
+            name.includes("identity-governance") ||
+            name.includes("workspace-safety-settings"),
+        )
         .sort()) {
         await pool.query(readFileSync(new URL(name, directory), "utf8"));
       }

@@ -20,6 +20,8 @@ This is a working evidence ledger for tracker [#2](https://github.com/Ntrakiyski
 - #7 checkpoint: mapped-workspace credential writes recheck live company membership, workspace grants, archive status, account ownership and provider enablement in the commit transaction. Delayed API-key, custom-credential and OAuth validation tests cover downgrade, grant removal, company offboarding, archive and provider disablement across all three adapters.
 - Better Auth provider callbacks redeem opaque state atomically from stored user/workspace facts. HTTP integration covers concurrent callbacks, replay, alternate browser selectors, expired/future consent, provider disablement, archive, company removal and a grant disappearing during token exchange. Completion messages carry the original state, user and workspace for the console migration. Legacy scoped redemption is atomic too.
 - Checkpoint validation: `npm run fix-check` passed and **653 tests** passed in 74 files, with PostgreSQL enabled. #7 remains open: the complete MCP/REST downstream account and persistence matrix, archive/restore revocation checks, and coordinated browser evidence are still pending. This checkpoint does not establish the staging cutover or desktop release gates.
+- #7 runtime evidence now exercises the real MCP client and REST routes with alternate workspace headers, query parameters, request bodies and tool arguments. Same-label downstream sentinel accounts and persisted run identity remain bound to the stored key. HTTP tests cover live downgrade, A offboarding with B preservation, archive/restore with retained revocation, and alternating cookie reads/writes with private browser/edge cache headers across SQLite, D1 and PostgreSQL.
+- PostgreSQL now preserves safe account identity and the actual caller in persisted run metadata. PostgreSQL fixtures include the shipped workspace-safety migration so provider execution exercises the production table contract. Validation: `npm run fix-check` and all **668 tests** in 74 files passed, with PostgreSQL enabled. The rendered two-tab browser check is shared with #8 and remains pending.
 - Other tickets below remain pending implementation and/or their full acceptance evidence.
 
 ## [#5: Serve Better Auth sessions from Hono and authenticate each principal explicitly](https://github.com/Ntrakiyski/connections/issues/5)
@@ -36,9 +38,9 @@ This is a working evidence ledger for tracker [#2](https://github.com/Ntrakiyski
 
 ## [#7: Enforce live workspace access across MCP, REST and provider OAuth](https://github.com/Ntrakiyski/connections/issues/7)
 
-- [ ] An authorized existing oct\_ token still works for its original workspace. An alternate workspace supplied by header, URL, body or tool argument cannot change that workspace.
-- [ ] The next request observes a role downgrade or removal. Removing a user from A preserves independent B access. Archive blocks access and restore does not resurrect revoked keys.
-- [ ] Replayed callbacks, expired consent and callbacks completed after access removal or archival cannot create a credential. A denied or competing operation cannot alter an unauthorized account.
+- [x] An authorized existing oct\_ token still works for its original workspace. An alternate workspace supplied by header, URL, body or tool argument cannot change that workspace.
+- [x] The next request observes a role downgrade or removal. Removing a user from A preserves independent B access. Archive blocks access and restore does not resurrect revoked keys.
+- [x] Replayed callbacks, expired consent and callbacks completed after access removal or archival cannot create a credential. A denied or competing operation cannot alter an unauthorized account.
 - [ ] Switching between two authorized workspaces in one browser does not return the other workspace's cached response. Tests verify the downstream account and persisted side effects.
 
 ## [#8: Replace Clerk UI with Better Auth sign-in and tab-scoped workspace administration](https://github.com/Ntrakiyski/connections/issues/8)

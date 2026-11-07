@@ -20,10 +20,11 @@ import type {
   WorkspaceMember,
   WorkspaceScopedStores,
 } from "./runtime-database.ts";
-import type { IRunLogStore, RunLog, RunLogCaller, RunLogListInput, RunLogPage } from "./runtime-store.ts";
+import type { IRunLogStore, RunLog, RunLogListInput, RunLogPage } from "./runtime-store.ts";
 import type { IRuntimeTokenStore, RuntimeTokenRecord, WorkspaceRole } from "./runtime-token-service.ts";
 import type { Pool, QueryResultRow } from "pg";
 
+import { z } from "zod";
 import { ConnectionError } from "../../connection-service.ts";
 import { commitConnectionMutation } from "./connection-mutations.ts";
 import { SqlIdentityDirectory } from "./identity-directory.ts";
@@ -422,12 +423,7 @@ class PostgresRunLogStore implements IRunLogStore {
         run.startedAt,
         run.completedAt,
         run.ok ? 1 : 0,
-        JSON.stringify({
-          inputSummary: run.inputSummary,
-          errorCode: run.errorCode,
-          errorMessage: run.errorMessage,
-          safety: run.safety,
-        }),
+        JSON.stringify(run),
       ],
     );
   }
@@ -463,33 +459,61 @@ class PostgresRunLogStore implements IRunLogStore {
     const result = await this.#pool.query(query, params);
     const { encodeRunLogCursor: encode } = await import("./runtime-store.ts");
 
-    const items: RunLog[] = result.rows.map((r) => {
-      const extra = typeof r.value === "string" ? JSON.parse(r.value) : (r.value ?? {});
-      const startedAt = r.started_at as string;
-      const completedAt = r.completed_at as string;
-      return {
-        id: r.id,
-        workspaceId: r.workspace_id,
-        userId: r.user_id,
-        service: r.service,
-        actionId: r.action_id,
-        caller: "http" as RunLogCaller,
-        startedAt,
-        completedAt,
-        durationMs: new Date(completedAt).getTime() - new Date(startedAt).getTime(),
-        ok: r.ok === 1,
-        inputSummary: extra.inputSummary,
-        errorCode: extra.errorCode,
-        errorMessage: extra.errorMessage,
-        safety: extra.safety,
-      };
-    });
+    const items = result.rows.map(mapRunLogRow);
 
     const lastItem = items[items.length - 1];
     const nextCursor = items.length === limit && lastItem ? encode(lastItem) : undefined;
 
     return { items, nextCursor };
   }
+}
+
+const runRowSchema = z.object({
+  id: z.string(),
+  workspace_id: z.string(),
+  user_id: z.string(),
+  service: z.string().nullable(),
+  action_id: z.string(),
+  started_at: z.string(),
+  completed_at: z.string(),
+  ok: z.number(),
+  value: z.string(),
+});
+const runMetadataSchema = z.object({
+  caller: z.enum(["http", "mcp", "web"]).optional(),
+  durationMs: z.number().optional(),
+  connectionProfile: z
+    .object({ accountId: z.string(), displayName: z.string(), grantedScopes: z.array(z.string()) })
+    .optional(),
+  inputSummary: z.unknown().optional(),
+  errorCode: z.string().optional(),
+  errorMessage: z.string().optional(),
+  safety: z
+    .object({
+      riskTags: z.array(z.string()),
+      scopePreflight: z.enum(["not_required", "passed", "missing", "unknown"]),
+      idempotency: z.enum(["none", "observed", "stored", "replayed", "conflict"]),
+      retryCount: z.number(),
+    })
+    .optional(),
+});
+
+function mapRunLogRow(value: unknown): RunLog {
+  const row = runRowSchema.parse(value);
+  const metadata = runMetadataSchema.parse(JSON.parse(row.value));
+  return {
+    ...metadata,
+    id: row.id,
+    workspaceId: row.workspace_id,
+    userId: row.user_id,
+    service: row.service ?? "",
+    actionId: row.action_id,
+    caller: metadata.caller ?? "http",
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
+    durationMs: metadata.durationMs ?? Date.parse(row.completed_at) - Date.parse(row.started_at),
+    ok: row.ok === 1,
+  };
 }
 
 class PostgresWorkspaceStore implements IWorkspaceStore {

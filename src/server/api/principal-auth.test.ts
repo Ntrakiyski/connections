@@ -3,12 +3,15 @@ import type { RuntimeDatabase } from "../storage/runtime-database.ts";
 import type { BetterAuthOptions } from "better-auth";
 import type { Hono } from "hono";
 
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Pool } from "pg";
+import pino from "pino";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createD1AuthDatabase } from "../cloudflare/d1-auth-database.ts";
 import { createConnectApp } from "../connect-app.ts";
@@ -31,6 +34,7 @@ interface Fixture {
   database: RuntimeDatabase;
   write(sql: string, values: Array<string | number>): Promise<void>;
   mail: AuthMail[];
+  loader: SentinelProviderLoader;
 }
 
 afterEach(async () => {
@@ -56,6 +60,12 @@ async function createFixture(adapter: string): Promise<Fixture> {
       await admin.end();
     });
     await pool.query(readFileSync(new URL("../../../connections-docs/insforge-schema.sql", import.meta.url), "utf8"));
+    await pool.query(
+      readFileSync(
+        new URL("../../../migrations/20260718095600_workspace-safety-settings.sql", import.meta.url),
+        "utf8",
+      ),
+    );
     await pool.query(
       readFileSync(new URL("../../../migrations/20261107200000_organization-identity.sql", import.meta.url), "utf8"),
     );
@@ -107,9 +117,11 @@ async function createFixture(adapter: string): Promise<Fixture> {
     },
     authDatabase,
   );
+  const loader = new SentinelProviderLoader();
   const connect = await createConnectApp({
+    logger: pino({ level: "error" }),
     catalog: sentinelCatalog,
-    providerLoader: new SentinelProviderLoader(),
+    providerLoader: loader,
     runtimeDatabase: database,
     transitFiles: new TransitFileService({
       rootDir: join(directory, "files"),
@@ -127,7 +139,7 @@ async function createFixture(adapter: string): Promise<Fixture> {
   cleanups.push(async () => {
     await rm(directory, { recursive: true, force: true });
   });
-  return { app: connect.app, database, write, mail };
+  return { app: connect.app, database, write, mail, loader };
 }
 
 function post(app: Hono, path: string, body: unknown, cookie = "", requestOrigin = origin): Promise<Response> {
@@ -274,26 +286,22 @@ for (const adapter of ["SQLite", "D1", "PostgreSQL"]) {
         const fixture = await setup();
         const { userId } = await register(fixture);
         await seed(fixture, userId);
-        await fixture.database
-          .createScopedStores("A1")
-          .oauthClientConfigStore.set({
-            service: "sentinel",
-            clientId: "synthetic-client",
-            clientSecret: "synthetic-secret",
-            extra: {},
-            secretExtra: {},
-          });
+        await fixture.database.createScopedStores("A1").oauthClientConfigStore.set({
+          service: "sentinel",
+          clientId: "synthetic-client",
+          clientSecret: "synthetic-secret",
+          extra: {},
+          secretExtra: {},
+        });
         const state = crypto.randomUUID();
-        await fixture.database
-          .createScopedStores("A1")
-          .oauthStateStore.set({
-            state,
-            userId,
-            workspaceId: "A1",
-            service: "sentinel",
-            connectionName: "shared",
-            createdAt: new Date().toISOString(),
-          });
+        await fixture.database.createScopedStores("A1").oauthStateStore.set({
+          state,
+          userId,
+          workspaceId: "A1",
+          service: "sentinel",
+          connectionName: "shared",
+          createdAt: new Date().toISOString(),
+        });
         const exchange = vi.fn(async () => {
           await fixture.write("delete from workspace_memberships where workspace_id=? and user_id=?", ["A1", userId]);
           return Response.json({ access_token: "removed-during-exchange", token_type: "Bearer" });
@@ -352,6 +360,323 @@ for (const adapter of ["SQLite", "D1", "PostgreSQL"]) {
         expect(await fixture.database.createScopedStores("B1").connectionStore.get("sentinel", "shared")).toMatchObject(
           { apiKey: "B1-account" },
         );
+      });
+
+      it("keeps runtime bodies and MCP tool arguments bound to the stored key and persists only original-workspace runs", async () => {
+        const fixture = await setup();
+        const { userId, cookie } = await register(fixture);
+        await seed(fixture, userId);
+        await fixture.database.workspaceStore.create({
+          id: "A2",
+          organizationId: "A",
+          clerkOrgId: "connections-workspace:A2",
+          name: "A2",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+        await fixture.database.membershipStore.setRole("A2", userId, "admin");
+        await fixture.database.workspaceControlStore.enableProvider({
+          workspaceId: "A2",
+          service: "sentinel",
+          enabledBy: userId,
+          enabledAt: new Date().toISOString(),
+        });
+        await fixture.database
+          .createScopedStores("A2")
+          .connectionStore.set("sentinel", "shared", sentinelCredential("A2-account"), userId);
+        const key = await new RuntimeTokenService(fixture.database.runtimeTokenStore).createToken(
+          "A1",
+          userId,
+          "Existing automation",
+        );
+        expect((await post(fixture.app, "/api/identity/sign-out", {}, cookie)).status).toBe(200);
+        for (const alternate of ["A2", "B1"]) {
+          const result = await fixture.app.request(`${origin}/v1/actions/sentinel.get_account`, {
+            method: "POST",
+            headers: { authorization: `Bearer ${key.token}`, "content-type": "application/json" },
+            body: JSON.stringify({
+              workspaceId: alternate,
+              connectionName: "shared",
+              input: { workspaceId: alternate, organizationId: "B", userId: "another-user" },
+            }),
+          });
+          expect(result.status).toBe(200);
+          expect(await result.json()).toMatchObject({ data: { selectedAccount: "A1-account", workspaceId: "A1" } });
+          const transport = new StreamableHTTPClientTransport(new URL(`${origin}/mcp`), {
+            requestInit: { headers: { authorization: `Bearer ${key.token}` } },
+            fetch: (input, init) => Promise.resolve(fixture.app.request(input, init)),
+          });
+          const client = new Client({ name: "bound-key-test", version: "1" });
+          await client.connect(transport);
+          try {
+            const tool = await client.callTool({
+              name: "execute_action",
+              arguments: {
+                actionId: "sentinel.get_account",
+                connectionName: "shared",
+                workspaceId: alternate,
+                input: { workspaceId: alternate },
+              },
+            });
+            expect(tool.isError).not.toBe(true);
+            expect(tool.content).toEqual(
+              expect.arrayContaining([
+                expect.objectContaining({ type: "text", text: expect.stringMatching(/"workspaceId"\s*:\s*"A1"/) }),
+              ]),
+            );
+          } finally {
+            await client.close();
+          }
+        }
+        for (const alternate of ["A2", "B1"]) {
+          expect(
+            (
+              await fixture.app.request(`${origin}/v1/actions/sentinel.get_account`, {
+                method: "POST",
+                headers: {
+                  authorization: `Bearer ${key.token}`,
+                  "x-workspace-id": alternate,
+                  "content-type": "application/json",
+                },
+                body: JSON.stringify({ connectionName: "shared", input: {} }),
+              })
+            ).status,
+          ).toBe(403);
+          expect(
+            (
+              await fixture.app.request(`${origin}/v1/actions/sentinel.get_account?workspaceId=${alternate}`, {
+                method: "POST",
+                headers: { authorization: `Bearer ${key.token}`, "content-type": "application/json" },
+                body: JSON.stringify({ connectionName: "shared", input: {} }),
+              })
+            ).status,
+          ).toBe(403);
+        }
+        expect(fixture.loader.selectedAccounts).toEqual(["A1-account", "A1-account", "A1-account", "A1-account"]);
+        const runs = await fixture.database.createScopedStores("A1").runLogStore.list();
+        expect(runs.items).toHaveLength(4);
+        for (const run of runs.items)
+          expect(run).toMatchObject({ workspaceId: "A1", userId, connectionProfile: { accountId: "A1-account" } });
+        for (const workspaceId of ["A2", "B1"])
+          expect((await fixture.database.createScopedStores(workspaceId).runLogStore.list()).items).toEqual([]);
+        expect(await fixture.database.runtimeTokenStore.findByHash(key.record.tokenHash)).toMatchObject({
+          id: key.record.id,
+          userId,
+          workspaceId: "A1",
+          tokenHash: key.record.tokenHash,
+        });
+      });
+
+      it("rechecks runtime role on the next request and preserves the independent company-B key", async () => {
+        const fixture = await setup();
+        const operator = await register(fixture);
+        const other = await register(fixture, "alice@example.test");
+        await seed(fixture, operator.userId);
+        await fixture.write(
+          "insert into organization_memberships(id,organization_id,user_id,role,created_at) values(?,?,?,?,?)",
+          [crypto.randomUUID(), "A", other.userId, "member", new Date().toISOString()],
+        );
+        await fixture.database.membershipStore.setRole("A1", other.userId, "admin");
+        await fixture.database.createScopedStores("A1").connectionStore.delete("sentinel", "shared");
+        await fixture.database
+          .createScopedStores("A1")
+          .connectionStore.set("sentinel", "shared", sentinelCredential("alice-owned"), other.userId);
+        const tokens = new RuntimeTokenService(fixture.database.runtimeTokenStore);
+        const a = await tokens.createToken("A1", operator.userId, "A automation");
+        const b = await tokens.createToken("B1", operator.userId, "B automation");
+        const run = (token: string): Promise<Response> =>
+          Promise.resolve(
+            fixture.app.request(`${origin}/v1/actions/sentinel.get_account`, {
+              method: "POST",
+              headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+              body: JSON.stringify({ connectionName: "shared", input: {} }),
+            }),
+          );
+        expect((await run(a.token)).status).toBe(200);
+        const changed = await fixture.app.request(`${origin}/api/companies/A/workspaces/A1/grants/${operator.userId}`, {
+          method: "PUT",
+          headers: { cookie: operator.cookie, origin, "content-type": "application/json" },
+          body: JSON.stringify({ role: "member" }),
+        });
+        expect(changed.status).toBe(200);
+        const denied = await run(a.token);
+        expect(denied.status).toBe(404);
+        expect(await denied.json()).toMatchObject({ errorCode: "connection_not_found" });
+        const permitted = await run(b.token);
+        expect(permitted.status).toBe(200);
+        expect(await permitted.json()).toMatchObject({ data: { selectedAccount: "B1-account", workspaceId: "B1" } });
+        expect(fixture.loader.selectedAccounts).toEqual(["alice-owned", "B1-account"]);
+        expect((await fixture.database.createScopedStores("A1").runLogStore.list()).items).toHaveLength(1);
+      });
+
+      it("offboards company A through the API while B credentials and automation remain independent", async () => {
+        const fixture = await setup();
+        const operator = await register(fixture);
+        const target = await register(fixture, "member@example.test");
+        await seed(fixture, operator.userId);
+        for (const organizationId of ["A", "B"]) {
+          const workspaceId = `${organizationId}1`;
+          const created = await post(
+            fixture.app,
+            `/api/companies/${organizationId}/invitations`,
+            { email: "member@example.test", role: "member", grants: [{ workspaceId, role: "member" }] },
+            operator.cookie,
+          );
+          expect(created.status).toBe(201);
+          const invitation = await created.json();
+          expect(
+            (await post(fixture.app, `/api/account/invitations/${invitation.invitationId}/accept`, {}, target.cookie))
+              .status,
+          ).toBe(200);
+          await fixture.database
+            .createScopedStores(workspaceId)
+            .connectionStore.set("sentinel", "member", sentinelCredential(`${workspaceId}-member`), target.userId);
+        }
+        const tokens = new RuntimeTokenService(fixture.database.runtimeTokenStore);
+        const a = await tokens.createToken("A1", target.userId, "Member A");
+        const b = await tokens.createToken("B1", target.userId, "Member B");
+        const run = (token: string): Promise<Response> =>
+          Promise.resolve(
+            fixture.app.request(`${origin}/v1/actions/sentinel.get_account`, {
+              method: "POST",
+              headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+              body: JSON.stringify({ connectionName: "member", input: {} }),
+            }),
+          );
+        expect((await run(a.token)).status).toBe(200);
+        const removed = await fixture.app.request(`${origin}/api/companies/A/members/${target.userId}`, {
+          method: "DELETE",
+          headers: { cookie: operator.cookie, origin },
+        });
+        expect(removed.status).toBe(200);
+        expect((await run(a.token)).status).toBe(401);
+        const stillAuthorized = await run(b.token);
+        expect(stillAuthorized.status).toBe(200);
+        expect(await stillAuthorized.json()).toMatchObject({
+          data: { selectedAccount: "B1-member", workspaceId: "B1" },
+        });
+        expect(
+          await fixture.database.createScopedStores("A1").connectionStore.get("sentinel", "member"),
+        ).toBeUndefined();
+        expect(
+          await fixture.database.createScopedStores("B1").connectionStore.getStored("sentinel", "member"),
+        ).toMatchObject({ createdBy: target.userId, credential: { apiKey: "B1-member" } });
+        expect(
+          (
+            await fixture.app.request(`${origin}/api/connections`, {
+              headers: { cookie: target.cookie, "x-workspace-id": "A1" },
+            })
+          ).status,
+        ).toBe(403);
+        expect(
+          (
+            await fixture.app.request(`${origin}/api/connections`, {
+              headers: { cookie: target.cookie, "x-workspace-id": "B1" },
+            })
+          ).status,
+        ).toBe(200);
+        expect((await fixture.database.createScopedStores("B1").runLogStore.list()).items).toEqual([
+          expect.objectContaining({
+            workspaceId: "B1",
+            userId: target.userId,
+            connectionProfile: expect.objectContaining({ accountId: "B1-member" }),
+          }),
+        ]);
+      });
+
+      it("archives resources and restores data without resurrecting revoked runtime keys", async () => {
+        const fixture = await setup();
+        const { cookie, userId } = await register(fixture);
+        await seed(fixture, userId);
+        const tokens = new RuntimeTokenService(fixture.database.runtimeTokenStore);
+        const a = await tokens.createToken("A1", userId, "Archived A");
+        const b = await tokens.createToken("B1", userId, "Independent B");
+        const archive = await fixture.app.request(`${origin}/api/workspace`, {
+          method: "DELETE",
+          headers: { cookie, origin, "x-workspace-id": "A1", "content-type": "application/json" },
+          body: JSON.stringify({ confirmation: "A1" }),
+        });
+        expect(archive.status).toBe(200);
+        expect(
+          (await fixture.app.request(`${origin}/api/connections`, { headers: { cookie, "x-workspace-id": "A1" } }))
+            .status,
+        ).toBe(403);
+        expect(
+          (await fixture.app.request(`${origin}/v1/apps`, { headers: { authorization: `Bearer ${a.token}` } })).status,
+        ).toBe(401);
+        expect(
+          (await fixture.app.request(`${origin}/v1/apps`, { headers: { authorization: `Bearer ${b.token}` } })).status,
+        ).toBe(200);
+        const restored = await fixture.app.request(`${origin}/api/workspace/restore`, {
+          method: "POST",
+          headers: { cookie, origin, "x-workspace-id": "A1" },
+        });
+        expect(restored.status).toBe(200);
+        expect(
+          (await fixture.app.request(`${origin}/api/connections`, { headers: { cookie, "x-workspace-id": "A1" } }))
+            .status,
+        ).toBe(200);
+        expect(
+          (await fixture.app.request(`${origin}/v1/apps`, { headers: { authorization: `Bearer ${a.token}` } })).status,
+        ).toBe(401);
+        const fresh = await tokens.createToken("A1", userId, "Reauthorized A");
+        const run = await fixture.app.request(`${origin}/v1/actions/sentinel.get_account`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${fresh.token}`, "content-type": "application/json" },
+          body: JSON.stringify({ connectionName: "shared", input: {} }),
+        });
+        expect(run.status).toBe(200);
+        expect(await run.json()).toMatchObject({ data: { selectedAccount: "A1-account", workspaceId: "A1" } });
+        expect(await fixture.database.runtimeTokenStore.findByHash(a.record.tokenHash)).toBeUndefined();
+        expect(await fixture.database.workspaceControlStore.listAuditEvents("A1", 100)).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ event: "workspace.deleted" }),
+            expect.objectContaining({ event: "workspace.restored" }),
+          ]),
+        );
+      });
+
+      it("keeps alternating cookie reads and writes private and persists each tab's declared destination", async () => {
+        const fixture = await setup();
+        const { cookie, userId } = await register(fixture);
+        await seed(fixture, userId);
+        for (const [workspaceId, account] of [
+          ["A1", "A1-edited"],
+          ["B1", "B1-edited"],
+          ["A1", "A1-edited-again"],
+        ]) {
+          const response = await fixture.app.request(`${origin}/api/connections/sentinel`, {
+            method: "PUT",
+            headers: { cookie, origin, "x-workspace-id": workspaceId, "content-type": "application/json" },
+            body: JSON.stringify({
+              authType: "api_key",
+              connectionName: "shared",
+              values: { apiKey: account },
+              workspaceId: workspaceId === "A1" ? "B1" : "A1",
+            }),
+          });
+          expect(response.status).toBe(200);
+          const read = await fixture.app.request(`${origin}/api/connections`, {
+            headers: { cookie, "x-workspace-id": workspaceId },
+          });
+          expect(read.status).toBe(200);
+          expect(read.headers.get("cache-control")).toBe("private, no-store");
+          expect(read.headers.get("cloudflare-cdn-cache-control")).toBe("no-store");
+          expect(await read.json()).toEqual([
+            expect.objectContaining({ profile: expect.objectContaining({ accountId: account }) }),
+          ]);
+        }
+        expect(
+          await fixture.database.createScopedStores("A1").connectionStore.getStored("sentinel", "shared"),
+        ).toMatchObject({ createdBy: userId, credential: { apiKey: "A1-edited-again" } });
+        expect(
+          await fixture.database.createScopedStores("B1").connectionStore.getStored("sentinel", "shared"),
+        ).toMatchObject({ createdBy: userId, credential: { apiKey: "B1-edited" } });
+        const aCatalog = await fixture.app.request(`${origin}/api/providers`, {
+          headers: { cookie, "x-workspace-id": "A1" },
+        });
+        expect(aCatalog.headers.get("cache-control")).toBe("private, no-store");
+        expect(aCatalog.headers.get("cloudflare-cdn-cache-control")).toBe("no-store");
       });
 
       it("requires verification and delivers recovery without exposing authentication tokens", async () => {
