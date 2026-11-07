@@ -27,6 +27,7 @@ import type { IRuntimeTokenStore, RuntimeTokenRecord, WorkspaceRole } from "./ru
 import { ConnectionError } from "../../connection-service.ts";
 import { PlainTextSecretCodec } from "../secrets/secret-codec-core.ts";
 import { SqlIdentityDirectory } from "./identity-directory.ts";
+import { D1IdentityMutationStore } from "./identity-mutations.ts";
 import { D1MeetingStore } from "./meeting-store.ts";
 import { decodeRunLogCursor, encodeRunLogCursor } from "./runtime-store.ts";
 
@@ -39,6 +40,7 @@ export interface D1RuntimeDatabaseOptions {
 
 /** D1 implementation of the same workspace-scoped runtime store contract as SQLite. */
 export class D1RuntimeDatabase implements RuntimeDatabase {
+  readonly identityMutations: D1IdentityMutationStore;
   readonly identityDirectory: SqlIdentityDirectory;
   readonly connectionStore: D1ConnectionStore;
   readonly oauthClientConfigStore: D1OAuthClientConfigStore;
@@ -57,6 +59,7 @@ export class D1RuntimeDatabase implements RuntimeDatabase {
 
   constructor(database: D1DatabaseBinding, options: D1RuntimeDatabaseOptions = {}) {
     this.database = database;
+    this.identityMutations = new D1IdentityMutationStore(database);
     this.identityDirectory = new SqlIdentityDirectory(
       async (sql, values) =>
         (

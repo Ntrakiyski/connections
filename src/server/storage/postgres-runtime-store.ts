@@ -26,12 +26,14 @@ import type { Pool, QueryResultRow } from "pg";
 
 import { ConnectionError } from "../../connection-service.ts";
 import { SqlIdentityDirectory } from "./identity-directory.ts";
+import { PostgresIdentityMutationStore } from "./identity-mutations.ts";
 import { PostgresMeetingStore } from "./meeting-store.ts";
 function now(): string {
   return new Date().toISOString();
 }
 
 export class PostgresRuntimeDatabase implements RuntimeDatabase {
+  readonly identityMutations: PostgresIdentityMutationStore;
   readonly identityDirectory: SqlIdentityDirectory;
   readonly authDatabase: Pool;
   readonly connectionStore: IConnectionStore;
@@ -50,6 +52,7 @@ export class PostgresRuntimeDatabase implements RuntimeDatabase {
   constructor(pool: Pool, secretCodec: ISecretCodec, defaultWorkspaceId = "default") {
     this.#pool = pool;
     this.authDatabase = pool;
+    this.identityMutations = new PostgresIdentityMutationStore(pool);
     this.identityDirectory = new SqlIdentityDirectory(async (sql, values) => {
       let index = 0;
       return (

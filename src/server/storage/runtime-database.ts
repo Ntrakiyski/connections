@@ -5,6 +5,7 @@ import type { IOAuthClientConfigStore } from "../../oauth/oauth-client-config-se
 import type { OAuthClientConfig } from "../../oauth/oauth-client-config-service.ts";
 import type { IOAuthStateStore } from "../../oauth/oauth-flow-service.ts";
 import type { IIdentityDirectory } from "./identity-directory.ts";
+import type { IIdentityMutationStore } from "./identity-mutations.ts";
 import type { IRunLogStore, RunLog, RunLogListInput, RunLogPage } from "./runtime-store.ts";
 import type { IRuntimeTokenStore, RuntimeTokenRecord, WorkspaceRole } from "./runtime-token-service.ts";
 import type { BetterAuthOptions } from "better-auth";
@@ -209,6 +210,7 @@ export interface WorkspaceScopedStores {
 }
 
 export interface RuntimeDatabase {
+  identityMutations?: IIdentityMutationStore;
   /** Native database used by Better Auth's matching adapter. */
   authDatabase?: BetterAuthOptions["database"];
   identityDirectory?: IIdentityDirectory;

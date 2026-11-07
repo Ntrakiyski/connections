@@ -16,6 +16,7 @@ This is a working evidence ledger for tracker [#2](https://github.com/Ntrakiyski
 - #5 authentication checks now cover SQLite, D1 and PostgreSQL. Production startup checks exercise the actual Node and Worker entry points. Wrangler dry-run bundling passed. Native local Workerd/D1 plus real local SMTP passed 12 checks: verification, recovery, secure session behavior, wrong-origin rejection, password-reset revocation and server logout. The issue remains open until the coordinated change is merged and reviewed.
 - Runtime token stores now enforce scope consistently and retain individual token revocation records. The PostgreSQL global store preserves the workspace supplied at creation.
 - Authentication foundation validation: `npm run fix-check` and all **539 tests** passed, including PostgreSQL. Native Workerd evidence is recorded in `verification/workerd-auth.json`.
+- #6 company/workspace provisioning, direct grants, role changes, atomic final-owner/admin checks and scoped offboarding are implemented in the application service. Targeted cross-adapter governance and permission tests pass (39 tests). The latest full suite passes all 557 tests, including PostgreSQL; lint/format/type checks pass. Invitations, acceptance retries and HTTP integration are outstanding.
 - Other tickets below remain pending implementation and/or their full acceptance evidence.
 
 ## [#5: Serve Better Auth sessions from Hono and authenticate each principal explicitly](https://github.com/Ntrakiyski/connections/issues/5)

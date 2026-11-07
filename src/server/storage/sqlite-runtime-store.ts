@@ -28,6 +28,7 @@ import { DatabaseSync } from "node:sqlite";
 import { ConnectionError } from "../../connection-service.ts";
 import { PlainTextSecretCodec } from "../secrets/secret-codec-core.ts";
 import { SqlIdentityDirectory } from "./identity-directory.ts";
+import { SqliteIdentityMutationStore } from "./identity-mutations.ts";
 import { SqliteMeetingStore } from "./meeting-store.ts";
 import { decodeRunLogCursor, encodeRunLogCursor } from "./runtime-store.ts";
 
@@ -41,6 +42,7 @@ export interface SqliteRuntimeDatabaseOptions {
 
 /** Shared SQLite runtime state with workspace-scoped store factories. */
 export class SqliteRuntimeDatabase implements RuntimeDatabase {
+  readonly identityMutations: SqliteIdentityMutationStore;
   readonly identityDirectory: SqlIdentityDirectory;
   readonly authDatabase: DatabaseSync;
   readonly connectionStore: SqliteConnectionStore;
@@ -61,6 +63,7 @@ export class SqliteRuntimeDatabase implements RuntimeDatabase {
   constructor(filename: string, options: SqliteRuntimeDatabaseOptions = {}) {
     this.database = new DatabaseSync(filename);
     this.authDatabase = this.database;
+    this.identityMutations = new SqliteIdentityMutationStore(this.database);
     this.identityDirectory = new SqlIdentityDirectory(async (sql, values) => this.database.prepare(sql).all(...values));
     this.secretCodec = options.secretCodec ?? new PlainTextSecretCodec();
     this.runLimit = options.runLimit ?? 100;
