@@ -1,7 +1,15 @@
 import type { D1DatabaseBinding } from "../cloudflare/cloudflare-bindings.ts";
-import type { IMeetingStore, MeetingRecord, MeetingWrite, MeetingWriteResult } from "./runtime-database.ts";
+import type {
+  IMeetingStore,
+  MeetingRecord,
+  MeetingWrite,
+  MeetingWriteResult,
+  MeetingWriteAuthorization,
+} from "./runtime-database.ts";
 import type { DatabaseSync } from "node:sqlite";
 import type { Pool, PoolClient } from "pg";
+
+import { meetingWriteGuard } from "./meeting-write-authorization.ts";
 
 type Row = Record<string, unknown>;
 const canonicalUuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -141,16 +149,35 @@ export class SqliteMeetingStore implements IMeetingStore {
     const r = this.db.prepare("select * from meetily_meetings where workspace_id = ? and id = ?").get(workspaceId, id);
     return r ? mapRow(r as Row) : undefined;
   }
-  async put(workspaceId: string, input: MeetingWrite): Promise<MeetingWriteResult> {
+  async put(
+    workspaceId: string,
+    input: MeetingWrite,
+    authorization?: MeetingWriteAuthorization,
+  ): Promise<MeetingWriteResult> {
     const now = new Date().toISOString();
     const [createAuditId, finalizeAuditId] = await auditIds(workspaceId, input.externalId);
+    const guardId = crypto.randomUUID();
     this.db.exec("begin immediate");
     try {
+      if (authorization) {
+        const guard = meetingWriteGuard(
+          workspaceId,
+          input.createdBy,
+          authorization,
+          guardId,
+          "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+        );
+        this.db.prepare(guard.sql).run(...guard.values);
+        this.db.prepare("delete from identity_mutation_checks where id=?").run(guardId);
+      }
       const inserted = this.db.prepare(insertSql).run(...(values(workspaceId, input, now) as never[]));
       const updated = Number(inserted.changes)
         ? undefined
         : this.db.prepare(updateSql).run(...(updateValues(workspaceId, input, now) as never[]));
-      const meeting = await this.get(workspaceId, input.externalId);
+      const row = this.db
+        .prepare("select * from meetily_meetings where workspace_id=? and external_id=?")
+        .get(workspaceId, input.externalId);
+      const meeting = row ? mapRow(row) : undefined;
       if (!meeting) throw new Error("Meeting upsert did not return a row.");
       if (meeting.createdBy !== input.createdBy) throw new Error("meeting_creator_forbidden");
       const auditValues = [workspaceId, input.externalId, input.createdBy] as const;
@@ -163,7 +190,7 @@ export class SqliteMeetingStore implements IMeetingStore {
       };
     } catch (error) {
       this.db.exec("rollback");
-      throw error;
+      throw meetingWriteError(error, authorization);
     }
   }
 }
@@ -195,13 +222,32 @@ export class PostgresMeetingStore implements IMeetingStore {
     ]);
     return r.rows[0] ? mapRow(r.rows[0]) : undefined;
   }
-  async put(workspaceId: string, input: MeetingWrite): Promise<MeetingWriteResult> {
+  async put(
+    workspaceId: string,
+    input: MeetingWrite,
+    authorization?: MeetingWriteAuthorization,
+  ): Promise<MeetingWriteResult> {
     const now = new Date().toISOString();
     const parameters = values(workspaceId, input, now);
     const [createAuditId, finalizeAuditId] = await auditIds(workspaceId, input.externalId);
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      if (authorization) {
+        await client.query("select id from organizations where id=$1 for update", [authorization.organizationId]);
+        await client.query("select id from workspaces where id=$1 and organization_id=$2 for update", [
+          workspaceId,
+          authorization.organizationId,
+        ]);
+        const guardId = crypto.randomUUID();
+        const guard = meetingWriteGuard(workspaceId, input.createdBy, authorization, guardId, "clock_timestamp()");
+        let parameter = 0;
+        await client.query(
+          guard.sql.replaceAll("?", () => `$${++parameter}`),
+          guard.values,
+        );
+        await client.query("delete from identity_mutation_checks where id=$1", [guardId]);
+      }
       const result = await client.query(
         `insert into meetily_meetings
        (id, workspace_id, external_id, created_by, state, revision, title, transcript, transcript_segments,
@@ -236,7 +282,7 @@ export class PostgresMeetingStore implements IMeetingStore {
       return { status: row ? (row.inserted ? "created" : "updated") : "ignored", meeting };
     } catch (error) {
       await client.query("ROLLBACK");
-      throw error;
+      throw meetingWriteError(error, authorization);
     } finally {
       client.release();
     }
@@ -299,19 +345,44 @@ export class D1MeetingStore implements IMeetingStore {
       .first<Row>();
     return r ? mapRow(r) : undefined;
   }
-  async put(workspaceId: string, input: MeetingWrite): Promise<MeetingWriteResult> {
+  async put(
+    workspaceId: string,
+    input: MeetingWrite,
+    authorization?: MeetingWriteAuthorization,
+  ): Promise<MeetingWriteResult> {
     const now = new Date().toISOString();
     const [createAuditId, finalizeAuditId] = await auditIds(workspaceId, input.externalId);
     const auditValues = [workspaceId, input.externalId, input.createdBy] as const;
-    const [inserted, updated] = await this.db.batch([
+    const guardId = crypto.randomUUID();
+    const guard = authorization
+      ? meetingWriteGuard(workspaceId, input.createdBy, authorization, guardId, "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')")
+      : undefined;
+    const writes = [
       this.db.prepare(insertSql).bind(...(values(workspaceId, input, now) as never[])),
       this.db.prepare(updateSql).bind(...(updateValues(workspaceId, input, now) as never[])),
       this.db.prepare(createAuditSql).bind(createAuditId, ...auditValues),
       this.db.prepare(finalizeAuditSql).bind(finalizeAuditId, ...auditValues),
-    ]);
+    ];
+    if (guard) {
+      writes.unshift(this.db.prepare(guard.sql).bind(...guard.values));
+      writes.push(this.db.prepare("delete from identity_mutation_checks where id=?").bind(guardId));
+    }
+    let results;
+    try {
+      results = await this.db.batch(writes);
+    } catch (error) {
+      throw meetingWriteError(error, authorization);
+    }
+    const [inserted, updated] = guard ? results.slice(1) : results;
     const meeting = await this.get(workspaceId, input.externalId);
     if (!meeting) throw new Error("Meeting upsert did not return a row.");
     if (meeting.createdBy !== input.createdBy) throw new Error("meeting_creator_forbidden");
     return { status: inserted?.meta.changes ? "created" : updated?.meta.changes ? "updated" : "ignored", meeting };
   }
+}
+
+function meetingWriteError(error: unknown, authorization?: MeetingWriteAuthorization): unknown {
+  if (authorization && error instanceof Error && error.message.includes("identity_forbidden"))
+    return new Error("meeting_access_forbidden");
+  return error;
 }

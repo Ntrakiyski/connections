@@ -78,9 +78,17 @@ This is local synthetic evidence. #9 remains open for coordinated PR review and 
 
 ## [#10: Issue workspace-bound OAuth grants for the Meetings desktop client](https://github.com/Ntrakiyski/connections/issues/10)
 
-- [ ] A signed native flow can sign in, refresh and upload a meeting using its authorized workspace. A consent in A1 cannot select A2 or B1 through a request parameter or a changed browser session.
-- [ ] Expired and revoked tokens, ID tokens, machine credentials, wrong issuer/client/resource, missing scopes, and removed memberships are rejected without reads or writes. Exercise the real issuer in integration tests.
+- [x] A signed native flow can sign in, refresh and upload a meeting using its authorized workspace. A consent in A1 cannot select A2 or B1 through a request parameter or a changed browser session.
+- [x] Expired and revoked tokens, ID tokens, machine credentials, wrong issuer/client/resource, missing scopes, and removed memberships are rejected without reads or writes. Exercise the real issuer in integration tests.
 - [ ] Publish the versioned contract, staging configuration and release gate for the desktop client. Validate one recording and a queued retry end to end before retiring legacy desktop access.
+
+OAuth server checkpoint validation: `npm ci`, `npm run fix-check`, `npm run build:web`, and all **733 tests in 78 files**, with disposable PostgreSQL enabled, passed. No tests were skipped in this full run.
+
+Server checkpoint: the real pinned issuer passes **33 integration checks** across SQLite, D1 contract and disposable PostgreSQL. Coverage includes exact issuer/resource discovery, signed consent, immutable selection, PKCE failure, atomic concurrent code redemption, replay denial, rotated-response retry, stale refresh replay isolated to its original binding, original-session expiry, live roles, workspace/company removal, archive/restore, public-client/resource restrictions, mixed credentials, malformed consent, expired codes/consent and decline. Workspace-wide reads and creator-bound writes use actual issued tokens. A stream paused after authentication and released after grant removal receives 403 without a meeting or meeting audit write on all adapters.
+
+PostgreSQL serializes saves and binding revocation using the same company/workspace lock order as governance. SQLite checks access without awaiting inside the write transaction; D1 checks it in the atomic batch. Concurrent restarts seed clients/resources idempotently. The internal resource-server introspection credential is encrypted and not exposed through public OAuth administration routes.
+
+[Versioned native configuration and staging/release gate](MEETINGS_OAUTH.md) are published. [Fresh browser desktop/mobile evidence](verification/meetings-oauth-browser.json) confirms actual console sign-in, workspace selection, consent/decline, code exchange and original A1 identity with no application page errors. The native custom-scheme handler is not installed on this browser host; repeating in a reused browser after unhandled custom-scheme navigation stalled. Fresh browser runs passed, but this does not establish the actual native handler or desktop recording/offline queue gate. The oldest compatible desktop release and actual paired staging pilot remain pending under #11–#12; #10 stays open. A clean-install audit reports 28 existing dependency findings (including dev tooling); neither pinned Better Auth package has a reported advisory. Release hardening and retirement of legacy dependencies remain part of the #12 review.
 
 ## [#11: Coordinate the Meetings desktop release for workspace-bound Connections OAuth](https://github.com/Ntrakiyski/connections/issues/11)
 

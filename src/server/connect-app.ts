@@ -20,6 +20,7 @@ import { CompanyDirectoryService } from "./company-directory.ts";
 import { CompanyInvitationService } from "./company-invitations.ts";
 import { CompanyService } from "./company-service.ts";
 import { ConnectServer } from "./connect-server.ts";
+import { MeetingsOAuthService } from "./meetings-oauth.ts";
 import { RuntimeTokenService } from "./storage/runtime-token-service.ts";
 import { WorkspaceControlService } from "./workspace-control-service.ts";
 import { WorkspaceLifecycleService } from "./workspace-lifecycle-service.ts";
@@ -65,6 +66,16 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
     membershipStore: options.runtimeDatabase.membershipStore,
   };
   const runtimeTokens = new RuntimeTokenService(options.runtimeDatabase.runtimeTokenStore);
+  const meetingsOAuth =
+    options.humanAuth && options.runtimeDatabase.identityMutations && accessStores.directory
+      ? new MeetingsOAuthService({
+          auth: options.humanAuth,
+          store: options.runtimeDatabase.identityMutations,
+          access: { ...accessStores, directory: accessStores.directory },
+          origin: options.publicOrigin,
+        })
+      : undefined;
+  await meetingsOAuth?.initialize();
   const hasStoredRuntimeTokens = async (): Promise<boolean> => (await runtimeTokens.listTokens()).length > 0;
   const createWorkspaceServices = (workspace: WorkspaceContext): WorkspaceServerServices => {
     const boundServices = (workspaceId: string): WorkspaceServerServices => {
@@ -174,6 +185,7 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
               workspaceStore: options.runtimeDatabase.workspaceStore,
               membershipStore: options.runtimeDatabase.membershipStore,
               runtimeTokens,
+              meetingsOAuth,
             }
           : undefined,
       companyServices:
@@ -188,6 +200,7 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
             }
           : undefined,
       meetingStore: options.runtimeDatabase.meetingStore,
+      meetingsOAuth,
       clerkWebhooks: {
         signingSecret: process.env.CLERK_WEBHOOK_SIGNING_SECRET,
         workspaceStore: options.runtimeDatabase.workspaceStore,

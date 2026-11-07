@@ -64,6 +64,7 @@ export async function createFixtureDatabase(adapter: string): Promise<FixtureDat
             name.includes("organization-identity") ||
             name.includes("identity-governance") ||
             name.includes("identity-import") ||
+            name.includes("meetings-oauth") ||
             name.includes("workspace-safety-settings"),
         )
         .sort()) {

@@ -123,12 +123,18 @@ export interface MeetingRecord {
 export type MeetingWrite = Omit<MeetingRecord, "id" | "workspaceId" | "createdAt" | "updatedAt" | "finalizedAt">;
 export type MeetingWriteResult = { status: "created" | "updated" | "ignored"; meeting: MeetingRecord };
 
+export interface MeetingWriteAuthorization {
+  referenceId: string;
+  organizationId: string;
+  tokenId: string;
+}
+
 export interface IMeetingStore {
   list(workspaceId: string): Promise<MeetingRecord[]>;
   getById(workspaceId: string, id: string): Promise<MeetingRecord | undefined>;
   /** Private sync key used only by PUT idempotency. */
   get(workspaceId: string, externalId: string): Promise<MeetingRecord | undefined>;
-  put(workspaceId: string, input: MeetingWrite): Promise<MeetingWriteResult>;
+  put(workspaceId: string, input: MeetingWrite, authorization?: MeetingWriteAuthorization): Promise<MeetingWriteResult>;
 }
 
 export interface IWorkspaceControlStore {

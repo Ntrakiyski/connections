@@ -29,6 +29,7 @@
     "fix-check": "npm run fix && npm run typecheck"
   },
   "dependencies": {
+    "@better-auth/oauth-provider": "1.7.18",
     "@cfworker/json-schema": "^4.1.1",
     "@clerk/backend": "^2.33.6",
     "@hono/node-server": "^2.0.6",

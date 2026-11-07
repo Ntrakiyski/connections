@@ -41,6 +41,7 @@ import oomolConnectLogoUrl from "./assets/oomol-connect-logo.png";
 import { authClient } from "./auth-client";
 import { AuthPage } from "./auth-page";
 import { persistLang, supportedLangs } from "./i18n";
+import { MeetingsConsentPage } from "./meetings-consent-page";
 import { emptyData } from "./model";
 import { OverviewPage } from "./overview-page";
 import { ProvidersPage } from "./providers-page";
@@ -219,6 +220,8 @@ export function App(): ReactNode {
       </main>
     );
   if (!directory || directory.account.user.id !== session.data.user.id) return <InitialLoadingView />;
+  if (location.pathname === "/desktop/connect")
+    return <MeetingsConsentPage key={`${userId}:${location.search}`} directory={directory} onLogout={logout} />;
   const query = new URLSearchParams(location.search);
   const workspaceId = query.get("workspaceId");
   const companyId = query.get("companyId");

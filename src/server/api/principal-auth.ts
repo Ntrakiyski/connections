@@ -1,4 +1,5 @@
 import type { ConnectionsHumanAuth } from "../human-auth.ts";
+import type { MeetingsOAuthService } from "../meetings-oauth.ts";
 import type { IIdentityDirectory } from "../storage/identity-directory.ts";
 import type { IWorkspaceMembershipStore, IWorkspaceStore } from "../storage/runtime-database.ts";
 import type { RuntimeTokenService, WorkspaceContext } from "../storage/runtime-token-service.ts";
@@ -9,6 +10,7 @@ import { HttpRequestError } from "./http-utils.ts";
 
 export type RequestPrincipal =
   | { kind: "human"; userId: string; sessionId: string }
+  | { kind: "meetings"; userId: string; workspaceId: string; referenceId: string; tokenId: string; expiresAt: number }
   | { kind: "runtime"; userId: string; workspaceId: string; tokenId: string };
 
 declare module "hono" {
@@ -24,6 +26,7 @@ export interface PrincipalAuthOptions {
   membershipStore: IWorkspaceMembershipStore;
   runtimeTokens: RuntimeTokenService;
   trustedOrigins: string[];
+  meetingsOAuth?: MeetingsOAuthService;
 }
 
 /** Resolves only stored, live grants. Neither company role nor request intent grants access. */
@@ -62,6 +65,30 @@ export function createPrincipalAuthMiddleware(options: PrincipalAuthOptions): Mi
       return;
     }
     const authorization = context.req.header("authorization");
+    const meetingsPath =
+      path === "/api/meetings" || path.startsWith("/api/meetings/") || path === "/api/meetings-identity";
+    if (meetingsPath) {
+      const match = /^Bearer (cma_[A-Za-z0-9_-]+)$/.exec(authorization ?? "");
+      if (!match?.[1] || !options.meetingsOAuth)
+        throw new HttpRequestError("principal_forbidden", "A dedicated Meetings access token is required.", 401);
+      if (hasSessionCookie(context.req.raw))
+        throw new HttpRequestError("conflicting_credentials", "Use one principal per request.", 400);
+      const access = await options.meetingsOAuth.verify(
+        match[1],
+        context.req.method === "GET" ? "meetings:read" : "meetings:write",
+      );
+      if (
+        [context.req.header("x-workspace-id"), ...(context.req.queries("workspaceId") ?? [])].some(
+          (value) => value && value !== access.workspaceId,
+        )
+      )
+        throw new HttpRequestError("workspace_scope_conflict", "Meetings grants cannot select another workspace.", 403);
+      const workspace = await resolveWorkspaceAccess(options, access.userId, access.workspaceId);
+      context.set("principal", { kind: "meetings", ...access });
+      context.set("workspace", workspace);
+      await next();
+      return;
+    }
     if (authorization) {
       const match = /^Bearer (oct_[A-Za-z0-9_-]+)$/.exec(authorization);
       const runtimePath = path === "/mcp" || path.startsWith("/mcp/") || path.startsWith("/v1/");

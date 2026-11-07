@@ -1,7 +1,9 @@
 import type { BetterAuthOptions } from "better-auth";
 
+import { oauthProvider } from "@better-auth/oauth-provider";
 import { betterAuth } from "better-auth";
 import { betterAuthSchemaOptions } from "./auth-schema.ts";
+import { meetingsOAuthProviderOptions } from "./meetings-oauth-context.ts";
 
 export interface AuthMail {
   to: string;
@@ -36,6 +38,7 @@ export function createHumanAuth(
   }
   const options: BetterAuthOptions = {
     ...betterAuthSchemaOptions,
+    plugins: [...(betterAuthSchemaOptions.plugins ?? []), oauthProvider(meetingsOAuthProviderOptions(origin))],
     database,
     baseURL: config.baseURL,
     basePath: "/api/identity",

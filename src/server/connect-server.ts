@@ -13,6 +13,7 @@ import type { RuntimeTokenAuthOptions } from "./api/runtime-token-auth.ts";
 import type { ITransitFileService } from "./files/transit-file-store.ts";
 import type { TransitFileAccess } from "./files/transit-file-store.ts";
 import type { Logger } from "./logger.ts";
+import type { MeetingsOAuthService } from "./meetings-oauth.ts";
 import type { IMeetingStore } from "./storage/runtime-database.ts";
 import type { RunLogListInput } from "./storage/runtime-store.ts";
 import type { RuntimeTokenService } from "./storage/runtime-token-service.ts";
@@ -41,6 +42,7 @@ import { registerCompanyRoutes } from "./api/company-routes.ts";
 import { HttpRequestError, internalError, jsonError, notFound, readJsonBody } from "./api/http-utils.ts";
 import { registerHumanAuthRoutes } from "./api/human-auth-routes.ts";
 import { registerMeetingRoutes } from "./api/meeting-routes.ts";
+import { registerMeetingsOAuthRoutes } from "./api/meetings-oauth-routes.ts";
 import { renderOAuthCompletionPage } from "./api/oauth-completion-page.ts";
 import { createOpenApiDocument } from "./api/openapi.ts";
 import { createPrincipalAuthMiddleware } from "./api/principal-auth.ts";
@@ -88,6 +90,7 @@ export interface IConnectServerOptions {
   staticRoot?: string;
   auth?: ClerkAuthOptions;
   principalAuth?: PrincipalAuthOptions;
+  meetingsOAuth?: MeetingsOAuthService;
   companyServices?: Pick<CompanyRouteOptions, "companies" | "directory" | "invitations">;
   clerkWebhooks?: ClerkWebhookOptions;
   runtimeTokenAuth?: RuntimeTokenAuthOptions;
@@ -144,6 +147,12 @@ export class ConnectServer {
     });
     app.get("/health", (context) => context.json({ ok: true }));
     if (this.options.principalAuth) {
+      if (this.options.meetingsOAuth)
+        registerMeetingsOAuthRoutes(app, {
+          auth: this.options.principalAuth.auth,
+          service: this.options.meetingsOAuth,
+          trustedOrigins: this.options.principalAuth.trustedOrigins,
+        });
       registerHumanAuthRoutes(
         app,
         this.options.principalAuth.auth,

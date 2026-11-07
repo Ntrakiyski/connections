@@ -73,6 +73,9 @@ async function createFixture(adapter: string): Promise<Fixture> {
       readFileSync(new URL("../../../migrations/20261107210000_identity-governance.sql", import.meta.url), "utf8"),
     );
     const runtime = new PostgresRuntimeDatabase(pool, new PlainTextSecretCodec());
+    await pool.query(
+      readFileSync(new URL("../../../migrations/20261107230000_meetings-oauth.sql", import.meta.url), "utf8"),
+    );
     database = runtime;
     authDatabase = runtime.authDatabase;
     write = async (sql, values) => {

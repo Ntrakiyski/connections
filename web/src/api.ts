@@ -82,7 +82,7 @@ export async function apiDelete<T = unknown>(path: string, options: RequestOptio
 function headersFor(path: string, options: RequestOptions, json = false): Headers {
   options.signal?.throwIfAborted();
   const accountPath =
-    /^\/api\/(identity(?:\/|$)|account(?:\/|$)|companies(?:\/|$)|company-invitations(?:\/|$)|auth\/logout(?:\?|$))/.test(
+    /^\/api\/(identity(?:\/|$)|account(?:\/|$)|companies(?:\/|$)|company-invitations(?:\/|$)|meetings-oauth(?:\/|$)|auth\/logout(?:\?|$))/.test(
       path,
     );
   if (!accountPath && !options.workspaceId) throw new ApiError(400, "Choose a workspace before making this request.");
