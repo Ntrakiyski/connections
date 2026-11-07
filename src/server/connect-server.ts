@@ -2,10 +2,12 @@ import type { CatalogStore, RuntimeActionDefinition } from "../catalog-store.ts"
 import type { ConnectionService } from "../connection-service.ts";
 import type { ActionPolicyService } from "../core/action-policy.ts";
 import type { ActionSearchIndexProvider, ActionSearchResult } from "../core/action-search.ts";
+import type { OAuthAuthorizationCompleteInput } from "../oauth/oauth-flow-service.ts";
 import type { IProviderLoader } from "../providers/provider-loader.ts";
 import type { ClerkAuthOptions } from "./api/clerk-auth.ts";
 import type { ClerkWebhookOptions } from "./api/clerk-webhooks.ts";
 import type { CompanyRouteOptions } from "./api/company-routes.ts";
+import type { OAuthCompletionIntent } from "./api/oauth-completion-page.ts";
 import type { PrincipalAuthOptions } from "./api/principal-auth.ts";
 import type { RuntimeTokenAuthOptions } from "./api/runtime-token-auth.ts";
 import type { ITransitFileService } from "./files/transit-file-store.ts";
@@ -90,6 +92,9 @@ export interface IConnectServerOptions {
   clerkWebhooks?: ClerkWebhookOptions;
   runtimeTokenAuth?: RuntimeTokenAuthOptions;
   createWorkspaceServices?(workspace: WorkspaceContext): WorkspaceServerServices;
+  completeProviderOAuth?(
+    input: OAuthAuthorizationCompleteInput,
+  ): Promise<OAuthCompletionIntent & { service: string; connected: true }>;
   purgeExpiredWorkspaces?(): Promise<void>;
   actionPolicy?: ActionPolicyService;
   actionSearch?: ActionSearchIndexProvider;
@@ -107,6 +112,9 @@ export class ConnectServer {
   private readonly actionSearch: ActionSearchIndexProvider;
 
   constructor(options: IConnectServerOptions) {
+    if (options.principalAuth && !options.completeProviderOAuth) {
+      throw new Error("Human authentication requires stored provider OAuth consent redemption.");
+    }
     this.options = options;
     this.actionSearch = options.actionSearch ?? createActionSearchIndexProvider(options.catalog.actions);
   }
@@ -1110,13 +1118,20 @@ export class ConnectServer {
     }
 
     let service: string;
+    let intent: OAuthCompletionIntent | undefined;
     try {
-      const workspaceId = readWorkspaceIdFromOAuthState(state);
-      const userId = readUserIdFromOAuthState(state);
-      const oauthFlow = workspaceId
-        ? this.workspaceServices({ workspaceId, userId: userId ?? "oauth-callback", role: "member" }).oauthFlow
-        : this.options.oauthFlow;
-      service = (await oauthFlow.completeAuthorization({ state, code })).service;
+      if (this.options.completeProviderOAuth) {
+        const result = await this.options.completeProviderOAuth({ state, code });
+        service = result.service;
+        intent = { state: result.state, userId: result.userId, workspaceId: result.workspaceId };
+      } else {
+        const workspaceId = readWorkspaceIdFromOAuthState(state);
+        const userId = readUserIdFromOAuthState(state);
+        const oauthFlow = workspaceId
+          ? this.workspaceServices({ workspaceId, userId: userId ?? "oauth-callback", role: "member" }).oauthFlow
+          : this.options.oauthFlow;
+        service = (await oauthFlow.completeAuthorization({ state, code })).service;
+      }
       this.options.logger?.info(
         {
           ...logContext,
@@ -1138,7 +1153,7 @@ export class ConnectServer {
       throw error;
     }
 
-    return context.html(renderOAuthCompletionPage(service));
+    return context.html(renderOAuthCompletionPage(service, intent));
   }
 
   private async writeConnectionResult(

@@ -59,8 +59,9 @@ export class GovernanceMutation {
     this.actorId = actorId;
   }
 
-  add(sql: string, values: IdentityStatement["values"]): void {
+  add(sql: string, values: IdentityStatement["values"]): number {
     this.writes.push({ sql, values });
+    return this.writes.length - 1;
   }
 
   assert(kind: AssertionKind, condition: string, values: IdentityStatement["values"]): void {

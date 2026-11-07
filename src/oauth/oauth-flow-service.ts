@@ -26,6 +26,8 @@ export interface OAuthFlowServiceOptions {
   stateMaxAgeMs?: number;
   statePrefix?: string;
   userId?: string;
+  workspaceId?: string;
+  assertAccess?(service: string): Promise<void>;
 }
 
 export interface OAuthAuthorizationCompleteInput {
@@ -44,6 +46,7 @@ export type OAuthAuthorizationState = {
   createdAt: string;
   pkceCodeVerifier?: string;
   userId?: string;
+  workspaceId?: string;
 };
 
 /**
@@ -64,6 +67,8 @@ export class OAuthFlowService {
   private readonly stateMaxAgeMs: number;
   private readonly statePrefix: string | undefined;
   private readonly userId: string | undefined;
+  private readonly workspaceId: string | undefined;
+  private readonly assertAccess: OAuthFlowServiceOptions["assertAccess"];
 
   constructor(input: OAuthFlowServiceOptions) {
     this.clientConfigs = input.clientConfigs;
@@ -72,10 +77,13 @@ export class OAuthFlowService {
     this.stateMaxAgeMs = input.stateMaxAgeMs ?? 15 * 60 * 1000;
     this.statePrefix = input.statePrefix;
     this.userId = input.userId;
+    this.workspaceId = input.workspaceId;
+    this.assertAccess = input.assertAccess;
   }
 
   async startAuthorization(input: OAuthAuthorizationStartInput): Promise<OAuthAuthorizationStart> {
     const { service, connectionName } = input;
+    await this.assertAccess?.(service);
     this.connections.assertProviderAvailable(service);
     const auth = this.clientConfigs.getOAuthDefinition(service);
     const scopes = resolveAuthorizationScopes(auth.scopes, input.scopes);
@@ -86,6 +94,7 @@ export class OAuthFlowService {
 
     const state = this.statePrefix ? `${this.statePrefix}.${crypto.randomUUID()}` : crypto.randomUUID();
     const pkceCodeVerifier = auth.pkce ? createPkceCodeVerifier() : undefined;
+    await this.assertAccess?.(service);
     await this.states.set({
       service,
       connectionName,
@@ -94,6 +103,7 @@ export class OAuthFlowService {
       createdAt: new Date().toISOString(),
       pkceCodeVerifier,
       userId: this.userId,
+      workspaceId: this.workspaceId,
     });
 
     const authorizationUrl = new URL(this.clientConfigs.resolveEndpointUrl(service, auth.authorizationUrl, config));
@@ -131,9 +141,24 @@ export class OAuthFlowService {
     if (!pending) {
       throw new OAuthFlowError("invalid_oauth_state", "OAuth state is missing or expired.");
     }
+    return this.completeRedeemedAuthorization(input, pending);
+  }
+
+  /** Called only with consent already atomically redeemed by the server-owned directory. */
+  async completeRedeemedAuthorization(
+    input: OAuthAuthorizationCompleteInput,
+    pending: OAuthAuthorizationState,
+  ): Promise<{ service: string; connected: true }> {
+    if (
+      pending.state !== input.state ||
+      (this.userId && pending.userId !== this.userId) ||
+      (this.workspaceId && pending.workspaceId !== this.workspaceId)
+    )
+      throw new OAuthFlowError("invalid_oauth_state", "OAuth state is missing or expired.");
     if (isExpiredOAuthState(pending, this.stateMaxAgeMs)) {
       throw new OAuthFlowError("invalid_oauth_state", "OAuth state is missing or expired.");
     }
+    await this.assertAccess?.(pending.service);
 
     const auth = this.clientConfigs.getOAuthDefinition(pending.service);
     const config = await this.clientConfigs.getConfig(pending.service);
@@ -171,6 +196,7 @@ export class OAuthFlowService {
       },
     };
 
+    await this.assertAccess?.(pending.service);
     await this.connections.setOAuthCredential(pending.service, oauthCredential, pending.connectionName);
     return {
       service: pending.service,
@@ -211,7 +237,7 @@ function createTokenExtraFields(state: OAuthAuthorizationState): Record<string, 
 
 function isExpiredOAuthState(state: OAuthAuthorizationState, maxAgeMs: number): boolean {
   const createdAt = Date.parse(state.createdAt);
-  return !Number.isFinite(createdAt) || Date.now() - createdAt > maxAgeMs;
+  return !Number.isFinite(createdAt) || createdAt > Date.now() || Date.now() - createdAt > maxAgeMs;
 }
 
 function createPkceCodeVerifier(): string {

@@ -10,11 +10,12 @@ import type { RuntimeDatabase } from "./storage/runtime-database.ts";
 import type { WorkspaceContext } from "./storage/runtime-token-service.ts";
 import type { Hono } from "hono";
 
-import { ConnectionService } from "../connection-service.ts";
+import { ConnectionError, ConnectionService } from "../connection-service.ts";
 import { OAuthClientConfigService } from "../oauth/oauth-client-config-service.ts";
 import { OAuthCredentialRefreshService } from "../oauth/oauth-credential-refresh-service.ts";
-import { OAuthFlowService } from "../oauth/oauth-flow-service.ts";
+import { OAuthFlowError, OAuthFlowService } from "../oauth/oauth-flow-service.ts";
 import { ActionRunner } from "./actions/action-runner.ts";
+import { resolveWorkspaceAccess } from "./api/principal-auth.ts";
 import { CompanyDirectoryService } from "./company-directory.ts";
 import { CompanyInvitationService } from "./company-invitations.ts";
 import { CompanyService } from "./company-service.ts";
@@ -55,9 +56,22 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
   if (options.humanAuth && (!options.runtimeDatabase.identityMutations || !options.authMailDelivery)) {
     throw new Error("Human authentication requires transactional company governance and invitation mail delivery.");
   }
+  if (options.humanAuth && !options.runtimeDatabase.providerOAuthConsents) {
+    throw new Error("Human authentication requires a server-owned provider consent directory.");
+  }
+  const accessStores = {
+    directory: options.runtimeDatabase.identityDirectory,
+    workspaceStore: options.runtimeDatabase.workspaceStore,
+    membershipStore: options.runtimeDatabase.membershipStore,
+  };
   const runtimeTokens = new RuntimeTokenService(options.runtimeDatabase.runtimeTokenStore);
   const hasStoredRuntimeTokens = async (): Promise<boolean> => (await runtimeTokens.listTokens()).length > 0;
   const createWorkspaceServices = (workspace: WorkspaceContext): WorkspaceServerServices => {
+    const boundServices = (workspaceId: string): WorkspaceServerServices => {
+      if (workspaceId !== workspace.workspaceId)
+        throw new ConnectionError("workspace_scope_conflict", "A bound credential cannot select another workspace.");
+      return createWorkspaceServices(workspace);
+    };
     const stores = options.runtimeDatabase.createScopedStores(workspace.workspaceId);
     const controls = new WorkspaceControlService(
       options.catalog,
@@ -75,11 +89,7 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
       providerLoader: options.providerLoader,
       store: stores.connectionStore,
       actor: { userId: workspace.userId, canManageWorkspace: workspace.role !== "member" },
-      createWorkspaceService: (workspaceId) =>
-        createWorkspaceServices({
-          ...workspace,
-          workspaceId,
-        }).connections,
+      createWorkspaceService: (workspaceId) => boundServices(workspaceId).connections,
       logger: options.logger,
     });
     return {
@@ -90,8 +100,20 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
         clientConfigs: oauthClientConfigs,
         connections,
         states: stores.oauthStateStore,
-        statePrefix: `${workspace.workspaceId}.${workspace.userId}`,
+        statePrefix: options.humanAuth ? undefined : `${workspace.workspaceId}.${workspace.userId}`,
         userId: workspace.userId,
+        workspaceId: workspace.workspaceId,
+        assertAccess: options.humanAuth
+          ? async (service) => {
+              if (!accessStores.directory) throw new Error("Identity directory is required.");
+              await resolveWorkspaceAccess(
+                { ...accessStores, directory: accessStores.directory },
+                workspace.userId,
+                workspace.workspaceId,
+              );
+              await controls.assertProviderEnabled(service);
+            }
+          : undefined,
       }),
       actions: new ActionRunner({
         catalog: options.catalog,
@@ -103,11 +125,7 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
         controls,
         logger: options.logger,
         workspace,
-        createWorkspaceRunner: (workspaceId) =>
-          createWorkspaceServices({
-            ...workspace,
-            workspaceId,
-          }).actions,
+        createWorkspaceRunner: (workspaceId) => boundServices(workspaceId).actions,
       }),
       runtimeTokens: new RuntimeTokenService(stores.runtimeTokenStore),
       lifecycle:
@@ -186,6 +204,23 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
         workspaceStore: options.runtimeDatabase.workspaceStore,
       },
       createWorkspaceServices,
+      completeProviderOAuth: options.humanAuth
+        ? async (input) => {
+            const consent = await options.runtimeDatabase.providerOAuthConsents?.take(input.state);
+            if (!consent) throw new OAuthFlowError("invalid_oauth_state", "OAuth state is missing or expired.");
+            if (!accessStores.directory) throw new Error("Identity directory is required.");
+            const workspace = await resolveWorkspaceAccess(
+              { ...accessStores, directory: accessStores.directory },
+              consent.userId,
+              consent.workspaceId,
+            );
+            const result = await createWorkspaceServices(workspace).oauthFlow.completeRedeemedAuthorization(
+              input,
+              consent.pending,
+            );
+            return { ...result, state: input.state, userId: consent.userId, workspaceId: consent.workspaceId };
+          }
+        : undefined,
       purgeExpiredWorkspaces:
         options.humanAuth || options.clerkSecretKey
           ? async () => {

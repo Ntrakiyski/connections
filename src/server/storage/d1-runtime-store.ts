@@ -26,9 +26,11 @@ import type { IRuntimeTokenStore, RuntimeTokenRecord, WorkspaceRole } from "./ru
 
 import { ConnectionError } from "../../connection-service.ts";
 import { PlainTextSecretCodec } from "../secrets/secret-codec-core.ts";
+import { commitConnectionMutation } from "./connection-mutations.ts";
 import { SqlIdentityDirectory } from "./identity-directory.ts";
 import { D1IdentityMutationStore } from "./identity-mutations.ts";
 import { D1MeetingStore } from "./meeting-store.ts";
+import { SqlProviderOAuthConsentStore } from "./provider-oauth-consent.ts";
 import { decodeRunLogCursor, encodeRunLogCursor } from "./runtime-store.ts";
 
 type RuntimeRow = Record<string, unknown>;
@@ -42,6 +44,7 @@ export interface D1RuntimeDatabaseOptions {
 export class D1RuntimeDatabase implements RuntimeDatabase {
   readonly identityMutations: D1IdentityMutationStore;
   readonly identityDirectory: SqlIdentityDirectory;
+  readonly providerOAuthConsents: SqlProviderOAuthConsentStore;
   readonly connectionStore: D1ConnectionStore;
   readonly oauthClientConfigStore: D1OAuthClientConfigStore;
   readonly oauthStateStore: D1OAuthStateStore;
@@ -69,6 +72,7 @@ export class D1RuntimeDatabase implements RuntimeDatabase {
             .all()
         ).results,
     );
+    this.providerOAuthConsents = new SqlProviderOAuthConsentStore(this.identityMutations, new PlainTextSecretCodec());
     this.secretCodec = options.secretCodec ?? new PlainTextSecretCodec();
     this.runLimit = options.runLimit ?? 100;
     const defaults = this.createScopedStores("default");
@@ -96,6 +100,7 @@ export class D1RuntimeDatabase implements RuntimeDatabase {
 }
 
 export class D1ConnectionStore implements IConnectionStore {
+  private readonly mutations: D1IdentityMutationStore;
   private readonly database: D1DatabaseBinding;
   private readonly secretCodec: ISecretCodec;
   private readonly workspaceId: string;
@@ -103,6 +108,7 @@ export class D1ConnectionStore implements IConnectionStore {
     this.database = database;
     this.secretCodec = secretCodec;
     this.workspaceId = workspaceId;
+    this.mutations = new D1IdentityMutationStore(database);
   }
 
   async get(service: string, connectionName: string): Promise<ResolvedCredential | undefined> {
@@ -133,40 +139,42 @@ export class D1ConnectionStore implements IConnectionStore {
     createdBy = "",
     actor?: ConnectionActor,
   ): Promise<void> {
-    const result = await this.database
-      .prepare(
-        `
-          insert into connections (workspace_id, service, connection_name, label, value, created_by, updated_at)
-          values (?, ?, ?, '', ?, ?, ?)
-          on conflict(workspace_id, service, connection_name) do update set
-            value = excluded.value,
-            created_by = case when connections.created_by = '' then excluded.created_by else connections.created_by end,
-            updated_at = excluded.updated_at
-          where ? = 1 or connections.created_by = ?
-        `,
-      )
-      .bind(
-        this.workspaceId,
-        service,
-        connectionName,
-        await this.secretCodec.encode(JSON.stringify(credential)),
-        createdBy,
-        new Date().toISOString(),
-        !actor || actor.canManageWorkspace ? 1 : 0,
-        actor?.userId ?? "",
-      )
-      .run();
-    if (result.meta.changes === 0)
+    const result = await commitConnectionMutation(this.mutations, {
+      workspaceId: this.workspaceId,
+      service,
+      connectionName,
+      actor,
+      allowCreate: true,
+      requireProvider: true,
+      statement: {
+        sql: "insert into connections(workspace_id, service, connection_name, label, value, created_by, updated_at) values(?,?,?,?,?,?,?) on conflict(workspace_id,service,connection_name) do update set value=excluded.value, created_by=case when connections.created_by='' then excluded.created_by else connections.created_by end, updated_at=excluded.updated_at",
+        values: [
+          this.workspaceId,
+          service,
+          connectionName,
+          connectionName,
+          await this.secretCodec.encode(JSON.stringify(credential)),
+          createdBy,
+          new Date().toISOString(),
+        ],
+      },
+    });
+    if (result.changes === 0)
       throw new ConnectionError("connection_not_found", `${service} connection not found: ${connectionName}.`);
   }
 
   async delete(service: string, connectionName: string, actor?: ConnectionActor): Promise<void> {
-    await this.database
-      .prepare(
-        "delete from connections where workspace_id = ? and service = ? and connection_name = ? and (? = 1 or created_by = ?)",
-      )
-      .bind(this.workspaceId, service, connectionName, !actor || actor.canManageWorkspace ? 1 : 0, actor?.userId ?? "")
-      .run();
+    await commitConnectionMutation(this.mutations, {
+      workspaceId: this.workspaceId,
+      service,
+      connectionName,
+      actor,
+      allowCreate: true,
+      statement: {
+        sql: "delete from connections where workspace_id=? and service=? and connection_name=?",
+        values: [this.workspaceId, service, connectionName],
+      },
+    });
   }
 
   async rename(
@@ -175,22 +183,24 @@ export class D1ConnectionStore implements IConnectionStore {
     connectionName: string,
     actor?: ConnectionActor,
   ): Promise<boolean> {
-    const result = await this.database
-      .prepare(
-        "update connections set connection_name = ?, label = ?, updated_at = ? where workspace_id = ? and service = ? and connection_name = ? and (? = 1 or created_by = ?)",
-      )
-      .bind(
-        connectionName,
-        connectionName,
-        new Date().toISOString(),
-        this.workspaceId,
-        service,
-        currentConnectionName,
-        !actor || actor.canManageWorkspace ? 1 : 0,
-        actor?.userId ?? "",
-      )
-      .run();
-    return (result.meta.changes ?? 0) > 0;
+    const result = await commitConnectionMutation(this.mutations, {
+      workspaceId: this.workspaceId,
+      service,
+      connectionName: currentConnectionName,
+      actor,
+      statement: {
+        sql: "update connections set connection_name=?, label=?, updated_at=? where workspace_id=? and service=? and connection_name=?",
+        values: [
+          connectionName,
+          connectionName,
+          new Date().toISOString(),
+          this.workspaceId,
+          service,
+          currentConnectionName,
+        ],
+      },
+    });
+    return result.changes > 0;
   }
 
   async deleteByOwner(userId: string): Promise<void> {
@@ -284,12 +294,17 @@ export class D1OAuthStateStore implements IOAuthStateStore {
     await this.database
       .prepare(
         `
-          insert into oauth_states (workspace_id, state, value, created_at)
-          values (?, ?, ?, ?)
-          on conflict(workspace_id, state) do update set value = excluded.value, created_at = excluded.created_at
+          insert into oauth_states (workspace_id, state, user_id, value, created_at)
+          values (?, ?, ?, ?, ?)
         `,
       )
-      .bind(this.workspaceId, state.state, JSON.stringify(state), state.createdAt)
+      .bind(
+        this.workspaceId,
+        state.state,
+        state.userId ?? null,
+        JSON.stringify({ ...state, workspaceId: this.workspaceId }),
+        state.createdAt,
+      )
       .run();
   }
 

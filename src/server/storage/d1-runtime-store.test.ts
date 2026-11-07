@@ -310,6 +310,9 @@ class SqliteD1Database implements D1DatabaseBinding {
     this.database.exec(
       readFileSync(new URL("../../../sqlite-migrations/0009_organization_identity.sql", import.meta.url), "utf8"),
     );
+    this.database.exec(
+      readFileSync(new URL("../../../sqlite-migrations/0010_identity_governance.sql", import.meta.url), "utf8"),
+    );
   }
 
   finalizeOnNextMeetingUpdate(): void {

@@ -27,9 +27,11 @@ import { readFileSync, readdirSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { ConnectionError } from "../../connection-service.ts";
 import { PlainTextSecretCodec } from "../secrets/secret-codec-core.ts";
+import { commitConnectionMutation } from "./connection-mutations.ts";
 import { SqlIdentityDirectory } from "./identity-directory.ts";
 import { SqliteIdentityMutationStore } from "./identity-mutations.ts";
 import { SqliteMeetingStore } from "./meeting-store.ts";
+import { SqlProviderOAuthConsentStore } from "./provider-oauth-consent.ts";
 import { decodeRunLogCursor, encodeRunLogCursor } from "./runtime-store.ts";
 
 type RuntimeRow = Record<string, unknown>;
@@ -44,6 +46,7 @@ export interface SqliteRuntimeDatabaseOptions {
 export class SqliteRuntimeDatabase implements RuntimeDatabase {
   readonly identityMutations: SqliteIdentityMutationStore;
   readonly identityDirectory: SqlIdentityDirectory;
+  readonly providerOAuthConsents: SqlProviderOAuthConsentStore;
   readonly authDatabase: DatabaseSync;
   readonly connectionStore: SqliteConnectionStore;
   readonly oauthClientConfigStore: SqliteOAuthClientConfigStore;
@@ -65,6 +68,7 @@ export class SqliteRuntimeDatabase implements RuntimeDatabase {
     this.authDatabase = this.database;
     this.identityMutations = new SqliteIdentityMutationStore(this.database);
     this.identityDirectory = new SqlIdentityDirectory(async (sql, values) => this.database.prepare(sql).all(...values));
+    this.providerOAuthConsents = new SqlProviderOAuthConsentStore(this.identityMutations, new PlainTextSecretCodec());
     this.secretCodec = options.secretCodec ?? new PlainTextSecretCodec();
     this.runLimit = options.runLimit ?? 100;
     this.initialize();
@@ -155,6 +159,7 @@ export class SqliteRuntimeDatabase implements RuntimeDatabase {
 }
 
 export class SqliteConnectionStore implements IConnectionStore {
+  private readonly mutations: SqliteIdentityMutationStore;
   private readonly database: DatabaseSync;
   private readonly secretCodec: ISecretCodec;
   private readonly workspaceId: string;
@@ -162,6 +167,7 @@ export class SqliteConnectionStore implements IConnectionStore {
     this.database = database;
     this.secretCodec = secretCodec;
     this.workspaceId = workspaceId;
+    this.mutations = new SqliteIdentityMutationStore(database);
   }
 
   async get(service: string, connectionName: string): Promise<ResolvedCredential | undefined> {
@@ -191,38 +197,42 @@ export class SqliteConnectionStore implements IConnectionStore {
     createdBy = "",
     actor?: ConnectionActor,
   ): Promise<void> {
-    const result = this.database
-      .prepare(
-        `
-          insert into connections (workspace_id, service, connection_name, label, value, created_by, updated_at)
-          values (?, ?, ?, '', ?, ?, ?)
-          on conflict(workspace_id, service, connection_name) do update set
-            value = excluded.value,
-            created_by = case when connections.created_by = '' then excluded.created_by else connections.created_by end,
-            updated_at = excluded.updated_at
-          where ? = 1 or connections.created_by = ?
-        `,
-      )
-      .run(
-        this.workspaceId,
-        service,
-        connectionName,
-        await this.secretCodec.encode(JSON.stringify(credential)),
-        createdBy,
-        new Date().toISOString(),
-        !actor || actor.canManageWorkspace ? 1 : 0,
-        actor?.userId ?? "",
-      );
+    const result = await commitConnectionMutation(this.mutations, {
+      workspaceId: this.workspaceId,
+      service,
+      connectionName,
+      actor,
+      allowCreate: true,
+      requireProvider: true,
+      statement: {
+        sql: "insert into connections(workspace_id, service, connection_name, label, value, created_by, updated_at) values(?,?,?,?,?,?,?) on conflict(workspace_id,service,connection_name) do update set value=excluded.value, created_by=case when connections.created_by='' then excluded.created_by else connections.created_by end, updated_at=excluded.updated_at",
+        values: [
+          this.workspaceId,
+          service,
+          connectionName,
+          connectionName,
+          await this.secretCodec.encode(JSON.stringify(credential)),
+          createdBy,
+          new Date().toISOString(),
+        ],
+      },
+    });
     if (result.changes === 0)
       throw new ConnectionError("connection_not_found", `${service} connection not found: ${connectionName}.`);
   }
 
   async delete(service: string, connectionName: string, actor?: ConnectionActor): Promise<void> {
-    this.database
-      .prepare(
-        "delete from connections where workspace_id = ? and service = ? and connection_name = ? and (? = 1 or created_by = ?)",
-      )
-      .run(this.workspaceId, service, connectionName, !actor || actor.canManageWorkspace ? 1 : 0, actor?.userId ?? "");
+    await commitConnectionMutation(this.mutations, {
+      workspaceId: this.workspaceId,
+      service,
+      connectionName,
+      actor,
+      allowCreate: true,
+      statement: {
+        sql: "delete from connections where workspace_id=? and service=? and connection_name=?",
+        values: [this.workspaceId, service, connectionName],
+      },
+    });
   }
 
   async rename(
@@ -231,20 +241,23 @@ export class SqliteConnectionStore implements IConnectionStore {
     connectionName: string,
     actor?: ConnectionActor,
   ): Promise<boolean> {
-    const result = this.database
-      .prepare(
-        "update connections set connection_name = ?, label = ?, updated_at = ? where workspace_id = ? and service = ? and connection_name = ? and (? = 1 or created_by = ?)",
-      )
-      .run(
-        connectionName,
-        connectionName,
-        new Date().toISOString(),
-        this.workspaceId,
-        service,
-        currentConnectionName,
-        !actor || actor.canManageWorkspace ? 1 : 0,
-        actor?.userId ?? "",
-      );
+    const result = await commitConnectionMutation(this.mutations, {
+      workspaceId: this.workspaceId,
+      service,
+      connectionName: currentConnectionName,
+      actor,
+      statement: {
+        sql: "update connections set connection_name=?, label=?, updated_at=? where workspace_id=? and service=? and connection_name=?",
+        values: [
+          connectionName,
+          connectionName,
+          new Date().toISOString(),
+          this.workspaceId,
+          service,
+          currentConnectionName,
+        ],
+      },
+    });
     return result.changes > 0;
   }
 
@@ -333,19 +346,23 @@ export class SqliteOAuthStateStore implements IOAuthStateStore {
     this.database
       .prepare(
         `
-          insert into oauth_states (workspace_id, state, value, created_at)
-          values (?, ?, ?, ?)
-          on conflict(workspace_id, state) do update set value = excluded.value, created_at = excluded.created_at
+          insert into oauth_states (workspace_id, state, user_id, value, created_at)
+          values (?, ?, ?, ?, ?)
         `,
       )
-      .run(this.workspaceId, state.state, JSON.stringify(state), state.createdAt);
+      .run(
+        this.workspaceId,
+        state.state,
+        state.userId ?? null,
+        JSON.stringify({ ...state, workspaceId: this.workspaceId }),
+        state.createdAt,
+      );
   }
 
   async take(state: string): Promise<OAuthAuthorizationState | undefined> {
     const row = this.database
-      .prepare("select value from oauth_states where workspace_id = ? and state = ?")
+      .prepare("delete from oauth_states where workspace_id = ? and state = ? returning value")
       .get(this.workspaceId, state);
-    this.database.prepare("delete from oauth_states where workspace_id = ? and state = ?").run(this.workspaceId, state);
     return row ? parseJson<OAuthAuthorizationState>(readString(row, "value")) : undefined;
   }
 }

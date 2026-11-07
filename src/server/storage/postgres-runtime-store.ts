@@ -25,9 +25,11 @@ import type { IRuntimeTokenStore, RuntimeTokenRecord, WorkspaceRole } from "./ru
 import type { Pool, QueryResultRow } from "pg";
 
 import { ConnectionError } from "../../connection-service.ts";
+import { commitConnectionMutation } from "./connection-mutations.ts";
 import { SqlIdentityDirectory } from "./identity-directory.ts";
 import { PostgresIdentityMutationStore } from "./identity-mutations.ts";
 import { PostgresMeetingStore } from "./meeting-store.ts";
+import { SqlProviderOAuthConsentStore } from "./provider-oauth-consent.ts";
 function now(): string {
   return new Date().toISOString();
 }
@@ -35,6 +37,7 @@ function now(): string {
 export class PostgresRuntimeDatabase implements RuntimeDatabase {
   readonly identityMutations: PostgresIdentityMutationStore;
   readonly identityDirectory: SqlIdentityDirectory;
+  readonly providerOAuthConsents: SqlProviderOAuthConsentStore;
   readonly authDatabase: Pool;
   readonly connectionStore: IConnectionStore;
   readonly oauthClientConfigStore: IOAuthClientConfigStore;
@@ -62,6 +65,7 @@ export class PostgresRuntimeDatabase implements RuntimeDatabase {
         )
       ).rows;
     });
+    this.providerOAuthConsents = new SqlProviderOAuthConsentStore(this.identityMutations, secretCodec);
     this.#codec = secretCodec;
     const unscoped = new PostgresScopedStores(pool, secretCodec, defaultWorkspaceId);
     this.connectionStore = unscoped.connectionStore;
@@ -102,6 +106,7 @@ class PostgresScopedStores implements WorkspaceScopedStores {
 }
 
 class PostgresConnectionStore implements IConnectionStore {
+  private readonly mutations: PostgresIdentityMutationStore;
   readonly #pool: Pool;
   readonly #codec: ISecretCodec;
   readonly #workspaceId: string;
@@ -110,6 +115,7 @@ class PostgresConnectionStore implements IConnectionStore {
     this.#pool = pool;
     this.#codec = codec;
     this.#workspaceId = workspaceId;
+    this.mutations = new PostgresIdentityMutationStore(pool);
   }
 
   async get(service: string, connectionName: string): Promise<ResolvedCredential | undefined> {
@@ -139,34 +145,42 @@ class PostgresConnectionStore implements IConnectionStore {
     createdBy = "",
     actor?: ConnectionActor,
   ): Promise<void> {
-    const encoded = await this.#codec.encode(JSON.stringify(credential));
-    const result = await this.#pool.query(
-      `insert into connections (workspace_id, service, connection_name, label, value, created_by, updated_at)
-       values ($1, $2, $3, $4, $5, $6, $7)
-       on conflict (workspace_id, service, connection_name) do update
-       set label = $4, value = $5, created_by = case when connections.created_by = '' then excluded.created_by else connections.created_by end, updated_at = $7
-       where $8::boolean or connections.created_by = $9`,
-      [
-        this.#workspaceId,
-        service,
-        connectionName,
-        connectionName,
-        encoded,
-        createdBy,
-        now(),
-        !actor || actor.canManageWorkspace,
-        actor?.userId ?? "",
-      ],
-    );
-    if (result.rowCount === 0)
+    const result = await commitConnectionMutation(this.mutations, {
+      workspaceId: this.#workspaceId,
+      service,
+      connectionName,
+      actor,
+      allowCreate: true,
+      requireProvider: true,
+      statement: {
+        sql: "insert into connections(workspace_id, service, connection_name, label, value, created_by, updated_at) values(?,?,?,?,?,?,?) on conflict(workspace_id,service,connection_name) do update set value=excluded.value, created_by=case when connections.created_by='' then excluded.created_by else connections.created_by end, updated_at=excluded.updated_at",
+        values: [
+          this.#workspaceId,
+          service,
+          connectionName,
+          connectionName,
+          await this.#codec.encode(JSON.stringify(credential)),
+          createdBy,
+          new Date().toISOString(),
+        ],
+      },
+    });
+    if (result.changes === 0)
       throw new ConnectionError("connection_not_found", `${service} connection not found: ${connectionName}.`);
   }
 
   async delete(service: string, connectionName: string, actor?: ConnectionActor): Promise<void> {
-    await this.#pool.query(
-      `delete from connections where workspace_id = $1 and service = $2 and connection_name = $3 and ($4::boolean or created_by = $5)`,
-      [this.#workspaceId, service, connectionName, !actor || actor.canManageWorkspace, actor?.userId ?? ""],
-    );
+    await commitConnectionMutation(this.mutations, {
+      workspaceId: this.#workspaceId,
+      service,
+      connectionName,
+      actor,
+      allowCreate: true,
+      statement: {
+        sql: "delete from connections where workspace_id=? and service=? and connection_name=?",
+        values: [this.#workspaceId, service, connectionName],
+      },
+    });
   }
 
   async rename(
@@ -175,19 +189,24 @@ class PostgresConnectionStore implements IConnectionStore {
     connectionName: string,
     actor?: ConnectionActor,
   ): Promise<boolean> {
-    const result = await this.#pool.query(
-      "update connections set connection_name = $1, label = $1, updated_at = $2 where workspace_id = $3 and service = $4 and connection_name = $5 and ($6::boolean or created_by = $7)",
-      [
-        connectionName,
-        now(),
-        this.#workspaceId,
-        service,
-        currentConnectionName,
-        !actor || actor.canManageWorkspace,
-        actor?.userId ?? "",
-      ],
-    );
-    return (result.rowCount ?? 0) > 0;
+    const result = await commitConnectionMutation(this.mutations, {
+      workspaceId: this.#workspaceId,
+      service,
+      connectionName: currentConnectionName,
+      actor,
+      statement: {
+        sql: "update connections set connection_name=?, label=?, updated_at=? where workspace_id=? and service=? and connection_name=?",
+        values: [
+          connectionName,
+          connectionName,
+          new Date().toISOString(),
+          this.#workspaceId,
+          service,
+          currentConnectionName,
+        ],
+      },
+    });
+    return result.changes > 0;
   }
 
   async deleteByOwner(userId: string): Promise<void> {
@@ -279,25 +298,20 @@ class PostgresOAuthStateStore implements IOAuthStateStore {
   }
 
   async set(state: OAuthAuthorizationState): Promise<void> {
-    const encoded = await this.#codec.encode(JSON.stringify(state));
+    const encoded = await this.#codec.encode(JSON.stringify({ ...state, workspaceId: this.#workspaceId }));
     await this.#pool.query(
-      `insert into oauth_states (workspace_id, state, value, created_at)
-       values ($1, $2, $3, $4)
-       on conflict (workspace_id, state) do update set value = $3`,
-      [this.#workspaceId, state.state, encoded, now()],
+      `insert into oauth_states (workspace_id, state, user_id, value, created_at)
+       values ($1, $2, $3, $4, $5)`,
+      [this.#workspaceId, state.state, state.userId ?? null, encoded, state.createdAt],
     );
   }
 
   async take(state: string): Promise<OAuthAuthorizationState | undefined> {
-    const result = await this.#pool.query(`select value from oauth_states where workspace_id = $1 and state = $2`, [
-      this.#workspaceId,
-      state,
-    ]);
+    const result = await this.#pool.query(
+      `delete from oauth_states where workspace_id = $1 and state = $2 returning value`,
+      [this.#workspaceId, state],
+    );
     if (result.rows.length === 0) return undefined;
-    await this.#pool.query(`delete from oauth_states where workspace_id = $1 and state = $2`, [
-      this.#workspaceId,
-      state,
-    ]);
     const decoded = await this.#codec.decode(result.rows[0].value);
     return JSON.parse(decoded) as OAuthAuthorizationState;
   }

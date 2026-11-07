@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Pool } from "pg";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createD1AuthDatabase } from "../cloudflare/d1-auth-database.ts";
 import { createConnectApp } from "../connect-app.ts";
 import { TransitFileService } from "../files/transit-files.ts";
@@ -34,6 +34,7 @@ interface Fixture {
 }
 
 afterEach(async () => {
+  vi.unstubAllGlobals();
   for (const close of cleanups.splice(0)) await close();
 });
 
@@ -221,6 +222,138 @@ for (const adapter of ["SQLite", "D1", "PostgreSQL"]) {
     `${adapter} Better Auth cookie and principal integration`,
     () => {
       const setup = (): Promise<Fixture> => createFixture(adapter);
+      it("uses opaque consent ownership under concurrent callbacks and ignores alternate browser selectors", async () => {
+        const fixture = await setup();
+        const { cookie, userId } = await register(fixture);
+        await seed(fixture, userId);
+        await fixture.database.createScopedStores("A1").oauthClientConfigStore.set({
+          service: "sentinel",
+          clientId: "synthetic-client",
+          clientSecret: "synthetic-secret",
+          extra: {},
+          secretExtra: {},
+        });
+        const started = await fixture.app.request(`${origin}/api/oauth/authorizations`, {
+          method: "POST",
+          headers: { cookie, origin, "x-workspace-id": "A1", "content-type": "application/json" },
+          body: JSON.stringify({ service: "sentinel", connectionName: "shared" }),
+        });
+        expect(started.status).toBe(200);
+        const authorization = await started.json();
+        const state = new URL(authorization.authorizationUrl).searchParams.get("state");
+        expect(state).toBe(authorization.state);
+        expect(state).not.toContain("A1");
+        expect(state).not.toContain(userId);
+        const tokenExchange = vi.fn(async () =>
+          Response.json({ access_token: "synthetic-exchanged-account", token_type: "Bearer" }),
+        );
+        vi.stubGlobal("fetch", tokenExchange);
+        const callback = `${origin}/oauth/callback?state=${encodeURIComponent(state ?? "")}&code=synthetic-code&workspaceId=B1`;
+        const results = await Promise.all([
+          fixture.app.request(callback, { headers: { cookie, "x-workspace-id": "B1" } }),
+          fixture.app.request(callback),
+        ]);
+        expect(results.map((response) => response.status).sort()).toEqual([200, 400]);
+        const completed = results.find((response) => response.status === 200);
+        if (!completed) throw new Error("Successful callback missing.");
+        const html = await completed.text();
+        expect(html).toContain('"workspaceId":"A1"');
+        expect(html).toContain(`"userId":"${userId}"`);
+        expect(html).toContain(`"state":"${state}"`);
+        expect(tokenExchange).toHaveBeenCalledTimes(1);
+        expect(
+          await fixture.database.createScopedStores("A1").connectionStore.getStored("sentinel", "shared"),
+        ).toMatchObject({ createdBy: userId, credential: { accessToken: "synthetic-exchanged-account" } });
+        expect(await fixture.database.createScopedStores("B1").connectionStore.get("sentinel", "shared")).toMatchObject(
+          { apiKey: "B1-account" },
+        );
+        expect((await fixture.app.request(callback)).status).toBe(400);
+      });
+
+      it("does not save exchanged credentials when the grant disappears during the provider request", async () => {
+        const fixture = await setup();
+        const { userId } = await register(fixture);
+        await seed(fixture, userId);
+        await fixture.database
+          .createScopedStores("A1")
+          .oauthClientConfigStore.set({
+            service: "sentinel",
+            clientId: "synthetic-client",
+            clientSecret: "synthetic-secret",
+            extra: {},
+            secretExtra: {},
+          });
+        const state = crypto.randomUUID();
+        await fixture.database
+          .createScopedStores("A1")
+          .oauthStateStore.set({
+            state,
+            userId,
+            workspaceId: "A1",
+            service: "sentinel",
+            connectionName: "shared",
+            createdAt: new Date().toISOString(),
+          });
+        const exchange = vi.fn(async () => {
+          await fixture.write("delete from workspace_memberships where workspace_id=? and user_id=?", ["A1", userId]);
+          return Response.json({ access_token: "removed-during-exchange", token_type: "Bearer" });
+        });
+        vi.stubGlobal("fetch", exchange);
+        const response = await fixture.app.request(`${origin}/oauth/callback?state=${state}&code=synthetic-code`);
+        expect(response.status).toBe(403);
+        expect(exchange).toHaveBeenCalledTimes(1);
+        expect(await fixture.database.createScopedStores("A1").connectionStore.get("sentinel", "shared")).toMatchObject(
+          { apiKey: "A1-account" },
+        );
+        expect(await fixture.database.createScopedStores("B1").connectionStore.get("sentinel", "shared")).toMatchObject(
+          { apiKey: "B1-account" },
+        );
+        expect(await fixture.database.providerOAuthConsents?.take(state)).toBeUndefined();
+      });
+
+      it("consumes expired or future consent and refuses callbacks after provider disablement or archive", async () => {
+        const fixture = await setup();
+        const { userId } = await register(fixture);
+        await seed(fixture, userId);
+        const exchange = vi.fn(async () => Response.json({ access_token: "denied-token", token_type: "Bearer" }));
+        vi.stubGlobal("fetch", exchange);
+        for (const change of ["expired", "future", "disable_provider", "archive", "remove_company"]) {
+          const state = crypto.randomUUID();
+          const createdAt = new Date(
+            Date.now() + (change === "expired" ? -3600000 : change === "future" ? 3600000 : 0),
+          ).toISOString();
+          await fixture.database.createScopedStores("A1").oauthStateStore.set({
+            state,
+            userId,
+            workspaceId: "A1",
+            service: "sentinel",
+            connectionName: "shared",
+            createdAt,
+          });
+          if (change === "disable_provider")
+            await fixture.database.workspaceControlStore.disableProvider("A1", "sentinel");
+          if (change === "archive")
+            await fixture.write("update workspaces set deleted_at=? where id=?", [new Date().toISOString(), "A1"]);
+          if (change === "remove_company") {
+            await fixture.write("update workspaces set deleted_at=null where id=?", ["A1"]);
+            await fixture.write("delete from organization_memberships where organization_id=? and user_id=?", [
+              "A",
+              userId,
+            ]);
+          }
+          const response = await fixture.app.request(`${origin}/oauth/callback?state=${state}&code=denied-code`);
+          expect([400, 403]).toContain(response.status);
+          expect(await fixture.database.providerOAuthConsents?.take(state)).toBeUndefined();
+        }
+        expect(exchange).not.toHaveBeenCalled();
+        expect(await fixture.database.createScopedStores("A1").connectionStore.get("sentinel", "shared")).toMatchObject(
+          { apiKey: "A1-account" },
+        );
+        expect(await fixture.database.createScopedStores("B1").connectionStore.get("sentinel", "shared")).toMatchObject(
+          { apiKey: "B1-account" },
+        );
+      });
+
       it("requires verification and delivers recovery without exposing authentication tokens", async () => {
         const fixture = await setup();
         const { cookie } = await register(fixture);

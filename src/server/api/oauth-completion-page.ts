@@ -3,10 +3,17 @@ import { escapeHtml } from "./http-utils.ts";
 const oauthCompletionChannelName = "oomol-connect-oauth";
 const oauthCompletedType = "oauth.completed";
 
-export function renderOAuthCompletionPage(service: string): string {
+export interface OAuthCompletionIntent {
+  state: string;
+  userId: string;
+  workspaceId: string;
+}
+
+export function renderOAuthCompletionPage(service: string, intent?: OAuthCompletionIntent): string {
   const payload = scriptJson({
     type: oauthCompletedType,
     service,
+    ...intent,
   });
   const escapedService = escapeHtml(service);
   return `<!doctype html>
