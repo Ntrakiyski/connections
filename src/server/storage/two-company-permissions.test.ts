@@ -43,6 +43,25 @@ for (const adapter of ["SQLite", "D1", "PostgreSQL"]) {
       return fixture;
     }
 
+    it("persists company parentage and requires independent directory membership for new grants", async () => {
+      const { database } = await setup();
+      await expect(database.workspaceStore.getById("A1")).resolves.toMatchObject({ organizationId: "company-A" });
+      await database.workspaceStore.create({
+        id: "A3",
+        organizationId: "company-A",
+        clerkOrgId: "connections-workspace:A3",
+        name: "New company A workspace",
+        createdAt: "2026-07-15T00:00:00.000Z",
+        updatedAt: "2026-07-15T00:00:00.000Z",
+      });
+      await expect(database.membershipStore.getRole("A3", "operator")).resolves.toBeUndefined();
+      await database.membershipStore.setRole("A3", "operator", "admin");
+      await expect(database.membershipStore.getRole("A3", "operator")).resolves.toBe("admin");
+      await expect(database.membershipStore.setRole("A3", "employee", "member")).rejects.toThrow();
+      await expect(database.membershipStore.getRole("A3", "employee")).resolves.toBeUndefined();
+      await expect(database.membershipStore.getRole("B1", "employee")).resolves.toBe("member");
+    });
+
     it("selects distinct same-label accounts in A1, sibling A2 and company B1", async () => {
       const { database } = await setup();
       const loader = new SentinelProviderLoader();
@@ -233,7 +252,7 @@ async function createFixtureDatabase(adapter: string): Promise<FixtureDatabase> 
           binding.sqlite.prepare(sql).run(...values);
         },
         placeholder: () => "?",
-        authTimestamp: Date.parse("2026-07-15T00:00:00.000Z"),
+        authTimestamp: "2026-07-15T00:00:00.000Z",
         verifiedBoolean: 1,
       },
       close: async () => {
@@ -287,7 +306,7 @@ async function createFixtureDatabase(adapter: string): Promise<FixtureDatabase> 
         raw.prepare(sql).run(...values);
       },
       placeholder: () => "?",
-      authTimestamp: Date.parse("2026-07-15T00:00:00.000Z"),
+      authTimestamp: "2026-07-15T00:00:00.000Z",
       verifiedBoolean: 1,
     },
     close: async () => {
