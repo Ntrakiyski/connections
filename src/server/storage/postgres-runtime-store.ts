@@ -422,7 +422,7 @@ class PostgresWorkspaceStore implements IWorkspaceStore {
 
   async getByClerkOrgId(clerkOrgId: string): Promise<Workspace | undefined> {
     const result = await this.#pool.query(
-      `select id, clerk_org_id, name, created_at, updated_at, deleted_at, purge_at from workspaces where clerk_org_id = $1`,
+      `select id, organization_id, clerk_org_id, name, created_at, updated_at, deleted_at, purge_at from workspaces where clerk_org_id = $1`,
       [clerkOrgId],
     );
     if (result.rows.length === 0) return undefined;
@@ -431,7 +431,7 @@ class PostgresWorkspaceStore implements IWorkspaceStore {
 
   async getById(id: string): Promise<Workspace | undefined> {
     const result = await this.#pool.query(
-      `select id, clerk_org_id, name, created_at, updated_at, deleted_at, purge_at from workspaces where id = $1`,
+      `select id, organization_id, clerk_org_id, name, created_at, updated_at, deleted_at, purge_at from workspaces where id = $1`,
       [id],
     );
     if (result.rows.length === 0) return undefined;
@@ -440,9 +440,16 @@ class PostgresWorkspaceStore implements IWorkspaceStore {
 
   async create(workspace: Workspace): Promise<void> {
     await this.#pool.query(
-      `insert into workspaces (id, clerk_org_id, name, created_at, updated_at)
-       values ($1, $2, $3, $4, $5)`,
-      [workspace.id, workspace.clerkOrgId, workspace.name, workspace.createdAt, workspace.updatedAt],
+      `insert into workspaces (id, organization_id, clerk_org_id, name, created_at, updated_at)
+       values ($1, $2, $3, $4, $5, $6)`,
+      [
+        workspace.id,
+        workspace.organizationId ?? null,
+        workspace.clerkOrgId,
+        workspace.name,
+        workspace.createdAt,
+        workspace.updatedAt,
+      ],
     );
   }
 
@@ -533,8 +540,8 @@ class PostgresMembershipStore implements IWorkspaceMembershipStore {
   async setRole(workspaceId: string, userId: string, role: WorkspaceRole): Promise<void> {
     const n = now();
     await this.#pool.query(
-      `insert into workspace_memberships (workspace_id, user_id, role, created_at, updated_at)
-       values ($1, $2, $3, $4, $4)
+      `insert into workspace_memberships (workspace_id, user_id, role, created_at, updated_at, organization_id)
+       values ($1, $2, $3, $4, $4, (select organization_id from workspaces where id = $1))
        on conflict (workspace_id, user_id) do update set role = $3, updated_at = $4`,
       [workspaceId, userId, role, n],
     );
@@ -774,6 +781,7 @@ function mapTokenRow(r: QueryResultRow): RuntimeTokenRecord {
 function mapWorkspaceRow(r: QueryResultRow): Workspace {
   return {
     id: r.id as string,
+    organizationId: typeof r.organization_id === "string" ? r.organization_id : undefined,
     clerkOrgId: r.clerk_org_id as string,
     name: r.name as string,
     createdAt: r.created_at as string,

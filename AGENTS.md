@@ -14,6 +14,8 @@ Before planning or implementing product work, read [VISION.md](connections-docs/
 
 The existing OpenConnector runtime remains the provider-execution foundation. Preserve upstream-compatible behavior unless a locked Connections requirement intentionally changes it.
 
+The accepted migration in issues #2–#12 assigns human identity, sessions and company directory membership to Better Auth. Connections owns company-scoped workspace grants and resource authorization. Keep legacy Clerk paths during schema expansion until their dependent migration tickets replace them.
+
 ## Architecture
 
 - Keep one clear owner for each fact. Do not repeat provider metadata such as `displayName` in executors when it already belongs to `definition.ts`; pass or inject it from the caller that has the definition/catalog.
@@ -93,6 +95,6 @@ This project uses [InsForge](https://insforge.dev): an all-in-one, open-source P
 Key patterns:
 
 - Database inserts take an array: `insert([{ ... }])`.
-- Reference users with `auth.users(id)`; use `auth.uid()` in RLS policies.
+- Connections human users belong to the server-only Better Auth `auth_user` table. Do not reference InsForge `auth.users` or use InsForge Auth for Connections human identity.
 - For storage uploads, persist both the returned `url` and `key`.
 <!-- INSFORGE:END -->

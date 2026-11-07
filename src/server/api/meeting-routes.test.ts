@@ -241,6 +241,7 @@ function createRawDatabase(): DatabaseSync {
     "0003_workspaces.sql",
     "0007_meetily_meetings.sql",
     "0008_meetily_internal_ids.sql",
+    "0009_organization_identity.sql",
   ]) {
     sqlite.exec(readFileSync(new URL(`../../../sqlite-migrations/${migration}`, import.meta.url), "utf8"));
   }

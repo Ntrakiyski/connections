@@ -428,7 +428,7 @@ class D1WorkspaceStore implements IWorkspaceStore {
   async getByClerkOrgId(clerkOrgId: string): Promise<Workspace | undefined> {
     const row = await this.database
       .prepare(
-        "select id, clerk_org_id, name, created_at, updated_at, deleted_at, purge_at from workspaces where clerk_org_id = ?",
+        "select id, organization_id, clerk_org_id, name, created_at, updated_at, deleted_at, purge_at from workspaces where clerk_org_id = ?",
       )
       .bind(clerkOrgId)
       .first<RuntimeRow>();
@@ -438,7 +438,7 @@ class D1WorkspaceStore implements IWorkspaceStore {
   async getById(id: string): Promise<Workspace | undefined> {
     const row = await this.database
       .prepare(
-        "select id, clerk_org_id, name, created_at, updated_at, deleted_at, purge_at from workspaces where id = ?",
+        "select id, organization_id, clerk_org_id, name, created_at, updated_at, deleted_at, purge_at from workspaces where id = ?",
       )
       .bind(id)
       .first<RuntimeRow>();
@@ -447,8 +447,17 @@ class D1WorkspaceStore implements IWorkspaceStore {
 
   async create(workspace: Workspace): Promise<void> {
     await this.database
-      .prepare("insert into workspaces (id, clerk_org_id, name, created_at, updated_at) values (?, ?, ?, ?, ?)")
-      .bind(workspace.id, workspace.clerkOrgId, workspace.name, workspace.createdAt, workspace.updatedAt)
+      .prepare(
+        "insert into workspaces (id, organization_id, clerk_org_id, name, created_at, updated_at) values (?, ?, ?, ?, ?, ?)",
+      )
+      .bind(
+        workspace.id,
+        workspace.organizationId ?? null,
+        workspace.clerkOrgId,
+        workspace.name,
+        workspace.createdAt,
+        workspace.updatedAt,
+      )
       .run();
   }
 
@@ -528,9 +537,9 @@ class D1WorkspaceMembershipStore implements IWorkspaceMembershipStore {
     const now = new Date().toISOString();
     await this.database
       .prepare(
-        "insert into workspace_memberships (workspace_id, user_id, role, created_at, updated_at) values (?, ?, ?, ?, ?) on conflict(workspace_id, user_id) do update set role = excluded.role, updated_at = excluded.updated_at",
+        "insert into workspace_memberships (workspace_id, user_id, role, created_at, updated_at, organization_id) values (?, ?, ?, ?, ?, (select organization_id from workspaces where id = ?)) on conflict(workspace_id, user_id) do update set role = excluded.role, updated_at = excluded.updated_at",
       )
-      .bind(workspaceId, userId, role, now, now)
+      .bind(workspaceId, userId, role, now, now, workspaceId)
       .run();
   }
 
@@ -781,6 +790,7 @@ function readRunLogRow(row: RuntimeRow): RunLog {
 function readWorkspace(row: RuntimeRow): Workspace {
   return {
     id: readString(row, "id"),
+    organizationId: readOptionalString(row, "organization_id"),
     clerkOrgId: readString(row, "clerk_org_id"),
     name: readString(row, "name"),
     createdAt: readString(row, "created_at"),

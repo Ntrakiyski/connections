@@ -9,6 +9,9 @@ import type { IRuntimeTokenStore, RuntimeTokenRecord, WorkspaceRole } from "./ru
 
 export interface Workspace {
   id: string;
+  /** Absent only for pre-import Clerk/local compatibility workspaces. */
+  organizationId?: string;
+  /** Legacy mapping retained until the identity importer and cutover complete. */
   clerkOrgId: string;
   name: string;
   createdAt: string;
@@ -17,6 +20,17 @@ export interface Workspace {
   deletedAt?: string;
   /** ISO timestamp at which the backup must be permanently erased. */
   purgeAt?: string;
+}
+
+/** Company directory governance; this role never grants provider-resource access. */
+export type OrganizationRole = "owner" | "admin" | "member";
+
+export interface OrganizationMember {
+  organizationId: string;
+  /** Stable Better Auth user ID, independent of mutable email addresses. */
+  userId: string;
+  role: OrganizationRole;
+  createdAt: string;
 }
 
 export interface WorkspaceMember {
@@ -138,7 +152,7 @@ export interface IWorkspaceStore {
   getByClerkOrgId(clerkOrgId: string): Promise<Workspace | undefined>;
   getById(id: string): Promise<Workspace | undefined>;
   create(workspace: Workspace): Promise<void>;
-  /** Mirrors the Clerk-owned Organization profile name for lifecycle confirmation. */
+  /** Updates the workspace name used for lifecycle confirmation. */
   updateName(workspaceId: string, name: string, updatedAt: string): Promise<void>;
 }
 

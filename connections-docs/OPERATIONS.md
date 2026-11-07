@@ -64,3 +64,30 @@ Use an InsForge preview branch only for risky schema, RLS, or authentication cha
 - Delete a preview branch after its successful merge or when its experiment is no longer needed. Deletion is irreversible, but it never affects `Main`.
 
 The previous `workspace-security-controls` and `seed-workspace-providers` previews were removed after their work was either merged or superseded. Only `Main` remains the deployment target.
+
+## Company identity schema expansion (#3)
+
+This step changes the schema while existing Clerk human-auth paths remain in use. It does not deploy Better Auth sessions or enable new membership workflows. The target ownership and permission contract is in `LOCKED.md`.
+
+Pin: `better-auth@1.7.18`; organization plugin and field/table mappings live in `src/server/auth-schema.ts`. The checked-in migrations match those mappings, including core session/account/verification tables. Upgrade the pin only with schema compatibility review. Do not run automatic auth-schema generation during server startup.
+
+For PostgreSQL, back up the database and apply `migrations/20261107200000_organization-identity.sql` once through the normal migration ledger, in a transaction. A fresh database starts from `connections-docs/insforge-schema.sql` and applies its subsequent migrations. Identity/company tables enable RLS with no browser policies and explicitly revoke PUBLIC and existing InsForge `anon`/`authenticated` grants; use the server database role. Never give browser clients these tables or a database key.
+
+SQLite local startup records each migration atomically and enables foreign keys. D1 deployment applies `sqlite-migrations/0009_organization_identity.sql` with the standard migration runner before serving the updated store code. It rebuilds only `workspace_memberships`, whose rows are copied exactly; it does not rebuild the workspace parent or resource tables. SQLite/D1 use Better Auth ISO date values in date columns; PostgreSQL uses timestamptz. Real human-session adapter integration remains the next auth ticket's release gate.
+
+Expansion intentionally leaves existing workspace/company references NULL until the verified importer (#9) establishes mappings. Do not derive verified identities or company owner roles from email strings, resource ownership, or workspace roles. To bind a verified legacy workspace, create its auth users, company and independent company memberships, then set grant `organization_id` values before the workspace's parent in one transaction. The deferred composite FK validates parentage at commit; the workspace trigger refuses binding with any unmapped grant. A bound company parent is immutable. New company workspaces require independently seeded company membership for every workspace grant. The unique required Clerk column remains a compatibility key during expansion; use `connections-workspace:<workspaceId>` for new workspace keys until that requirement is retired.
+
+The importer/cutover must report zero unmapped production workspaces or grants (except an explicitly supported local compatibility workspace) before tightening NOT NULL constraints and switching human auth. Preserve workspace IDs, owner references, encrypted blobs, original encryption keys, runtime hashes and revocation timestamps. After new membership/security writes, recover by reconciliation or roll forward; dropping the expansion tables is not a safe rollback.
+
+Local regression checks:
+
+```sh
+npm ci
+npm run fix-check
+npm test
+npm run build:web
+# Optional synthetic local PostgreSQL database; no production URL or credentials.
+CONNECTIONS_TEST_POSTGRES_URL=postgresql://... npm test -- src/server/storage/organization-migration.test.ts src/server/storage/two-company-permissions.test.ts
+```
+
+The PostgreSQL test role needs CREATE SCHEMA on its disposable database. Tests use random isolated schemas, synthetic accounts and stub provider calls, and remove their schemas afterward. SQLite and D1 contract tests run without external services. The migration fixture tests fresh/populated expansion, stable ownership/token records, duplicate memberships, parent-grant constraints, atomic backfill and browser-role lockdown.

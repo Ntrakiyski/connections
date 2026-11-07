@@ -115,3 +115,8 @@ create table if not exists workspace_action_policies (
   updated_at text not null,
   primary key (workspace_id, action_id)
 );
+
+-- Baseline schema for a fresh database. Apply migrations in recorded order after
+-- this baseline; 20261107200000_organization-identity.sql adds the pinned Better
+-- Auth tables and company/workspace grant constraints without replacing data.
+-- Do not run the baseline as a schema upgrader or regenerate auth tables at startup.

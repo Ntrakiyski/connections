@@ -1,71 +1,25 @@
 # Connections Product Vision
 
-## Reader and purpose
+Connections gives people one secure place to connect business applications and let approved AI agents use them through MCP. It builds on the OpenConnector provider runtime.
 
-This document is for a contributor joining the project. After reading it, they should understand the product we are building, the boundaries they must preserve, and when to consult the locked decisions before changing code.
+A person signs in with one verified account and can belong to multiple client companies. Each company owns one or more workspaces. A shared operator can work in company A's A1 and A2 and company B's B1 without merging their data or permissions.
 
-Connections is a SaaS built from the OpenConnector provider runtime. It gives people and teams one secure place to connect their business applications, then lets their approved AI agents use those connections through MCP.
+Better Auth owns identity, human sessions, company membership and organization invitations. Connections owns workspace grants and all resource authorization. Company owners/admins govern people and provision workspaces; directory membership alone reveals no provider resources. Each workspace has independent admin, manager and member grants and always retains an admin.
 
-The current repository is the upstream single-runtime foundation, not the final product. The target is a multi-workspace application.
+The console provides account, company and workspace administration. A tab's URL selects its workspace, and every protected request carries that intent. Two tabs may operate in different companies at once. The server checks current company membership, workspace grant and archive status before returning data.
 
-## The product
+Within a workspace, a manager or admin enables providers and configures their OAuth applications. Members connect their own labeled accounts. An agent must select a specific account label for every action. Members use and manage their own connections, tokens and runs; managers can use and manage authorized workspace connections and configure providers; admins can also archive and restore workspace data.
 
-A registered user can create and join multiple workspaces. One Clerk Organization represents one workspace.
+Credentials and provider OAuth secrets are encrypted and workspace-scoped. Members' identically named connections in sibling workspaces or other companies remain independent. Browser clients and agents never receive provider secrets.
 
-A workspace may be private, with only its creator, or shared, with invited teammates. The same person can belong to several workspaces and switch between them in the web app.
+Each workspace has one MCP environment and can issue several named, revocable opaque `oct_` tokens. A token retains its original user and workspace and uses the user's current access on every request. Removing a grant revokes associated keys and disconnects the removed member's accounts in that workspace. Company offboarding removes all grants in that company while preserving other companies. Historical audits and authorized run logs remain available.
 
-Each workspace is isolated: its members, providers, OAuth configuration, connections, tokens, files, runs, and audit history never appear in another workspace.
+Provider actions with recognized mutation verbs require approval by default; read-only actions default to trusted. A manager/admin may change the workspace policy. The consuming agent host presents approval and controls execution; Connections has no approval inbox.
 
-## Workspace experience
+The Hono server is the sole route between the browser and product data. PostgreSQL and private storage stay behind the server API. SQLite remains local compatibility, and the checked-in SQLite schema also supports D1. Provider execution remains lazy and retains shared network safety controls.
 
-The console uses Clerk's workspace selector in the sidebar and profile control in its header. Clerk provides personal profile management, organization creation, switching, organization profile management, invitations, and membership management. Connections uses that active organization as its workspace boundary and focuses its own console on provider connections, runtime tokens, and execution.
+An admin can archive a workspace after destructive confirmation. Its data becomes unavailable immediately, is retained for a 14-day restore window, and is permanently purged afterward. Restoring a workspace must not restore revoked credentials or keys.
 
-Within a workspace, the provider page shows only providers the workspace has enabled. A member can connect one or more labeled accounts for an enabled provider. For example, after Gmail is enabled and configured, a member selects **Connect Gmail**, chooses a Google account, and completes OAuth.
+The migration preserves existing workspace IDs, encrypted accounts, stable user ownership and runtime token hashes. Schema expansion comes first; verified import, Better Auth sessions, console changes, Meetings OAuth and a staged cutover follow the [migration tracker](https://github.com/Ntrakiyski/connections/issues/2). The currently deployed Clerk paths remain during this compatibility phase. Production promotion follows a two-company isolation fixture and a migration/rollback rehearsal.
 
-Connection labels are visible to the workspace so people and agents can choose deliberately. An agent always selects a specific connection for an action; it never silently chooses a default account.
-
-## Team roles
-
-Clerk establishes identity and Organization membership. Connections owns the effective workspace role used by authorization.
-
-| Role    | What it can do                                                                                          |
-| ------- | ------------------------------------------------------------------------------------------------------- |
-| Member  | Use and manage only their own connections, tokens, and runs.                                            |
-| Manager | See and use all workspace connections and runs; enable/configure providers and their available actions. |
-| Admin   | Has manager capabilities plus archive and restore of Connections workspace data.                        |
-
-Clerk's Organization UI owns invitations, removals, and role changes. The workspace creator is the first admin, and a workspace must always retain at least one admin.
-
-## Providers and approval
-
-A manager or admin enables a provider for the workspace and configures its OAuth application. That makes the provider's full action catalog available to the team.
-
-Actions with a recognized mutation verb in their ID or name require approval by default, while read-only actions are trusted by default. The default set covers creation, modification, deletion, sending, publishing, sharing, importing/exporting, uploads, transfers, access changes, scheduling, and lifecycle changes. A manager or admin can change either setting beside the action in the provider console. Connections stores this policy; it does not create an approval inbox. The MCP client or agent host asks the human for approval before executing an action that requires it.
-
-OAuth client secrets and connected-account credentials are workspace-scoped encrypted data. They never reach the browser, MCP client, or another workspace.
-
-## MCP and runtime tokens
-
-Each workspace has one MCP environment. Members create named, revocable runtime tokens for their own agents or devices.
-
-Runtime tokens are opaque secrets. Connections stores only their hashes and resolves the token to the member's current workspace role on every use. Revoking a token or changing a role takes effect immediately.
-
-MCP exposes only permitted connection labels and safe account metadata. Members can use only their own connections; managers and admins can use every workspace connection.
-
-## Platform boundaries
-
-Clerk is the only human-authentication system. Insforge provides the initial managed PostgreSQL database and private storage. The Connections Hono API is the only route between the browser and product data; the browser does not query Insforge directly.
-
-Connections owns authorization, auditing, OAuth handling, runtime-token validation, provider execution, and MCP behavior. The provider runtime remains lazy and uses the existing safety controls for provider network access.
-
-## Lifecycle, observability, and safety
-
-Members can see only their own runs. Managers and admins can inspect workspace-wide runs. The workspace records audit events for security-relevant changes such as provider configuration, connections, token changes, roles, approval policies, and deletion.
-
-Removing a member immediately revokes their tokens and disconnects their provider accounts. Historical run logs may remain visible to managers and admins.
-
-An admin can archive a workspace after a clear destructive confirmation. Archiving makes Connections-owned data unavailable immediately, retains it for a 14-day restore window, and then permanently erases its credentials, files, and other scoped records.
-
-## Decision rule
-
-This document describes the intended destination. [LOCKED.md](LOCKED.md) is the authoritative record of exact decisions. Read it before making an implementation choice; if it does not answer the question, raise the decision before adding speculative product behavior.
+[LOCKED.md](LOCKED.md) is the binding decision record. The [architecture map](../docs/architecture/architecture.html) shows the target ownership boundaries; its checked-in JSON is the source for regeneration.

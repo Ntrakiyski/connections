@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Connections · company and workspace boundaries",
+    "quality_profile": "showcase",
+    "viewBox": [1100, 660]
+  },
+  "components": [
+    {
+      "id": "console",
+      "type": "frontend",
+      "label": "Connections console",
+      "sublabel": "Tab selects its workspace",
+      "pos": [50, 160],
+      "size": [210, 72]
+    },
+    {
+      "id": "hono",
+      "type": "backend",
+      "label": "Connections Hono API",
+      "sublabel": "Sole browser data boundary",
+      "pos": [440, 160],
+      "size": [220, 72]
+    },
+    {
+      "id": "auth",
+      "type": "security",
+      "label": "Better Auth",
+      "sublabel": "Identity · sessions · companies",
+      "pos": [440, 30],
+      "size": [220, 72]
+    },
+    {
+      "id": "grants",
+      "type": "security",
+      "label": "Connections grants",
+      "sublabel": "Live workspace resource roles",
+      "pos": [440, 300],
+      "size": [220, 72]
+    },
+    {
+      "id": "resources",
+      "type": "database",
+      "label": "Workspace stores",
+      "sublabel": "Encrypted credentials · runs",
+      "pos": [820, 300],
+      "size": [220, 72]
+    },
+    {
+      "id": "runtime",
+      "type": "backend",
+      "label": "Provider runtime",
+      "sublabel": "Explicit account label · SSRF",
+      "pos": [820, 490],
+      "size": [220, 72]
+    },
+    {
+      "id": "agent",
+      "type": "external",
+      "label": "Approved AI agent",
+      "sublabel": "Workspace-bound oct_ token",
+      "pos": [50, 300],
+      "size": [210, 72]
+    },
+    {
+      "id": "provider",
+      "type": "external",
+      "label": "Business application",
+      "sublabel": "Selected provider account",
+      "pos": [440, 490],
+      "size": [220, 72]
+    }
+  ],
+  "connections": [
+    { "from": "console", "to": "hono", "label": "Session + workspace intent" },
+    { "from": "hono", "to": "auth", "label": "Verified identity", "fromSide": "top", "toSide": "bottom" },
+    {
+      "from": "hono",
+      "to": "grants",
+      "label": "Authorize",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [550, 260]
+    },
+    { "from": "agent", "to": "grants", "label": "MCP / REST" },
+    { "from": "grants", "to": "resources", "label": "Company member + grant" },
+    {
+      "from": "resources",
+      "to": "runtime",
+      "label": "Permitted credential",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [930, 422]
+    },
+    { "from": "runtime", "to": "provider", "label": "Guarded provider egress" }
+  ]
+}
