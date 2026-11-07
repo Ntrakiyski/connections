@@ -267,6 +267,65 @@ for (const adapter of ["SQLite", "D1", "PostgreSQL"])
   describe.skipIf(adapter === "PostgreSQL" && !process.env.CONNECTIONS_TEST_POSTGRES_URL)(
     adapter + " native Meetings issuer",
     () => {
+      it("returns legacy proof only for a verified import and the grant's original user, company and workspace", async () => {
+        const f = await setup(adapter);
+        const a1 = await issued(f);
+        const get = (token: string) =>
+          f.app.request(origin + "/api/meetings-identity/legacy", { headers: { authorization: "Bearer " + token } });
+        expect(await (await get(a1.access_token)).json()).toMatchObject({ mapping: null });
+        await f.importStore.commitImport(
+          [
+            {
+              sql: "insert into identity_import_runs(source_instance,source_fingerprint,manifest_fingerprint,plan_fingerprint,report,applied_at) values('synthetic-source','source','manifest','plan','{}',?)",
+              values: [new Date().toISOString()],
+            },
+            {
+              sql: "insert into identity_source_mappings(source_instance,kind,source_id,target_id) values('synthetic-source','user','legacy-user',?)",
+              values: [f.userId],
+            },
+            {
+              sql: "insert into identity_source_mappings(source_instance,kind,source_id,target_id) values('synthetic-source','company','legacy-org',?)",
+              values: [f.organizationA],
+            },
+            {
+              sql: "insert into identity_source_mappings(source_instance,kind,source_id,target_id) values('synthetic-source','workspace','legacy-org',?)",
+              values: [f.A1],
+            },
+          ],
+          [],
+        );
+        expect(await (await get(a1.access_token)).json()).toMatchObject({ mapping: null });
+        await f.importStore.commitImport(
+          [
+            {
+              sql: "update identity_import_runs set verification='verified',verified_at=? where source_instance='synthetic-source'",
+              values: [new Date().toISOString()],
+            },
+          ],
+          [],
+        );
+        expect(await (await get(a1.access_token)).json()).toEqual({
+          contract: "meetings-v1",
+          issuer: origin + "/api/identity",
+          userId: f.userId,
+          organizationId: f.organizationA,
+          workspaceId: f.A1,
+          mapping: {
+            sourceInstance: "synthetic-source",
+            legacyOrganizationId: "legacy-org",
+            legacyUserId: "legacy-user",
+          },
+        });
+        for (const workspace of [f.A2, f.B1]) {
+          expect(await (await get((await issued(f, workspace)).access_token)).json()).toMatchObject({ mapping: null });
+        }
+        expect(
+          (await f.app.request(origin + "/api/meetings-identity/legacy", { headers: { cookie: f.cookie } })).status,
+        ).toBe(401);
+        await f.companies.removeOrganizationMember(f.ownerId, f.organizationA, f.userId);
+        expect([401, 403]).toContain((await get(a1.access_token)).status);
+      });
+
       it("issues, refreshes and uploads through the real issuer without changing the consent workspace", async () => {
         const f = await setup(adapter);
         const tokens = await issued(f);

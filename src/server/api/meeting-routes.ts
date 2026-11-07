@@ -1,3 +1,4 @@
+import type { MeetingsOAuthService } from "../meetings-oauth.ts";
 import type { IMeetingStore, MeetingSyncState } from "../storage/runtime-database.ts";
 import type { JsonRequestBody } from "./http-utils.ts";
 import type { Hono } from "hono";
@@ -7,7 +8,20 @@ import { getWorkspaceContext } from "./workspace-helpers.ts";
 
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
 
-export function registerMeetingRoutes(app: Hono, meetings: IMeetingStore): void {
+export function registerMeetingRoutes(app: Hono, meetings: IMeetingStore, oauth?: MeetingsOAuthService): void {
+  app.get("/api/meetings-identity/legacy", async (context) => {
+    const principal = context.get("principal");
+    if (principal?.kind !== "meetings" || !oauth)
+      throw new HttpRequestError("principal_forbidden", "A Meetings grant is required.", 401);
+    return context.json({
+      contract: "meetings-v1",
+      issuer: oauth.issuer,
+      userId: principal.userId,
+      organizationId: principal.organizationId,
+      workspaceId: principal.workspaceId,
+      mapping: await oauth.legacyMapping(principal),
+    });
+  });
   app.get("/api/meetings-identity", (context) => {
     const workspace = getWorkspaceContext(context);
     const principal = context.get("principal");

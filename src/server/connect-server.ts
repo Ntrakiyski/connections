@@ -175,7 +175,7 @@ export class ConnectServer {
         : createClerkAuthMiddleware(auth),
     );
     if (this.options.meetingStore) {
-      registerMeetingRoutes(app, this.options.meetingStore);
+      registerMeetingRoutes(app, this.options.meetingStore, this.options.meetingsOAuth);
     }
     if (this.options.runtimeTokenAuth && !this.options.principalAuth) {
       const runtimeTokenAuth = createRuntimeTokenAuthMiddleware(this.options.runtimeTokenAuth);

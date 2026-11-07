@@ -10,7 +10,15 @@ import { HttpRequestError } from "./http-utils.ts";
 
 export type RequestPrincipal =
   | { kind: "human"; userId: string; sessionId: string }
-  | { kind: "meetings"; userId: string; workspaceId: string; referenceId: string; tokenId: string; expiresAt: number }
+  | {
+      kind: "meetings";
+      userId: string;
+      organizationId: string;
+      workspaceId: string;
+      referenceId: string;
+      tokenId: string;
+      expiresAt: number;
+    }
   | { kind: "runtime"; userId: string; workspaceId: string; tokenId: string };
 
 declare module "hono" {
@@ -66,7 +74,10 @@ export function createPrincipalAuthMiddleware(options: PrincipalAuthOptions): Mi
     }
     const authorization = context.req.header("authorization");
     const meetingsPath =
-      path === "/api/meetings" || path.startsWith("/api/meetings/") || path === "/api/meetings-identity";
+      path === "/api/meetings" ||
+      path.startsWith("/api/meetings/") ||
+      path === "/api/meetings-identity" ||
+      path === "/api/meetings-identity/legacy";
     if (meetingsPath) {
       const match = /^Bearer (cma_[A-Za-z0-9_-]+)$/.exec(authorization ?? "");
       if (!match?.[1] || !options.meetingsOAuth)

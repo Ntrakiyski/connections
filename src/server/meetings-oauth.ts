@@ -71,6 +71,12 @@ export interface MeetingsOAuthSelection {
   workspaceId: string | null;
 }
 
+export interface MeetingsLegacyMapping {
+  sourceInstance: string;
+  legacyOrganizationId: string;
+  legacyUserId: string;
+}
+
 /** Delegation binding around Better Auth's native PKCE issuer; protocol tokens stay Better Auth-owned. */
 export class MeetingsOAuthService {
   readonly issuer: string;
@@ -80,6 +86,33 @@ export class MeetingsOAuthService {
     this.options = options;
     this.issuer = `${options.origin}/api/identity`;
     this.resource = `${options.origin}/api/meetings`;
+  }
+
+  /** Only a completed import ledger proves the original Clerk recording ownership. */
+  async legacyMapping(identity: MeetingsOAuthIdentity): Promise<MeetingsLegacyMapping | null> {
+    const rows = await this.options.store.read({
+      sql: `select w.source_instance,w.source_id as legacy_organization_id,u.source_id as legacy_user_id
+        from identity_source_mappings w
+        join identity_import_runs r on r.source_instance=w.source_instance and r.verification='verified'
+        join identity_source_mappings c on c.source_instance=w.source_instance and c.kind='company'
+          and c.source_id=w.source_id and c.target_id=?
+        join identity_source_mappings u on u.source_instance=w.source_instance and u.kind='user' and u.target_id=?
+        where w.kind='workspace' and w.target_id=?`,
+      values: [identity.organizationId, identity.userId, identity.workspaceId],
+    });
+    if (rows.length !== 1) return null;
+    const row = z
+      .object({
+        source_instance: z.string().min(1),
+        legacy_organization_id: z.string().min(1),
+        legacy_user_id: z.string().min(1),
+      })
+      .parse(rows[0]);
+    return {
+      sourceInstance: row.source_instance,
+      legacyOrganizationId: row.legacy_organization_id,
+      legacyUserId: row.legacy_user_id,
+    };
   }
 
   async initialize(): Promise<void> {
@@ -313,6 +346,7 @@ export class MeetingsOAuthService {
 
   async verify(secret: string, requiredScope: "meetings:read" | "meetings:write"): Promise<MeetingsOAuthAccess> {
     const token = await this.findToken(secret, "access");
+    await this.authorize(token.user_id, token.reference_id, [requiredScope]);
     const response = await this.handler(
       "/oauth2/introspect",
       new Request(this.issuer),
@@ -324,8 +358,9 @@ export class MeetingsOAuthService {
       }),
       token.reference_id,
     );
+    if (!response.ok) throw denied();
     const result = introspectionSchema.safeParse(await response.json());
-    if (!response.ok || !result.success) throw denied();
+    if (!result.success) throw denied();
     const claims = result.data;
     const audience = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
     if (

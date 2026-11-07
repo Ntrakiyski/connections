@@ -106,3 +106,9 @@ PostgreSQL serializes saves and binding revocation using the same company/worksp
 ## Promotion boundary
 
 Issue #12 requires a staging cutover and rollback rehearsal with evidence before operator-owned production promotion. Do not infer staging or desktop pilot success from unit tests, and do not deploy this incomplete branch to production.
+
+### Desktop legacy recovery review (2026-11-07)
+
+The companion Meetings implementation adds issuer/company/workspace/user ownership, pre-migration preservation and independently verified local legacy recovery. The server legacy proof endpoint returns only mappings from a verified import ledger matching the live grant's original user, company and workspace. Pending imports and sibling/client workspaces return no proof. Offboarding is rejected before provider introspection and again before accepting the verified identity.
+
+Validation at this update: `npm run fix-check` passed; 736 tests in 78 files passed with PostgreSQL enabled and no skips. The three new real-issuer tests cover legacy proof across SQLite, D1 and PostgreSQL. The companion's 18 portable production Rust tests and five frontend recovery tests pass. Full native macOS CI and paired staging/OS-keychain/capture evidence remain pending; #10/#11/#12 are not complete.
