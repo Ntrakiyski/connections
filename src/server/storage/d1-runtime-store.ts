@@ -1,4 +1,4 @@
-import type { IConnectionStore, StoredConnection } from "../../connection-service.ts";
+import type { ConnectionActor, IConnectionStore, StoredConnection } from "../../connection-service.ts";
 import type { ResolvedCredential } from "../../core/types.ts";
 import type { IOAuthClientConfigStore, OAuthClientConfig } from "../../oauth/oauth-client-config-service.ts";
 import type { IOAuthStateStore, OAuthAuthorizationState } from "../../oauth/oauth-flow-service.ts";
@@ -24,6 +24,7 @@ import type {
 import type { IRunLogStore, RunLog, RunLogListInput, RunLogPage } from "./runtime-store.ts";
 import type { IRuntimeTokenStore, RuntimeTokenRecord, WorkspaceRole } from "./runtime-token-service.ts";
 
+import { ConnectionError } from "../../connection-service.ts";
 import { PlainTextSecretCodec } from "../secrets/secret-codec-core.ts";
 import { D1MeetingStore } from "./meeting-store.ts";
 import { decodeRunLogCursor, encodeRunLogCursor } from "./runtime-store.ts";
@@ -111,8 +112,14 @@ export class D1ConnectionStore implements IConnectionStore {
       : undefined;
   }
 
-  async set(service: string, connectionName: string, credential: ResolvedCredential, createdBy = ""): Promise<void> {
-    await this.database
+  async set(
+    service: string,
+    connectionName: string,
+    credential: ResolvedCredential,
+    createdBy = "",
+    actor?: ConnectionActor,
+  ): Promise<void> {
+    const result = await this.database
       .prepare(
         `
           insert into connections (workspace_id, service, connection_name, label, value, created_by, updated_at)
@@ -121,6 +128,7 @@ export class D1ConnectionStore implements IConnectionStore {
             value = excluded.value,
             created_by = case when connections.created_by = '' then excluded.created_by else connections.created_by end,
             updated_at = excluded.updated_at
+          where ? = 1 or connections.created_by = ?
         `,
       )
       .bind(
@@ -130,15 +138,45 @@ export class D1ConnectionStore implements IConnectionStore {
         await this.secretCodec.encode(JSON.stringify(credential)),
         createdBy,
         new Date().toISOString(),
+        !actor || actor.canManageWorkspace ? 1 : 0,
+        actor?.userId ?? "",
       )
+      .run();
+    if (result.meta.changes === 0)
+      throw new ConnectionError("connection_not_found", `${service} connection not found: ${connectionName}.`);
+  }
+
+  async delete(service: string, connectionName: string, actor?: ConnectionActor): Promise<void> {
+    await this.database
+      .prepare(
+        "delete from connections where workspace_id = ? and service = ? and connection_name = ? and (? = 1 or created_by = ?)",
+      )
+      .bind(this.workspaceId, service, connectionName, !actor || actor.canManageWorkspace ? 1 : 0, actor?.userId ?? "")
       .run();
   }
 
-  async delete(service: string, connectionName: string): Promise<void> {
-    await this.database
-      .prepare("delete from connections where workspace_id = ? and service = ? and connection_name = ?")
-      .bind(this.workspaceId, service, connectionName)
+  async rename(
+    service: string,
+    currentConnectionName: string,
+    connectionName: string,
+    actor?: ConnectionActor,
+  ): Promise<boolean> {
+    const result = await this.database
+      .prepare(
+        "update connections set connection_name = ?, label = ?, updated_at = ? where workspace_id = ? and service = ? and connection_name = ? and (? = 1 or created_by = ?)",
+      )
+      .bind(
+        connectionName,
+        connectionName,
+        new Date().toISOString(),
+        this.workspaceId,
+        service,
+        currentConnectionName,
+        !actor || actor.canManageWorkspace ? 1 : 0,
+        actor?.userId ?? "",
+      )
       .run();
+    return (result.meta.changes ?? 0) > 0;
   }
 
   async deleteByOwner(userId: string): Promise<void> {
