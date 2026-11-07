@@ -166,6 +166,7 @@ export interface ResolvedProviderSafetyConfig {
 }
 
 export interface AppData {
+  enabledServices?: string[];
   providers: ProviderDefinition[];
   connections: ConnectionRecord[];
   oauthConfigs: OAuthConfig[];

@@ -34,7 +34,9 @@ export function registerHumanAuthRoutes(
     if (context.req.header("authorization"))
       throw new HttpRequestError("principal_forbidden", "Account endpoints require session authentication.", 401);
     const route = `${context.req.method} ${context.req.path.slice("/api/identity".length)}`;
-    if (!allowedIdentityRoutes.has(route))
+    const resetCallback =
+      context.req.method === "GET" && /^\/reset-password\/[^/]+$/.test(context.req.path.slice("/api/identity".length));
+    if (!allowedIdentityRoutes.has(route) && !resetCallback)
       throw new HttpRequestError("auth_route_forbidden", "Authentication endpoint is not available.", 403);
     return auth.handler(context.req.raw);
   });

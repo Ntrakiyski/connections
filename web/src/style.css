@@ -3119,3 +3119,83 @@ tr:last-child td {
     white-space: nowrap;
   }
 }
+
+/* Account and company governance share the console's controls and color tokens. */
+.account-home {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 32px 24px;
+}
+.account-header,
+.account-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.account-header {
+  margin-bottom: 24px;
+}
+.account-section {
+  padding: 24px 0;
+}
+.account-section h2,
+.account-section h3 {
+  margin: 20px 0 12px;
+}
+.account-form {
+  display: grid;
+  gap: 14px;
+  max-width: 480px;
+  margin: 16px 0;
+}
+.account-panel {
+  width: min(100%, 540px);
+}
+.company-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+.company-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px;
+  margin: 12px 0;
+}
+.company-card ul {
+  padding-left: 18px;
+  margin: 16px 0;
+}
+.company-card li {
+  margin: 10px 0;
+}
+.account-row {
+  border-bottom: 1px solid var(--border);
+  padding: 14px 0;
+}
+.account-row select,
+.account-form select,
+.workspace-switcher select {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--foreground);
+  min-width: 0;
+}
+.workspace-switcher {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+  margin: 20px 0;
+}
+.workspace-switcher select {
+  width: 100%;
+}
+.workspace-switcher a,
+.company-card a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}

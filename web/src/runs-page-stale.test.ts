@@ -70,6 +70,8 @@ vi.mock("@embra/i18n/react", () => ({
   },
 }));
 
+vi.mock("./workspace-context", () => ({ useWorkspaceRequests: () => ({ workspaceId: "A1" }) }));
+
 vi.mock("./api", () => ({
   apiGet: apiMock.apiGet,
 }));

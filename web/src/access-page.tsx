@@ -9,6 +9,7 @@ import { apiDelete, apiPost } from "./api";
 import { formatDate } from "./model";
 import { SafetySettingsPanel } from "./safety-settings-panel";
 import { Badge, EmptyState, FormStatus } from "./shared-ui";
+import { useWorkspaceRequests } from "./workspace-context";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -38,6 +39,7 @@ export function createTokenDialogMode(created: RuntimeTokenCreation | null): "fo
 }
 
 export function AccessPage(props: AccessPageProps): ReactNode {
+  const requests = useWorkspaceRequests();
   const t = useTranslate();
   const [name, setName] = useState("");
   const [created, setCreated] = useState<RuntimeTokenCreation | null>(null);
@@ -50,7 +52,7 @@ export function AccessPage(props: AccessPageProps): ReactNode {
     setStatus(t("access.creating"));
     setCreated(null);
     try {
-      const result = await apiPost<RuntimeTokenCreation>("/api/runtime-tokens", { name });
+      const result = await apiPost<RuntimeTokenCreation>("/api/runtime-tokens", { name }, requests);
       setCreated(result);
       setName("");
       setStatus(t("access.created"));
@@ -63,7 +65,7 @@ export function AccessPage(props: AccessPageProps): ReactNode {
   async function revoke(id: string): Promise<void> {
     setStatus(t("access.revoking"));
     try {
-      await apiDelete(`/api/runtime-tokens/${id}`);
+      await apiDelete(`/api/runtime-tokens/${id}`, requests);
       setStatus(t("access.revoked"));
       props.onRefresh();
     } catch (error) {

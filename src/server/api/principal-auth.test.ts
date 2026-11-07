@@ -690,7 +690,18 @@ for (const adapter of ["SQLite", "D1", "PostgreSQL"]) {
         expect(recovery.status).toBe(200);
         const message = fixture.mail.find((item) => item.subject === "Reset your Connections password");
         if (!message) throw new Error("Recovery delivery was not requested.");
-        const token = new URL(message.text.replace("Reset your password: ", "")).pathname.split("/").pop();
+        const recoveryUrl = new URL(message.text.replace("Reset your password: ", ""));
+        const callback = await fixture.app.request(recoveryUrl.toString());
+        expect(callback.status).toBe(302);
+        const resetUrl = new URL(callback.headers.get("location") ?? "", origin);
+        expect(resetUrl.origin).toBe(origin);
+        expect(resetUrl.pathname).toBe("/reset-password");
+        const token = resetUrl.searchParams.get("token");
+        expect(token).toBeTruthy();
+        recoveryUrl.searchParams.set("callbackURL", "https://untrusted.invalid/reset-password");
+        const deniedRedirect = await fixture.app.request(recoveryUrl.toString());
+        expect(deniedRedirect.status).toBe(403);
+        expect(deniedRedirect.headers.has("location")).toBe(false);
         const reset = await post(fixture.app, "/api/identity/reset-password", {
           token,
           newPassword: `${password}-changed`,

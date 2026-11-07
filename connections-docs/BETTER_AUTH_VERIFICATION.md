@@ -24,6 +24,20 @@ This is a working evidence ledger for tracker [#2](https://github.com/Ntrakiyski
 - PostgreSQL now preserves safe account identity and the actual caller in persisted run metadata. PostgreSQL fixtures include the shipped workspace-safety migration so provider execution exercises the production table contract. Validation: `npm run fix-check` and all **668 tests** in 74 files passed, with PostgreSQL enabled. The rendered two-tab browser check is shared with #8 and remains pending.
 - Other tickets below remain pending implementation and/or their full acceptance evidence.
 
+## Console browser verification
+
+Console checkpoint validation: `npm run fix-check`, `npm run build:web`, and all **671 tests in 75 files**, including PostgreSQL, passed.
+
+The #8 console uses the pinned Better Auth client without Clerk UI or a public Clerk key. URL company/workspace selection creates a mounted user/company/workspace scope with captured request headers, cancellation and one-time consent matching. Account/company management, explicit grants, invitations, provider enablement and archive/restore use Hono services and current server roles.
+
+Local browser verification used actual Hono, Better Auth and encrypted SQLite with a synthetic Sentinel provider at `http://localhost:8890`, Chrome/Playwright, desktop 1440×1000 and mobile 390×844. Browser plugin was unavailable. Page title, meaningful content, screenshots, layout width and application page errors were checked. This is local evidence; it does not satisfy the Coolify staging or Meetings release gates.
+
+- A1 and B1 opened in separate tabs with the same session. Both saved an identically labeled connection to independent accounts. Delaying an A1 mutation response while selecting B1 preserved A1 persistence and B1 rendering. Delayed A1 reads after switching to B1 did not replace B1 data; bookmarked URLs survived reload. Unrequested/cross-user/workspace OAuth messages did not refresh the tab.
+- Runtime calls with freshly issued opaque tokens observed the selected synthetic account and original workspace in both A1 and B1. The tokens were then revoked.
+- Invitations were sent through company administration and accepted by newly registered, verified users. Directory-only membership revealed no workspace resources. A workspace member saw only their own connection, received 403 for provider administration, and lost bookmarked resource access after company removal. Server sign-out invalidated another tab on focus refresh.
+- UI provisioning created sibling A2 with its initial admin and selected it through the directory. Profile update, other-session revocation, password recovery/reset, exact-name archive confirmation and restoration completed. No application page errors were observed.
+- Following the emailed reset URL exposed a missing GET callback in the account endpoint allowlist. The callback is now supported, with integration checks across adapters for the delivered redirect, password-reset revocation and rejected untrusted callback origins. Origin/CSRF checks are explicitly enabled so Better Auth's test defaults cannot bypass this negative test.
+
 ## [#5: Serve Better Auth sessions from Hono and authenticate each principal explicitly](https://github.com/Ntrakiyski/connections/issues/5)
 
 - [x] Real cookie integration tests cover sign-in, verified email/recovery, session resolution, server-side logout and a rejected wrong-origin mutation.
@@ -41,13 +55,13 @@ This is a working evidence ledger for tracker [#2](https://github.com/Ntrakiyski
 - [x] An authorized existing oct\_ token still works for its original workspace. An alternate workspace supplied by header, URL, body or tool argument cannot change that workspace.
 - [x] The next request observes a role downgrade or removal. Removing a user from A preserves independent B access. Archive blocks access and restore does not resurrect revoked keys.
 - [x] Replayed callbacks, expired consent and callbacks completed after access removal or archival cannot create a credential. A denied or competing operation cannot alter an unauthorized account.
-- [ ] Switching between two authorized workspaces in one browser does not return the other workspace's cached response. Tests verify the downstream account and persisted side effects.
+- [x] Switching between two authorized workspaces in one browser does not return the other workspace's cached response. Tests verify the downstream account and persisted side effects.
 
 ## [#8: Replace Clerk UI with Better Auth sign-in and tab-scoped workspace administration](https://github.com/Ntrakiyski/connections/issues/8)
 
-- [ ] A browser test opens A1 and B1 as the same user, changes data in both, switches contexts during delayed requests and verifies the recipient workspace and rendered results.
-- [ ] A company directory member with no workspace grant sees no workspace data. An invited workspace member can use their permitted accounts while admin-only operations are denied by the backend.
-- [ ] End-to-end tests cover invite acceptance, switching, session invalidation and reload on a bookmarked workspace URL. The production console builds without Clerk's UI package or public Clerk key.
+- [x] A browser test opens A1 and B1 as the same user, changes data in both, switches contexts during delayed requests and verifies the recipient workspace and rendered results.
+- [x] A company directory member with no workspace grant sees no workspace data. An invited workspace member can use their permitted accounts while admin-only operations are denied by the backend.
+- [x] End-to-end tests cover invite acceptance, switching, session invalidation and reload on a bookmarked workspace URL. The production console builds without Clerk's UI package or public Clerk key.
 
 ## [#9: Build an idempotent Clerk identity and workspace importer](https://github.com/Ntrakiyski/connections/issues/9)
 

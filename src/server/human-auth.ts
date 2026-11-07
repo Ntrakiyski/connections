@@ -71,7 +71,11 @@ export function createHumanAuth(
       updateAge: 24 * 60 * 60,
       cookieCache: { enabled: false },
     },
-    advanced: { useSecureCookies: new URL(config.baseURL).protocol === "https:" },
+    advanced: {
+      useSecureCookies: new URL(config.baseURL).protocol === "https:",
+      disableOriginCheck: false,
+      disableCSRFCheck: false,
+    },
     telemetry: { enabled: false },
     logger: { disabled: true },
   };

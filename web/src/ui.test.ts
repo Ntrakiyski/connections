@@ -1,118 +1,91 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getOrganizationToken, subscribeToOAuthCompletions, loadRuntimeData } from "./ui";
+import { loadRuntimeData, subscribeToOAuthCompletions } from "./ui";
+import { createWorkspaceScope } from "./workspace-scope";
 
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
+afterEach(() => vi.unstubAllGlobals());
 
-describe("subscribeToOAuthCompletions", () => {
-  it("refreshes when the OAuth callback broadcasts completion", () => {
-    const addEventListener = vi.fn();
-    class FakeBroadcastChannel {
-      static instance: FakeBroadcastChannel | undefined;
-      private listener: ((event: MessageEvent) => void) | undefined;
-      closed = false;
-
-      constructor(readonly name: string) {
-        FakeBroadcastChannel.instance = this;
-      }
-
-      addEventListener(type: string, listener: (event: MessageEvent) => void): void {
-        if (type === "message") {
-          this.listener = listener;
-        }
-      }
-
-      close(): void {
-        this.closed = true;
-      }
-
-      emit(data: unknown): void {
-        this.listener?.({ data } as MessageEvent);
-      }
-    }
-    vi.stubGlobal("addEventListener", addEventListener);
-    vi.stubGlobal("BroadcastChannel", FakeBroadcastChannel);
-    const refresh = vi.fn();
-
-    const unsubscribe = subscribeToOAuthCompletions(refresh);
-    FakeBroadcastChannel.instance?.emit({ type: "oauth.completed", service: "gmail" });
-
-    expect(FakeBroadcastChannel.instance?.name).toBe("oomol-connect-oauth");
-    expect(addEventListener).not.toHaveBeenCalled();
-    expect(refresh).toHaveBeenCalledWith({ type: "oauth.completed", service: "gmail" });
-    unsubscribe();
-    expect(FakeBroadcastChannel.instance?.closed).toBe(true);
-  });
-});
-
-describe("loadRuntimeData", () => {
-  it("requests a Clerk token scoped to the selected organization", async () => {
-    const getToken = vi.fn().mockResolvedValue("organization-token");
-
-    await expect(getOrganizationToken(getToken, "org_selected")).resolves.toBe("organization-token");
-    expect(getToken).toHaveBeenCalledWith({ organizationId: "org_selected", skipCache: true });
-  });
-
-  it("passes the Clerk token to all API calls", async () => {
+describe("workspace console requests", () => {
+  it("sends the captured workspace on all requests without a bearer credential", async () => {
     const calls: Array<{ path: string; headers: Headers }> = [];
     vi.stubGlobal(
       "fetch",
       vi.fn(async (path: RequestInfo | URL, init?: RequestInit) => {
         calls.push({ path: String(path), headers: new Headers(init?.headers) });
-        if (path === "/api/auth/session") {
-          return Response.json({ adminAuthConfigured: true, authenticated: true });
-        }
-        if (path === "/api/runs") {
-          return Response.json({ items: [], nextCursor: null });
-        }
-        if (path === "/api/workspace/safety-config") {
-          return Response.json(testSafetyConfig());
-        }
+        if (path === "/api/auth/session")
+          return Response.json({
+            authenticated: true,
+            adminAuthConfigured: true,
+            workspaceId: "A1",
+            workspaceName: "A1",
+            userId: "operator",
+            role: "member",
+          });
+        if (path === "/api/runs") return Response.json({ items: [] });
+        if (path === "/api/workspace/safety-config") return Response.json({});
         return Response.json([]);
       }),
     );
-
-    await loadRuntimeData("clerk-token");
-
-    expect(calls.map((call) => call.path)).toEqual([
-      "/api/auth/session",
-      "/api/providers",
-      "/api/connections",
-      "/api/oauth/configs",
-      "/api/runtime-tokens",
-      "/api/runs",
-      "/api/workspace/safety-config",
-    ]);
+    const scope = createWorkspaceScope({ userId: "operator", organizationId: "A", workspaceId: "A1" });
+    const result = await loadRuntimeData(scope);
+    expect(result.data.workspaceId).toBe("A1");
+    expect(calls).toHaveLength(8);
     for (const call of calls) {
-      expect(call.headers.get("authorization")).toBe("Bearer clerk-token");
+      expect(call.headers.get("x-workspace-id")).toBe("A1");
+      expect(call.headers.has("authorization")).toBe(false);
     }
+    scope.close();
   });
 
-  it("works without a Clerk token (null)", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (path: RequestInfo | URL) => {
-        if (path === "/api/auth/session") {
-          return Response.json({ adminAuthConfigured: true, authenticated: true });
-        }
-        if (path === "/api/runs") return Response.json({ items: [] });
-        if (path === "/api/workspace/safety-config") return Response.json(testSafetyConfig());
-        return Response.json([]);
-      }),
+  it("rejects a session response for a different user or workspace before resource loading", async () => {
+    const fetcher = vi.fn(async () =>
+      Response.json({ authenticated: true, workspaceId: "B1", userId: "operator", role: "admin" }),
     );
+    vi.stubGlobal("fetch", fetcher);
+    const scope = createWorkspaceScope({ userId: "operator", organizationId: "A", workspaceId: "A1" });
+    await expect(loadRuntimeData(scope)).rejects.toThrow("no longer available");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    scope.close();
+  });
 
-    const result = await loadRuntimeData(null);
-    expect(result.data.providers).toEqual([]);
+  it("accepts only a pending completion for the mounted user and workspace, once", () => {
+    class Channel {
+      static current: Channel | undefined;
+      private listener?: (event: MessageEvent<unknown>) => void;
+      closed = false;
+      constructor(_name: string) {
+        Channel.current = this;
+      }
+      addEventListener(_type: string, listener: (event: MessageEvent<unknown>) => void): void {
+        this.listener = listener;
+      }
+      close(): void {
+        this.closed = true;
+      }
+      emit(data: unknown): void {
+        this.listener?.({ data } as MessageEvent<unknown>);
+      }
+    }
+    vi.stubGlobal("BroadcastChannel", Channel);
+    const scope = createWorkspaceScope({ userId: "operator", organizationId: "A", workspaceId: "A1" });
+    const refresh = vi.fn();
+    const unsubscribe = subscribeToOAuthCompletions(scope, refresh);
+    scope.rememberConsent("original-consent", "gmail");
+    const completed = {
+      type: "oauth.completed",
+      state: "original-consent",
+      service: "gmail",
+      userId: "operator",
+      workspaceId: "A1",
+    };
+    Channel.current?.emit({ ...completed, workspaceId: "B1" });
+    Channel.current?.emit({ ...completed, userId: "other" });
+    Channel.current?.emit({ ...completed, state: "old-consent" });
+    expect(refresh).not.toHaveBeenCalled();
+    Channel.current?.emit(completed);
+    Channel.current?.emit(completed);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    scope.close();
+    unsubscribe();
+    expect(Channel.current?.closed).toBe(true);
   });
 });
-
-function testSafetyConfig() {
-  const resolved = {
-    scopePreflight: { mode: "observe" },
-    idempotency: { mode: "observe" },
-    retry: { mode: "observe", maxAttempts: 3, baseDelayMs: 250, maxDelayMs: 2000 },
-    rateLimit: { mode: "observe", maxConcurrent: 4 },
-  };
-  return { workspace: resolved, resolved };
-}

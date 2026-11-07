@@ -25,12 +25,14 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router";
+import { useParams } from "react-router";
 import { ActionApprovalControl } from "./action-approval-control";
 import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from "./api";
 import { credentialFieldsFor, filterProviders, resolveProviderConnectionStatus, sortProviders } from "./model";
 import { SafetySettingsPanel } from "./safety-settings-panel";
 import { Badge, EmptyState, FormStatus, ProviderIcon, TagList } from "./shared-ui";
+import { useWorkspaceRequests, useWorkspaceScope } from "./workspace-context";
+import { WorkspaceLink as Link } from "./workspace-context";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,6 +53,7 @@ interface ProviderDetailProps {
   connectionStatus: ProviderConnectionStatus;
   oauthConfig?: OAuthConfig;
   canManageProviders: boolean;
+  enabled: boolean;
   onRefresh(): void;
 }
 
@@ -123,6 +126,7 @@ export function ProvidersPage(props: ProvidersPageProps): ReactNode {
       connectionStatus={connectionStatus}
       oauthConfig={oauthConfigForProvider(props.data.oauthConfigs, routeProvider.service)}
       canManageProviders={props.data.role !== "member"}
+      enabled={props.data.enabledServices?.includes(routeProvider.service) ?? true}
       onRefresh={props.onRefresh}
     />
   );
@@ -465,6 +469,9 @@ function ProviderNotFound(props: { service: string }): ReactNode {
 }
 
 function ProviderDetail(props: ProviderDetailProps): ReactNode {
+  const requests = useWorkspaceRequests();
+  const [availabilityStatus, setAvailabilityStatus] = useState("");
+  const [changingAvailability, setChangingAvailability] = useState(false);
   const t = useTranslate();
   const [selectedAuthType, setSelectedAuthType] = useState(() => initialAuthType(props.provider, props.connection));
   const [selectedConnectionName, setSelectedConnectionName] = useState<string | undefined>(
@@ -473,6 +480,20 @@ function ProviderDetail(props: ProviderDetailProps): ReactNode {
   const [safetyConfig, setSafetyConfig] = useState<ResolvedProviderSafetyConfig | undefined>();
   const [isNewConnection, setIsNewConnection] = useState(() => !props.connection);
   const [oauthClientExpanded, setOAuthClientExpanded] = useState(false);
+  async function changeAvailability(): Promise<void> {
+    setChangingAvailability(true);
+    setAvailabilityStatus("");
+    try {
+      const endpoint = `/api/workspace/providers/${encodeURIComponent(props.provider.service)}`;
+      if (props.enabled) await apiDelete(endpoint, requests);
+      else await apiPut(endpoint, {}, requests);
+      props.onRefresh();
+    } catch (error) {
+      setAvailabilityStatus(error instanceof Error ? error.message : "Provider availability could not be changed.");
+    } finally {
+      setChangingAvailability(false);
+    }
+  }
   const selectedConnection = isNewConnection
     ? undefined
     : (props.connections.find((connection) => connection.connectionName === selectedConnectionName) ??
@@ -508,7 +529,7 @@ function ProviderDetail(props: ProviderDetailProps): ReactNode {
     let active = true;
     setSafetyConfig(undefined);
     const service = encodeURIComponent(props.provider.service);
-    void apiGet<ResolvedProviderSafetyConfig>(`/api/workspace/providers/${service}/safety-config`)
+    void apiGet<ResolvedProviderSafetyConfig>(`/api/workspace/providers/${service}/safety-config`, requests)
       .then((config) => {
         if (active) setSafetyConfig(config);
       })
@@ -551,6 +572,17 @@ function ProviderDetail(props: ProviderDetailProps): ReactNode {
           </div>
         </div>
         <div className="provider-detail-actions">
+          {props.canManageProviders ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={changingAvailability}
+              onClick={() => void changeAvailability()}
+            >
+              {props.enabled ? "Disable for workspace" : "Enable for workspace"}
+            </Button>
+          ) : null}
+          <span role="status">{availabilityStatus}</span>
           {props.provider.homepageUrl ? (
             <Button asChild variant="outline" size="sm">
               <a href={props.provider.homepageUrl} target="_blank" rel="noreferrer">
@@ -609,9 +641,13 @@ function ProviderDetail(props: ProviderDetailProps): ReactNode {
                   }}
                   onAddConnection={() => setIsNewConnection(true)}
                   onRename={async (connectionName, nextConnectionName) => {
-                    await apiPatch(`/api/connections/${props.provider.service}/${encodeURIComponent(connectionName)}`, {
-                      connectionName: nextConnectionName,
-                    });
+                    await apiPatch(
+                      `/api/connections/${props.provider.service}/${encodeURIComponent(connectionName)}`,
+                      {
+                        connectionName: nextConnectionName,
+                      },
+                      requests,
+                    );
                     setSelectedConnectionName(nextConnectionName);
                     props.onRefresh();
                   }}
@@ -702,7 +738,7 @@ function ProviderDetail(props: ProviderDetailProps): ReactNode {
                         : t("providers.execution.catalogOnly")}
                     </Badge>
                   </Link>
-                  <ActionApprovalControl actionId={action.id} canManage={props.canManageProviders} />
+                  <ActionApprovalControl actionId={action.id} canManage={props.canManageProviders && props.enabled} />
                 </div>
               ))}
             </div>
@@ -927,13 +963,14 @@ function UnavailableProviderConnection(props: {
   connection?: AppData["connections"][number];
   onRefresh(): void;
 }): ReactNode {
+  const requests = useWorkspaceRequests();
   const t = useTranslate();
   const [status, setStatus] = useState<string | null>(null);
 
   async function disconnect(): Promise<void> {
     setStatus(t("providers.connectionMessages.disconnecting"));
     try {
-      await apiDelete(`/api/connections/${props.provider.service}`);
+      await apiDelete(`/api/connections/${props.provider.service}`, requests);
       setStatus(t("providers.connectionMessages.disconnected"));
       props.onRefresh();
     } catch (error) {
@@ -964,6 +1001,8 @@ function UnavailableProviderConnection(props: {
 }
 
 function ConnectionForm(props: ConnectionFormProps): ReactNode {
+  const scope = useWorkspaceScope();
+  const requests = useWorkspaceRequests();
   const t = useTranslate();
   const [values, setValues] = useState<Record<string, string>>({});
   const [connectionName, setConnectionName] = useState(() => props.connection?.connectionName ?? "default");
@@ -1004,29 +1043,43 @@ function ConnectionForm(props: ConnectionFormProps): ReactNode {
     );
     try {
       if (props.auth.type === "no_auth") {
-        await apiPut(`/api/connections/${props.provider.service}`, { authType: "no_auth", connectionName });
+        await apiPut(`/api/connections/${props.provider.service}`, { authType: "no_auth", connectionName }, requests);
       } else if (props.auth.type === "api_key") {
-        await apiPut(`/api/connections/${props.provider.service}`, { authType: "api_key", values, connectionName });
+        await apiPut(
+          `/api/connections/${props.provider.service}`,
+          { authType: "api_key", values, connectionName },
+          requests,
+        );
       } else if (props.auth.type === "custom_credential") {
-        await apiPut(`/api/connections/${props.provider.service}`, {
-          authType: "custom_credential",
-          values,
-          connectionName,
-        });
+        await apiPut(
+          `/api/connections/${props.provider.service}`,
+          {
+            authType: "custom_credential",
+            values,
+            connectionName,
+          },
+          requests,
+        );
       } else {
         if (!canSubmit) {
           setStatus(t("providers.connectionMessages.configureOAuthFirst"));
           return;
         }
-        const result = await apiPost<{ authorizationUrl?: string }>(`/api/oauth/authorizations`, {
-          service: props.provider.service,
-          connectionName,
-        });
+        const result = await apiPost<{ authorizationUrl?: string; state?: string }>(
+          `/api/oauth/authorizations`,
+          {
+            service: props.provider.service,
+            connectionName,
+          },
+          requests,
+        );
+        if (!result.state || !result.authorizationUrl) throw new Error("Authorization could not be started.");
         if (result.authorizationUrl) {
+          scope?.rememberConsent(result.state, props.provider.service);
           props.onConnectionCreated(connectionName);
           window.open(
             result.authorizationUrl,
-            "oomol_connect_oauth",
+            `connections_oauth_${result.state}`,
             createOAuthPopupFeatures({
               screenX: window.screenX,
               screenY: window.screenY,
@@ -1053,6 +1106,7 @@ function ConnectionForm(props: ConnectionFormProps): ReactNode {
     try {
       await apiDelete(
         `/api/connections/${props.provider.service}?connectionName=${encodeURIComponent(connectionName)}`,
+        requests,
       );
       setStatus(t("providers.connectionMessages.disconnected"));
       props.onRefresh();
@@ -1138,6 +1192,7 @@ function OAuthClientSettings(props: {
   onToggle(): void;
   onRefresh(): void;
 }): ReactNode {
+  const requests = useWorkspaceRequests();
   const t = useTranslate();
   const [status, setStatus] = useState<string | null>(null);
   const previousProviderService = useRef(props.provider.service);
@@ -1159,7 +1214,7 @@ function OAuthClientSettings(props: {
   async function reset(): Promise<void> {
     setStatus(t("providers.oauthClientSettings.resetting"));
     try {
-      await apiDelete(`/api/oauth/configs/${props.provider.service}`);
+      await apiDelete(`/api/oauth/configs/${props.provider.service}`, requests);
       setStatus(t("providers.oauthClientSettings.reset"));
       skipNextConfigClear.current = true;
       props.onRefresh();
@@ -1215,6 +1270,7 @@ function OAuthClientSettings(props: {
 }
 
 function OAuthConfigForm(props: OAuthConfigFormProps): ReactNode {
+  const requests = useWorkspaceRequests();
   const t = useTranslate();
   const [clientId, setClientId] = useState(() => props.config?.clientId ?? "");
   const [clientSecret, setClientSecret] = useState("");
@@ -1230,11 +1286,15 @@ function OAuthConfigForm(props: OAuthConfigFormProps): ReactNode {
     event.preventDefault();
     setStatus(t("providers.oauthClientSettings.saving"));
     try {
-      await apiPut(`/api/oauth/configs/${props.provider.service}`, {
-        clientId,
-        clientSecret,
-        extra: {},
-      });
+      await apiPut(
+        `/api/oauth/configs/${props.provider.service}`,
+        {
+          clientId,
+          clientSecret,
+          extra: {},
+        },
+        requests,
+      );
       setStatus(t("providers.oauthClientSettings.saved"));
       props.onRefresh();
     } catch (error) {

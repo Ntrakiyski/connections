@@ -775,7 +775,8 @@ describe("ConnectServer", () => {
     expect(callbackText).toContain("BroadcastChannel");
     expect(callbackText).toContain('"type":"oauth.completed"');
     expect(callbackText).toContain('"service":"oauth_example"');
-    expect(callbackText).not.toContain("window.opener");
+    expect(callbackText).toContain("window.opener.postMessage(");
+    expect(callbackText).toContain(",window.location.origin)");
     expect(callbackText).not.toContain('postMessage(message,"*"');
     expect(callbackText).toContain("Connection ready");
     expect(callbackText).toContain("card");
