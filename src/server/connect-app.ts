@@ -3,6 +3,7 @@ import type { ActionPolicyService } from "../core/action-policy.ts";
 import type { IProviderLoader } from "../providers/provider-loader.ts";
 import type { WorkspaceServerServices } from "./connect-server.ts";
 import type { ITransitFileService } from "./files/transit-file-store.ts";
+import type { ConnectionsHumanAuth } from "./human-auth.ts";
 import type { Logger } from "./logger.ts";
 import type { ISecretCodec } from "./secrets/secret-codec-core.ts";
 import type { RuntimeDatabase } from "./storage/runtime-database.ts";
@@ -26,6 +27,8 @@ export interface ConnectAppOptions {
   transitFiles: ITransitFileService;
   publicOrigin: string;
   secretCodec: ISecretCodec;
+  humanAuth?: ConnectionsHumanAuth;
+  trustedAuthOrigins?: string[];
   clerkSecretKey?: string;
   clerkPublishableKey?: string;
   meetingsOAuthClientId?: string;
@@ -42,6 +45,9 @@ export interface ConnectApp {
 }
 
 export async function createConnectApp(options: ConnectAppOptions): Promise<ConnectApp> {
+  if (options.humanAuth && !options.runtimeDatabase.identityDirectory) {
+    throw new Error("Human authentication requires a live identity directory.");
+  }
   const runtimeTokens = new RuntimeTokenService(options.runtimeDatabase.runtimeTokenStore);
   const hasStoredRuntimeTokens = async (): Promise<boolean> => (await runtimeTokens.listTokens()).length > 0;
   const createWorkspaceServices = (workspace: WorkspaceContext): WorkspaceServerServices => {
@@ -98,7 +104,7 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
       }),
       runtimeTokens: new RuntimeTokenService(stores.runtimeTokenStore),
       lifecycle:
-        options.clerkSecretKey && options.runtimeDatabase.workspaceLifecycleStore
+        (options.humanAuth || options.clerkSecretKey) && options.runtimeDatabase.workspaceLifecycleStore
           ? new WorkspaceLifecycleService(
               options.runtimeDatabase.workspaceLifecycleStore,
               runtimeTokens,
@@ -134,6 +140,17 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
         membershipStore: options.runtimeDatabase.membershipStore,
         meetingsOAuthClientId: options.meetingsOAuthClientId,
       },
+      principalAuth:
+        options.humanAuth && options.runtimeDatabase.identityDirectory
+          ? {
+              auth: options.humanAuth,
+              trustedOrigins: options.trustedAuthOrigins ?? [new URL(options.publicOrigin).origin],
+              directory: options.runtimeDatabase.identityDirectory,
+              workspaceStore: options.runtimeDatabase.workspaceStore,
+              membershipStore: options.runtimeDatabase.membershipStore,
+              runtimeTokens,
+            }
+          : undefined,
       meetingStore: options.runtimeDatabase.meetingStore,
       clerkWebhooks: {
         signingSecret: process.env.CLERK_WEBHOOK_SIGNING_SECRET,
@@ -151,11 +168,12 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
         workspaceStore: options.runtimeDatabase.workspaceStore,
       },
       createWorkspaceServices,
-      purgeExpiredWorkspaces: options.clerkSecretKey
-        ? async () => {
-            await options.runtimeDatabase.workspaceLifecycleStore?.purgeExpired(new Date().toISOString());
-          }
-        : undefined,
+      purgeExpiredWorkspaces:
+        options.humanAuth || options.clerkSecretKey
+          ? async () => {
+              await options.runtimeDatabase.workspaceLifecycleStore?.purgeExpired(new Date().toISOString());
+            }
+          : undefined,
       actionPolicy: options.actionPolicy,
       logger: options.logger,
     }).createApp(),

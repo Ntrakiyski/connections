@@ -26,6 +26,7 @@ import type { IRuntimeTokenStore, RuntimeTokenRecord, WorkspaceRole } from "./ru
 
 import { ConnectionError } from "../../connection-service.ts";
 import { PlainTextSecretCodec } from "../secrets/secret-codec-core.ts";
+import { SqlIdentityDirectory } from "./identity-directory.ts";
 import { D1MeetingStore } from "./meeting-store.ts";
 import { decodeRunLogCursor, encodeRunLogCursor } from "./runtime-store.ts";
 
@@ -38,6 +39,7 @@ export interface D1RuntimeDatabaseOptions {
 
 /** D1 implementation of the same workspace-scoped runtime store contract as SQLite. */
 export class D1RuntimeDatabase implements RuntimeDatabase {
+  readonly identityDirectory: SqlIdentityDirectory;
   readonly connectionStore: D1ConnectionStore;
   readonly oauthClientConfigStore: D1OAuthClientConfigStore;
   readonly oauthStateStore: D1OAuthStateStore;
@@ -55,6 +57,15 @@ export class D1RuntimeDatabase implements RuntimeDatabase {
 
   constructor(database: D1DatabaseBinding, options: D1RuntimeDatabaseOptions = {}) {
     this.database = database;
+    this.identityDirectory = new SqlIdentityDirectory(
+      async (sql, values) =>
+        (
+          await database
+            .prepare(sql)
+            .bind(...values)
+            .all()
+        ).results,
+    );
     this.secretCodec = options.secretCodec ?? new PlainTextSecretCodec();
     this.runLimit = options.runLimit ?? 100;
     const defaults = this.createScopedStores("default");
@@ -342,10 +353,13 @@ export class D1RuntimeTokenStore implements IRuntimeTokenStore {
   async revoke(id: string): Promise<boolean> {
     const result = this.workspaceId
       ? await this.database
-          .prepare("delete from runtime_tokens where workspace_id = ? and id = ?")
-          .bind(this.workspaceId, id)
+          .prepare("update runtime_tokens set revoked_at = ? where workspace_id = ? and id = ? and revoked_at is null")
+          .bind(new Date().toISOString(), this.workspaceId, id)
           .run()
-      : await this.database.prepare("delete from runtime_tokens where id = ?").bind(id).run();
+      : await this.database
+          .prepare("update runtime_tokens set revoked_at = ? where id = ? and revoked_at is null")
+          .bind(new Date().toISOString(), id)
+          .run();
     return (result.meta.changes ?? 0) > 0;
   }
 

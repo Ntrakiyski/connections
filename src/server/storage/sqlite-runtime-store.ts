@@ -27,6 +27,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { ConnectionError } from "../../connection-service.ts";
 import { PlainTextSecretCodec } from "../secrets/secret-codec-core.ts";
+import { SqlIdentityDirectory } from "./identity-directory.ts";
 import { SqliteMeetingStore } from "./meeting-store.ts";
 import { decodeRunLogCursor, encodeRunLogCursor } from "./runtime-store.ts";
 
@@ -40,6 +41,8 @@ export interface SqliteRuntimeDatabaseOptions {
 
 /** Shared SQLite runtime state with workspace-scoped store factories. */
 export class SqliteRuntimeDatabase implements RuntimeDatabase {
+  readonly identityDirectory: SqlIdentityDirectory;
+  readonly authDatabase: DatabaseSync;
   readonly connectionStore: SqliteConnectionStore;
   readonly oauthClientConfigStore: SqliteOAuthClientConfigStore;
   readonly oauthStateStore: SqliteOAuthStateStore;
@@ -57,6 +60,8 @@ export class SqliteRuntimeDatabase implements RuntimeDatabase {
 
   constructor(filename: string, options: SqliteRuntimeDatabaseOptions = {}) {
     this.database = new DatabaseSync(filename);
+    this.authDatabase = this.database;
+    this.identityDirectory = new SqlIdentityDirectory(async (sql, values) => this.database.prepare(sql).all(...values));
     this.secretCodec = options.secretCodec ?? new PlainTextSecretCodec();
     this.runLimit = options.runLimit ?? 100;
     this.initialize();
@@ -403,8 +408,12 @@ export class SqliteRuntimeTokenStore implements IRuntimeTokenStore {
 
   async revoke(id: string): Promise<boolean> {
     const result = this.workspaceId
-      ? this.database.prepare("delete from runtime_tokens where workspace_id = ? and id = ?").run(this.workspaceId, id)
-      : this.database.prepare("delete from runtime_tokens where id = ?").run(id);
+      ? this.database
+          .prepare("update runtime_tokens set revoked_at = ? where workspace_id = ? and id = ? and revoked_at is null")
+          .run(new Date().toISOString(), this.workspaceId, id)
+      : this.database
+          .prepare("update runtime_tokens set revoked_at = ? where id = ? and revoked_at is null")
+          .run(new Date().toISOString(), id);
     return result.changes > 0;
   }
 

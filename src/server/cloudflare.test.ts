@@ -28,7 +28,7 @@ describe("cloudflare worker", () => {
   it("writes connection logs to console", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
     const response = await worker.fetch(
-      new Request("https://connect.example.com/api/connections/example", {
+      new Request("http://localhost:3000/api/connections/example", {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -66,9 +66,12 @@ describe("cloudflare worker", () => {
   it("selects the KV backend and round-trips a file when TRANSIT_FILES_BACKEND is kv", async () => {
     const namespace = new MemoryKVNamespace();
     // A distinct host keeps this out of the R2 test's cached app instance.
-    const origin = "https://kv.example.com";
+    const origin = "http://localhost:3001";
     const env: CloudflareEnv = {
       DB: new UnusedD1Database(),
+      NODE_ENV: "development",
+      HOST: "127.0.0.1",
+      CONNECTIONS_DEV_AUTH_BYPASS: "true",
       TRANSIT_FILES: namespace,
       TRANSIT_FILES_BACKEND: "kv",
       ASSETS: memoryAssets({ "/catalog/apps.json": [provider] }),
@@ -101,9 +104,12 @@ describe("cloudflare worker", () => {
   it("defaults to the R2 backend when TRANSIT_FILES_BACKEND is unset and round-trips a file", async () => {
     const bucket = new MemoryR2Bucket();
     // A distinct host keeps this out of the other tests' cached app instances.
-    const origin = "https://r2.example.com";
+    const origin = "http://localhost:3002";
     const env: CloudflareEnv = {
       DB: new UnusedD1Database(),
+      NODE_ENV: "development",
+      HOST: "127.0.0.1",
+      CONNECTIONS_DEV_AUTH_BYPASS: "true",
       TRANSIT_FILES: bucket,
       // TRANSIT_FILES_BACKEND intentionally omitted -> must fall back to R2.
       ASSETS: memoryAssets({ "/catalog/apps.json": [provider] }),
@@ -137,6 +143,9 @@ describe("cloudflare worker", () => {
 function createEnv(): CloudflareEnv {
   return {
     DB: new UnusedD1Database(),
+    NODE_ENV: "development",
+    HOST: "127.0.0.1",
+    CONNECTIONS_DEV_AUTH_BYPASS: "true",
     TRANSIT_FILES: new UnusedR2Bucket(),
     ASSETS: memoryAssets({
       "/catalog/apps.json": [provider],

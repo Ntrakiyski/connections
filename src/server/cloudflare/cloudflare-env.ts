@@ -6,6 +6,14 @@ export interface CloudflareEnv {
   TRANSIT_FILES_BACKEND?: "r2" | "kv"; // New: used to distinguish backend type at runtime
   ASSETS?: AssetsBinding;
   OOMOL_CONNECT_ORIGIN?: string;
+  NODE_ENV?: string;
+  HOST?: string;
+  CONNECTIONS_DEV_AUTH_BYPASS?: string;
+  BETTER_AUTH_SECRET?: string;
+  BETTER_AUTH_URL?: string;
+  BETTER_AUTH_TRUSTED_ORIGINS?: string;
+  SMTP_URL?: string;
+  SMTP_FROM?: string;
   CLERK_SECRET_KEY?: string;
   CLERK_PUBLISHABLE_KEY?: string;
   CLERK_MEETINGLY_OAUTH_CLIENT_ID?: string;

@@ -5,6 +5,7 @@ import type { ActionSearchIndexProvider, ActionSearchResult } from "../core/acti
 import type { IProviderLoader } from "../providers/provider-loader.ts";
 import type { ClerkAuthOptions } from "./api/clerk-auth.ts";
 import type { ClerkWebhookOptions } from "./api/clerk-webhooks.ts";
+import type { PrincipalAuthOptions } from "./api/principal-auth.ts";
 import type { RuntimeTokenAuthOptions } from "./api/runtime-token-auth.ts";
 import type { ITransitFileService } from "./files/transit-file-store.ts";
 import type { TransitFileAccess } from "./files/transit-file-store.ts";
@@ -33,9 +34,11 @@ import { createClerkAuthMiddleware } from "./api/clerk-auth.ts";
 import { registerClerkRoutes } from "./api/clerk-routes.ts";
 import { registerClerkWebhookRoutes } from "./api/clerk-webhooks.ts";
 import { HttpRequestError, internalError, jsonError, notFound, readJsonBody } from "./api/http-utils.ts";
+import { registerHumanAuthRoutes } from "./api/human-auth-routes.ts";
 import { registerMeetingRoutes } from "./api/meeting-routes.ts";
 import { renderOAuthCompletionPage } from "./api/oauth-completion-page.ts";
 import { createOpenApiDocument } from "./api/openapi.ts";
+import { createPrincipalAuthMiddleware } from "./api/principal-auth.ts";
 import {
   mapConnectionErrorStatus,
   serializeRuntimeAction,
@@ -78,6 +81,7 @@ export interface IConnectServerOptions {
   transitFiles: ITransitFileService;
   staticRoot?: string;
   auth?: ClerkAuthOptions;
+  principalAuth?: PrincipalAuthOptions;
   clerkWebhooks?: ClerkWebhookOptions;
   runtimeTokenAuth?: RuntimeTokenAuthOptions;
   createWorkspaceServices?(workspace: WorkspaceContext): WorkspaceServerServices;
@@ -109,7 +113,12 @@ export class ConnectServer {
     app.use("*", async (context, next) => {
       await this.options.purgeExpiredWorkspaces?.();
       await next();
-      const cachePolicy = getResponseCachePolicy(context.req.method, context.req.path, context.res.status);
+      const cachePolicy = getResponseCachePolicy(
+        context.req.method,
+        context.req.path,
+        context.res.status,
+        Boolean(this.options.principalAuth),
+      );
       if (cachePolicy) {
         context.header("Cache-Control", cachePolicy.cacheControl);
         if (cachePolicy.cloudflareCdnCacheControl) {
@@ -121,14 +130,26 @@ export class ConnectServer {
       }
     });
     app.get("/health", (context) => context.json({ ok: true }));
-    if (this.options.clerkWebhooks) {
+    if (this.options.principalAuth) {
+      registerHumanAuthRoutes(
+        app,
+        this.options.principalAuth.auth,
+        this.options.principalAuth.directory,
+        this.options.principalAuth.trustedOrigins,
+      );
+    } else if (this.options.clerkWebhooks) {
       registerClerkWebhookRoutes(app, this.options.clerkWebhooks);
     }
-    app.use("*", createClerkAuthMiddleware(auth));
+    app.use(
+      "*",
+      this.options.principalAuth
+        ? createPrincipalAuthMiddleware(this.options.principalAuth)
+        : createClerkAuthMiddleware(auth),
+    );
     if (this.options.meetingStore) {
       registerMeetingRoutes(app, this.options.meetingStore);
     }
-    if (this.options.runtimeTokenAuth) {
+    if (this.options.runtimeTokenAuth && !this.options.principalAuth) {
       const runtimeTokenAuth = createRuntimeTokenAuthMiddleware(this.options.runtimeTokenAuth);
       app.use("/v1/*", runtimeTokenAuth);
       app.use("/mcp", runtimeTokenAuth);
@@ -180,7 +201,20 @@ export class ConnectServer {
       this.getActionMarkdown(context, context.req.param("actionId")),
     );
     app.get("/api/actions/:actionId", (context) => this.getAction(context, context.req.param("actionId")));
-    registerClerkRoutes(app, auth);
+    if (this.options.principalAuth) {
+      app.get("/api/auth/session", async (context) => {
+        const workspace = getWorkspaceContext(context);
+        const stored = await this.options.principalAuth?.workspaceStore.getById(workspace.workspaceId);
+        return context.json({
+          ...workspace,
+          workspaceName: stored?.name,
+          authenticated: true,
+          adminAuthConfigured: true,
+        });
+      });
+    } else {
+      registerClerkRoutes(app, auth);
+    }
 
     app.get("/api/connections", (context) => this.listConnections(context));
     app.put("/api/connections/:service", (context) => this.upsertConnection(context, context.req.param("service")));

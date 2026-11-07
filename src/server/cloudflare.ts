@@ -1,4 +1,5 @@
 import type { CatalogStore } from "../catalog-store.ts";
+import type { DeploymentAuthSettings } from "./auth-config.ts";
 import type { AssetsBinding, KVNamespaceBinding, R2BucketBinding } from "./cloudflare/cloudflare-bindings.ts";
 import type { CloudflareEnv } from "./cloudflare/cloudflare-env.ts";
 import type { ConnectApp } from "./connect-app.ts";
@@ -10,11 +11,15 @@ import { parsePrivateNetworkAccessFlag, setPrivateNetworkAccessAllowed } from ".
 import { ProviderLoader } from "../providers/provider-loader.ts";
 import { executableActionIds, executorModules } from "../providers/registry.cloudflare.generated.ts";
 import { isConsoleShellPath } from "./api/console-paths.ts";
+import { readDeploymentAuthSettings } from "./auth-config.ts";
+import { createAuthMailDelivery } from "./auth-mail.ts";
 import { loadCatalogFromAssets } from "./cloudflare/catalog-assets.ts";
 import { readPositiveInteger, resolvePublicOrigin } from "./cloudflare/cloudflare-env.ts";
+import { createD1AuthDatabase } from "./cloudflare/d1-auth-database.ts";
 import { createConnectApp } from "./connect-app.ts";
 import { KVTransitFileService } from "./files/kv-transit-files.ts";
 import { R2TransitFileService } from "./files/r2-transit-files.ts";
+import { createHumanAuth } from "./human-auth.ts";
 import { createWorkerSecretCodec } from "./secrets/worker-secret-codec.ts";
 import { D1RuntimeDatabase } from "./storage/d1-runtime-store.ts";
 
@@ -25,15 +30,27 @@ interface CloudflareExecutionContext {
 
 let catalogPromise: Promise<CatalogStore> | undefined;
 let cachedSecretCodec: { key: string; codec: Promise<ISecretCodec> } | undefined;
-let cachedApp: { key: string; app: Promise<ConnectApp> } | undefined;
+let cachedApp: { key: string; env: CloudflareEnv; app: Promise<ConnectApp> } | undefined;
 
 export default {
   async fetch(request: Request, env: CloudflareEnv, _ctx: CloudflareExecutionContext): Promise<Response> {
     setPrivateNetworkAccessAllowed(parsePrivateNetworkAccessFlag(env.OOMOL_CONNECT_ALLOW_PRIVATE_NETWORK));
     const publicOrigin = resolvePublicOrigin(request, env);
+    const settings = readWorkerAuthSettings(env, publicOrigin);
+    if (
+      settings.kind === "development-bypass" &&
+      !["localhost", "127.0.0.1", "[::1]"].includes(new URL(request.url).hostname)
+    )
+      throw new Error("Worker development authentication bypass requires a loopback request URL.");
     const cacheKey = createCacheKey(env, publicOrigin);
-    if (!cachedApp || cachedApp.key !== cacheKey) {
-      cachedApp = { key: cacheKey, app: createCloudflareApp(env, publicOrigin) };
+    if (
+      !cachedApp ||
+      cachedApp.key !== cacheKey ||
+      cachedApp.env.DB !== env.DB ||
+      cachedApp.env.TRANSIT_FILES !== env.TRANSIT_FILES ||
+      cachedApp.env.ASSETS !== env.ASSETS
+    ) {
+      cachedApp = { key: cacheKey, env, app: createCloudflareApp(env, publicOrigin) };
     }
 
     const { app } = await cachedApp.app;
@@ -47,15 +64,17 @@ export default {
 };
 
 async function createCloudflareApp(env: CloudflareEnv, publicOrigin: string): Promise<ConnectApp> {
+  const authSettings = readWorkerAuthSettings(env, publicOrigin);
   const assets = env.ASSETS;
   if (!assets) {
     throw new Error("Cloudflare ASSETS binding is required to load the catalog");
   }
   const secretCodec = await createSecretCodec(env.OOMOL_CONNECT_ENCRYPTION_KEY);
+  const database = new D1RuntimeDatabase(env.DB, { secretCodec });
   return await createConnectApp({
     catalog: await loadCatalogOnce(assets),
     providerLoader: new ProviderLoader(executorModules),
-    runtimeDatabase: new D1RuntimeDatabase(env.DB, { secretCodec }),
+    runtimeDatabase: database,
     transitFiles: (() => {
       const transitFileOptions = {
         publicOrigin,
@@ -74,10 +93,20 @@ async function createCloudflareApp(env: CloudflareEnv, publicOrigin: string): Pr
     })(),
     publicOrigin,
     secretCodec,
-    clerkSecretKey: env.CLERK_SECRET_KEY,
-    clerkPublishableKey: env.CLERK_PUBLISHABLE_KEY,
-    meetingsOAuthClientId: env.CLERK_MEETINGLY_OAUTH_CLIENT_ID,
-    clerkOptional: !env.CLERK_SECRET_KEY,
+    humanAuth:
+      authSettings.kind === "sessions"
+        ? createHumanAuth(
+            {
+              baseURL: authSettings.baseURL,
+              secret: authSettings.secret,
+              trustedOrigins: authSettings.trustedOrigins,
+              sendMail: createAuthMailDelivery(authSettings),
+            },
+            createD1AuthDatabase(env.DB),
+          )
+        : undefined,
+    trustedAuthOrigins: authSettings.kind === "sessions" ? authSettings.trustedOrigins : undefined,
+    clerkOptional: authSettings.kind === "development-bypass",
     actionPolicy: new ActionPolicyService({
       allowedActions: parseActionPolicyList(env.OOMOL_CONNECT_ALLOWED_ACTIONS),
       blockedActions: parseActionPolicyList(env.OOMOL_CONNECT_BLOCKED_ACTIONS),
@@ -87,6 +116,24 @@ async function createCloudflareApp(env: CloudflareEnv, publicOrigin: string): Pr
     logger: workerLogger,
     computeRuntimeAuthConfigured: false,
   });
+}
+
+function readWorkerAuthSettings(env: CloudflareEnv, publicOrigin: string): DeploymentAuthSettings {
+  return readDeploymentAuthSettings(
+    {
+      NODE_ENV: env.NODE_ENV,
+      HOST: env.HOST,
+      CONNECTIONS_DEV_AUTH_BYPASS: env.CONNECTIONS_DEV_AUTH_BYPASS,
+      BETTER_AUTH_SECRET: env.BETTER_AUTH_SECRET,
+      BETTER_AUTH_URL: env.BETTER_AUTH_URL,
+      BETTER_AUTH_TRUSTED_ORIGINS: env.BETTER_AUTH_TRUSTED_ORIGINS,
+      OOMOL_CONNECT_ORIGIN: publicOrigin,
+      OOMOL_CONNECT_ENCRYPTION_KEY: env.OOMOL_CONNECT_ENCRYPTION_KEY,
+      SMTP_URL: env.SMTP_URL,
+      SMTP_FROM: env.SMTP_FROM,
+    },
+    "worker",
+  );
 }
 
 const workerLogger = {
@@ -125,6 +172,14 @@ function createSecretCodec(encryptionKey: string | undefined): Promise<ISecretCo
 function createCacheKey(env: CloudflareEnv, publicOrigin: string): string {
   return JSON.stringify({
     publicOrigin,
+    authSecret: env.BETTER_AUTH_SECRET ?? "",
+    authURL: env.BETTER_AUTH_URL ?? "",
+    trustedOrigins: env.BETTER_AUTH_TRUSTED_ORIGINS ?? "",
+    smtpURL: env.SMTP_URL ?? "",
+    smtpFrom: env.SMTP_FROM ?? "",
+    nodeEnv: env.NODE_ENV ?? "",
+    hostname: env.HOST ?? "",
+    developmentBypass: env.CONNECTIONS_DEV_AUTH_BYPASS ?? "",
     clerkSecretKey: env.CLERK_SECRET_KEY ?? "",
     clerkPublishableKey: env.CLERK_PUBLISHABLE_KEY ?? "",
     meetingsOAuthClientId: env.CLERK_MEETINGLY_OAUTH_CLIENT_ID ?? "",

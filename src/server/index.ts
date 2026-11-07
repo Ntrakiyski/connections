@@ -8,24 +8,28 @@ import { parsePrivateNetworkAccessFlag, setPrivateNetworkAccessAllowed } from ".
 import { ProviderLoader } from "../providers/provider-loader.ts";
 import { executableActionIds, executorModules } from "../providers/registry.generated.ts";
 import { registerStaticRoutes } from "./api/static-routes.ts";
+import { readDeploymentAuthSettings } from "./auth-config.ts";
+import { createAuthMailDelivery } from "./auth-mail.ts";
 import { createConnectApp } from "./connect-app.ts";
 import { TransitFileService } from "./files/transit-files.ts";
+import { createHumanAuth } from "./human-auth.ts";
 import { logger } from "./logger.ts";
 import { createSecretCodec } from "./secrets/secret-codec.ts";
 import { normalizePostgresConnectionString } from "./storage/postgres-config.ts";
 import { PostgresRuntimeDatabase } from "./storage/postgres-runtime-store.ts";
 import { SqliteRuntimeDatabase } from "./storage/sqlite-runtime-store.ts";
 
+const authSettings = readDeploymentAuthSettings(process.env);
 const port = Number(process.env.PORT ?? 3000);
 const hostname = process.env.HOST ?? "127.0.0.1";
-const publicOrigin = process.env.OOMOL_CONNECT_ORIGIN ?? `http://localhost:${port}`;
+const publicOrigin =
+  authSettings.kind === "sessions"
+    ? authSettings.baseURL
+    : (process.env.OOMOL_CONNECT_ORIGIN ?? `http://localhost:${port}`);
 const dataDir = process.env.OOMOL_CONNECT_DATA_DIR ?? join(process.cwd(), "data");
 const transitFileTtlSeconds = readPositiveIntegerEnv("OOMOL_CONNECT_TRANSIT_FILE_TTL_SECONDS", 86_400);
 const transitFileMaxBytes = readPositiveIntegerEnv("OOMOL_CONNECT_TRANSIT_FILE_MAX_BYTES", 100 * 1024 * 1024);
 const secretCodec = createSecretCodec(process.env.OOMOL_CONNECT_ENCRYPTION_KEY);
-const clerkSecretKey = process.env.CLERK_SECRET_KEY;
-const clerkPublishableKey = process.env.CLERK_PUBLISHABLE_KEY;
-const clerkOptional = !clerkSecretKey;
 const actionPolicy = new ActionPolicyService({
   allowedActions: parseActionPolicyList(process.env.OOMOL_CONNECT_ALLOWED_ACTIONS),
   blockedActions: parseActionPolicyList(process.env.OOMOL_CONNECT_BLOCKED_ACTIONS),
@@ -60,10 +64,20 @@ const { app, runtimeAuthConfigured } = await createConnectApp({
   transitFiles,
   publicOrigin,
   secretCodec,
-  clerkSecretKey,
-  clerkPublishableKey,
-  meetingsOAuthClientId: process.env.CLERK_MEETINGLY_OAUTH_CLIENT_ID,
-  clerkOptional,
+  humanAuth:
+    authSettings.kind === "sessions"
+      ? createHumanAuth(
+          {
+            baseURL: authSettings.baseURL,
+            secret: authSettings.secret,
+            trustedOrigins: authSettings.trustedOrigins,
+            sendMail: createAuthMailDelivery(authSettings),
+          },
+          runtimeDatabase.authDatabase,
+        )
+      : undefined,
+  trustedAuthOrigins: authSettings.kind === "sessions" ? authSettings.trustedOrigins : undefined,
+  clerkOptional: authSettings.kind === "development-bypass",
   actionPolicy,
   registerStaticRoutes: (app) => registerStaticRoutes(app, staticRoot),
   logger,
@@ -87,8 +101,8 @@ serve(
   (info) => {
     logger.info({ url: `http://${hostname}:${info.port}` }, "connect server listening");
     logger.info({ dataDir }, "runtime data directory");
-    if (clerkOptional) {
-      logger.warn("Clerk authentication is disabled; running in local dev mode.");
+    if (authSettings.kind === "development-bypass") {
+      logger.warn("Explicit loopback development authentication bypass is active.");
     }
     if (!runtimeAuthConfigured) {
       logger.warn("runtime API authentication is disabled; create a runtime token in the web console.");

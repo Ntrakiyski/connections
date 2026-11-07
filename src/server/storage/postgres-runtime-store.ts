@@ -25,12 +25,15 @@ import type { IRuntimeTokenStore, RuntimeTokenRecord, WorkspaceRole } from "./ru
 import type { Pool, QueryResultRow } from "pg";
 
 import { ConnectionError } from "../../connection-service.ts";
+import { SqlIdentityDirectory } from "./identity-directory.ts";
 import { PostgresMeetingStore } from "./meeting-store.ts";
 function now(): string {
   return new Date().toISOString();
 }
 
 export class PostgresRuntimeDatabase implements RuntimeDatabase {
+  readonly identityDirectory: SqlIdentityDirectory;
+  readonly authDatabase: Pool;
   readonly connectionStore: IConnectionStore;
   readonly oauthClientConfigStore: IOAuthClientConfigStore;
   readonly oauthStateStore: IOAuthStateStore;
@@ -46,12 +49,22 @@ export class PostgresRuntimeDatabase implements RuntimeDatabase {
 
   constructor(pool: Pool, secretCodec: ISecretCodec, defaultWorkspaceId = "default") {
     this.#pool = pool;
+    this.authDatabase = pool;
+    this.identityDirectory = new SqlIdentityDirectory(async (sql, values) => {
+      let index = 0;
+      return (
+        await pool.query(
+          sql.replace(/\?/g, () => `$${++index}`),
+          values,
+        )
+      ).rows;
+    });
     this.#codec = secretCodec;
     const unscoped = new PostgresScopedStores(pool, secretCodec, defaultWorkspaceId);
     this.connectionStore = unscoped.connectionStore;
     this.oauthClientConfigStore = unscoped.oauthClientConfigStore;
     this.oauthStateStore = unscoped.oauthStateStore;
-    this.runtimeTokenStore = unscoped.runtimeTokenStore;
+    this.runtimeTokenStore = new PostgresTokenStore(pool);
     this.runLogStore = unscoped.runLogStore;
     this.workspaceStore = new PostgresWorkspaceStore(pool);
     this.workspaceLifecycleStore = new PostgresWorkspaceLifecycleStore(pool);
@@ -289,20 +302,21 @@ class PostgresOAuthStateStore implements IOAuthStateStore {
 
 class PostgresTokenStore implements IRuntimeTokenStore {
   readonly #pool: Pool;
-  readonly #workspaceId: string;
+  readonly #workspaceId: string | undefined;
 
-  constructor(pool: Pool, workspaceId: string) {
+  constructor(pool: Pool, workspaceId?: string) {
     this.#pool = pool;
     this.#workspaceId = workspaceId;
   }
 
   async add(record: RuntimeTokenRecord): Promise<void> {
+    this.assertWorkspace(record.workspaceId);
     await this.#pool.query(
       `insert into runtime_tokens (id, workspace_id, user_id, name, token_hash, created_at, last_used_at, revoked_at)
        values ($1, $2, $3, $4, $5, $6, $7, null)`,
       [
         record.id,
-        this.#workspaceId,
+        record.workspaceId,
         record.userId,
         record.name,
         record.tokenHash,
@@ -315,8 +329,8 @@ class PostgresTokenStore implements IRuntimeTokenStore {
   async list(): Promise<RuntimeTokenRecord[]> {
     const result = await this.#pool.query(
       `select id, workspace_id, user_id, name, token_hash, created_at, last_used_at
-       from runtime_tokens where workspace_id = $1 and revoked_at is null`,
-      [this.#workspaceId],
+       from runtime_tokens where ($1::text is null or workspace_id = $1) and revoked_at is null order by created_at desc, id desc`,
+      [this.#workspaceId ?? null],
     );
     return result.rows.map(mapTokenRow);
   }
@@ -324,8 +338,8 @@ class PostgresTokenStore implements IRuntimeTokenStore {
   async findByHash(tokenHash: string): Promise<RuntimeTokenRecord | undefined> {
     const result = await this.#pool.query(
       `select id, workspace_id, user_id, name, token_hash, created_at, last_used_at
-       from runtime_tokens where token_hash = $1 and revoked_at is null`,
-      [tokenHash],
+       from runtime_tokens where token_hash = $1 and ($2::text is null or workspace_id = $2) and revoked_at is null`,
+      [tokenHash, this.#workspaceId ?? null],
     );
     if (result.rows.length === 0) return undefined;
     return mapTokenRow(result.rows[0]);
@@ -333,13 +347,14 @@ class PostgresTokenStore implements IRuntimeTokenStore {
 
   async revoke(id: string): Promise<boolean> {
     const result = await this.#pool.query(
-      `update runtime_tokens set revoked_at = $1 where workspace_id = $2 and id = $3 and revoked_at is null`,
-      [now(), this.#workspaceId, id],
+      `update runtime_tokens set revoked_at = $1 where ($2::text is null or workspace_id = $2) and id = $3 and revoked_at is null`,
+      [now(), this.#workspaceId ?? null, id],
     );
     return (result.rowCount ?? 0) > 0;
   }
 
   async revokeByUser(workspaceId: string, userId: string): Promise<void> {
+    this.assertWorkspace(workspaceId);
     await this.#pool.query(
       `update runtime_tokens set revoked_at = $1 where workspace_id = $2 and user_id = $3 and revoked_at is null`,
       [now(), workspaceId, userId],
@@ -347,6 +362,7 @@ class PostgresTokenStore implements IRuntimeTokenStore {
   }
 
   async revokeByWorkspace(workspaceId: string): Promise<void> {
+    this.assertWorkspace(workspaceId);
     await this.#pool.query(`update runtime_tokens set revoked_at = $1 where workspace_id = $2 and revoked_at is null`, [
       now(),
       workspaceId,
@@ -354,11 +370,16 @@ class PostgresTokenStore implements IRuntimeTokenStore {
   }
 
   async markUsed(id: string, workspaceId: string, usedAt: string): Promise<void> {
-    await this.#pool.query(`update runtime_tokens set last_used_at = $1 where workspace_id = $2 and id = $3`, [
-      usedAt,
-      workspaceId,
-      id,
-    ]);
+    this.assertWorkspace(workspaceId);
+    await this.#pool.query(
+      `update runtime_tokens set last_used_at = $1 where workspace_id = $2 and id = $3 and revoked_at is null`,
+      [usedAt, workspaceId, id],
+    );
+  }
+
+  private assertWorkspace(workspaceId: string): void {
+    if (this.#workspaceId && this.#workspaceId !== workspaceId)
+      throw new Error("Runtime token workspace does not match its scoped store.");
   }
 }
 
