@@ -40,16 +40,26 @@ async function request(path: string, expected: number, options: RequestOptions =
   if (options.workspaceId) headers.set("x-workspace-id", options.workspaceId);
   if (options.bearer) headers.set("Authorization", `Bearer ${options.bearer}`);
   if (options.body !== undefined) headers.set("Content-Type", "application/json");
-  const response = await fetch(origin + path, {
-    method: options.method ?? (options.body === undefined ? "GET" : "POST"),
-    headers,
-    redirect: "manual",
-    signal: AbortSignal.timeout(30000),
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
-  });
-  checks.push({ step, status: response.status });
-  assert.equal(response.status, expected, `${step}: unexpected HTTP status`);
-  return response;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const response = await fetch(origin + path, {
+      method: options.method ?? (options.body === undefined ? "GET" : "POST"),
+      headers,
+      redirect: "manual",
+      signal: AbortSignal.timeout(30000),
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    });
+    checks.push({ step, status: response.status });
+    if (response.status === 429 && expected !== 429 && attempt < 5) {
+      const seconds = Number(response.headers.get("retry-after") ?? "60");
+      assert(Number.isFinite(seconds) && seconds >= 0 && seconds <= 120, "Invalid rate-limit retry delay");
+      await response.body?.cancel();
+      await delay((seconds + 1) * 1000);
+      continue;
+    }
+    assert.equal(response.status, expected, `${step}: unexpected HTTP status`);
+    return response;
+  }
+  throw new Error("Rate-limit retries exhausted");
 }
 
 const mailListSchema = z.object({
