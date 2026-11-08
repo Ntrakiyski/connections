@@ -396,10 +396,13 @@ for (const adapter of ["SQLite", "D1", "PostgreSQL"]) {
         for (const alternate of ["A2", "B1"]) {
           const result = await fixture.app.request(`${origin}/v1/actions/sentinel.get_account`, {
             method: "POST",
-            headers: { authorization: `Bearer ${key.token}`, "content-type": "application/json" },
+            headers: {
+              authorization: `Bearer ${key.token}`,
+              "content-type": "application/json",
+              "x-oo-connector-app-id": "sentinel:shared",
+            },
             body: JSON.stringify({
               workspaceId: alternate,
-              connectionName: "shared",
               input: { workspaceId: alternate, organizationId: "B", userId: "another-user" },
             }),
           });
@@ -491,8 +494,12 @@ for (const adapter of ["SQLite", "D1", "PostgreSQL"]) {
           Promise.resolve(
             fixture.app.request(`${origin}/v1/actions/sentinel.get_account`, {
               method: "POST",
-              headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-              body: JSON.stringify({ connectionName: "shared", input: {} }),
+              headers: {
+                authorization: `Bearer ${token}`,
+                "content-type": "application/json",
+                "x-oo-connector-app-id": "sentinel:shared",
+              },
+              body: JSON.stringify({ input: {} }),
             }),
           );
         expect((await run(a.token)).status).toBe(200);

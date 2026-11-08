@@ -1135,6 +1135,47 @@ describe("ConnectServer", () => {
     });
   });
 
+  it("executes Open Flow app-ID requests and forwards the idempotency header", async () => {
+    const app = createTestServer([{ ...apiKeyProvider, actions: [echoAction] }], {
+      providerLoader: new EchoProviderLoader(),
+    }).createApp();
+    await app.request("/api/connections/example", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ authType: "api_key", connectionName: "work", values: { apiKey: "work-key" } }),
+    });
+    const headers = {
+      "content-type": "application/json",
+      "x-oo-connector-app-id": "example:work",
+      "idempotency-key": "open-flow-invocation",
+    };
+    const response = await app.request("/v1/actions/example.echo", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ input: { message: "Open Flow" } }),
+    });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ success: true, data: { message: "Open Flow" } });
+    const runs = await app.request("/api/runs");
+    await expect(runs.json()).resolves.toMatchObject({ items: [{ safety: { idempotency: "observed" } }] });
+    for (const appId of ["other:work", "example:missing"]) {
+      const denied = await app.request("/v1/actions/example.echo", {
+        method: "POST",
+        headers: { ...headers, "x-oo-connector-app-id": appId },
+        body: JSON.stringify({ input: {} }),
+      });
+      expect(denied.status).toBe(404);
+      await expect(denied.json()).resolves.toMatchObject({ errorCode: "connection_not_found" });
+    }
+    const conflict = await app.request("/v1/actions/example.echo", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ connectionName: "personal", input: {} }),
+    });
+    expect(conflict.status).toBe(400);
+    await expect(conflict.json()).resolves.toMatchObject({ errorCode: "invalid_connection_name" });
+  });
+
   it("renders agent guides with current connection and provider permissions", async () => {
     const app = createTestServer(
       [
@@ -1537,51 +1578,54 @@ describe("ConnectServer", () => {
     });
   });
 
-  it("executes provider proxy requests through the v1 runtime envelope", async () => {
-    const app = createTestServer([apiKeyProvider], {
-      providerLoader: new ProxyProviderLoader(),
-    }).createApp();
+  it.each(["x-oomol-connector-alias", "x-oo-connector-app-id"])(
+    "executes provider proxy requests selected by %s through the v1 runtime envelope",
+    async (selector) => {
+      const app = createTestServer([apiKeyProvider], {
+        providerLoader: new ProxyProviderLoader(),
+      }).createApp();
 
-    await app.request("/api/connections/example", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ authType: "api_key", values: { apiKey: "example-key" }, connectionName: "work" }),
-    });
-
-    const response = await app.request("/v1/proxy/example", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-oomol-connector-alias": "work",
-      },
-      body: JSON.stringify({
-        endpoint: "/items",
-        method: "post",
-        query: { limit: 2 },
-        headers: { accept: "application/json" },
-        body: { name: "Example" },
-      }),
-    });
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      success: true,
-      message: "OK",
-      data: {
-        status: 202,
+      await app.request("/api/connections/example", {
+        method: "PUT",
         headers: { "content-type": "application/json" },
-        data: {
+        body: JSON.stringify({ authType: "api_key", values: { apiKey: "example-key" }, connectionName: "work" }),
+      });
+
+      const response = await app.request("/v1/proxy/example", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          [selector]: selector === "x-oo-connector-app-id" ? "example:work" : "work",
+        },
+        body: JSON.stringify({
           endpoint: "/items",
-          method: "POST",
+          method: "post",
           query: { limit: 2 },
           headers: { accept: "application/json" },
           body: { name: "Example" },
-          authType: "api_key",
+        }),
+      });
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({
+        success: true,
+        message: "OK",
+        data: {
+          status: 202,
+          headers: { "content-type": "application/json" },
+          data: {
+            endpoint: "/items",
+            method: "POST",
+            query: { limit: 2 },
+            headers: { accept: "application/json" },
+            body: { name: "Example" },
+            authType: "api_key",
+          },
         },
-      },
-      meta: {},
-    });
-  });
+        meta: {},
+      });
+    },
+  );
 
   it("rejects invalid provider proxy endpoints", async () => {
     const app = createTestServer([apiKeyProvider], {
