@@ -15,6 +15,8 @@
 
 ## Provider connections
 
+- The Resources page links to the operator-owned `Ntrakiyski/open-flow` GitHub fork of `oomol-lab/open-flow` so workflow source can be modified independently.
+
 - A workspace owns provider enablement, OAuth application configuration, and action availability.
 - A workspace admin or manager configures a provider's OAuth app and enables the provider for the team.
 - Members see and use only the providers and actions configured for their workspace.

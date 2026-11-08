@@ -379,6 +379,10 @@
     "openapi": {
       "title": "JSON OpenAPI",
       "description": "Utilisez la spec générée depuis des scripts ou des importateurs d’outils."
+    },
+    "openFlow": {
+      "title": "Open Flow",
+      "description": "Créez des workflows visuels avec du code, des applications connectées et de l’IA. Explorez notre fork GitHub modifiable."
     }
   }
 }
