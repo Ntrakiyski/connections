@@ -1,6 +1,6 @@
 # Connections production authentication cutover
 
-Production was migrated on 2026-11-08 after operator approval. [The live cutover record](verification/production-cutover.json) includes the frozen/restored backup, exact deployed merge commit, verified import/repeat, final constraints and trusted HTTPS/auth checks. The operator receives the normal password-reset email and chooses their own password.
+Production was migrated on 2026-11-08 after operator approval. [The live cutover record](verification/production-cutover.json) includes the frozen/restored backup, exact deployed merge commit, verified import/repeat, final constraints and trusted HTTPS/auth checks. The operator completed the normal password-reset email, chose their password, signed in, and confirmed Fractals-dev with the existing connections.
 
 The release retains only the operator-selected Fractals-dev workspace and its verified existing administrator. Its candidate holds six connections, three OAuth configurations, five runtime-key records, 119 runs and 27 audit events. Preserve original identifiers, encryption key, encrypted bytes and key hashes. The other active workspace and both obsolete workspaces are excluded after backup; keep their original recovery snapshot private. Do not seed their users/companies in the migrated runtime.
 
