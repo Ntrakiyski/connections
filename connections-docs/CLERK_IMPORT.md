@@ -104,3 +104,5 @@ CONNECTIONS_TEST_POSTGRES_URL=postgresql://... npm test -- \
 ```
 
 The fixtures run SQLite, D1 contract and disposable PostgreSQL schemas. They verify repeatability, no-write previews, collisions, original resource/token/file ownership, recovery through real Hono/Better Auth, concurrent inventory changes, interrupted commits and resumed final verification. This synthetic local evidence does not substitute for the Coolify production-shaped staging rehearsal.
+
+Before the tenant Meetings migrations, inventory existing relations through PostgreSQL catalogs and capture any legacy unowned records in the full frozen backup. Preserve unowned legacy data privately; do not assign it to a workspace by guesswork or run unowned-row deletion before preservation. The live 2026-11-08 cutover retained two such records in a private RLS-protected legacy table, revoked public/browser roles and initialized the new tenant table separately. See [the production cutover record](PRODUCTION_AUTH_CUTOVER.md).
