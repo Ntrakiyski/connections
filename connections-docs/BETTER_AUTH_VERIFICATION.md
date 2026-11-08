@@ -2,6 +2,12 @@
 
 This is a working evidence ledger for tracker [#2](https://github.com/Ntrakiyski/connections/issues/2). An unchecked gate remains incomplete; implementation or passing isolated tests alone does not close a release gate.
 
+## Current operator scope (2026-11-08)
+
+The current release covers Connections connector authentication. The operator explicitly deferred the Meetings desktop app and requires Coolify Auto Deploy to stay enabled. Historical desktop acceptance items below remain unverified follow-up work and do not block this connector release. Connections signup, verification, recovery, workspace/MCP authorization, verified import, legacy human-auth retirement and recovery remain required.
+
+Coolify staging deployment `tigxgeanayz9qnodpyijoxdr` finished at `15d422102038b8f1d586d6d6951c06300eefa075`. The connector uses the isolated staging Compose file and origin, and trusted public HTTPS `/health` returns 200. This proves deployment and routing; it does not prove the live auth or rollback acceptance matrix.
+
 ## Reviewed and merged
 
 - [x] #3: Company/workspace schema, reviewed in merged PR #13.

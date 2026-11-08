@@ -21,6 +21,7 @@ ENV OOMOL_CONNECT_DATA_DIR=/app/data
 COPY package.json package-lock.json ./
 COPY scripts/healthcheck.ts ./scripts/healthcheck.ts
 COPY scripts/ensure-generated.ts ./scripts/ensure-generated.ts
+COPY scripts/staging-auth-rehearsal.ts ./scripts/staging-auth-rehearsal.ts
 COPY migrations ./migrations
 COPY sqlite-migrations ./sqlite-migrations
 COPY --from=build /app/src ./src

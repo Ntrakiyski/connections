@@ -1,6 +1,6 @@
 # Connections migration rehearsal and cutover
 
-Tracks [#12](https://github.com/Ntrakiyski/connections/issues/12), with [server PR #14](https://github.com/Ntrakiyski/connections/pull/14) and [desktop PR #1](https://github.com/Ntrakiyski/meetings/pull/1). This runbook describes the required rehearsal. The staging deployment, paired desktop pilot and rollback evidence are still pending. Production promotion remains with the operator.
+Tracks [#12](https://github.com/Ntrakiyski/connections/issues/12), with [server PR #14](https://github.com/Ntrakiyski/connections/pull/14). The operator narrowed the current release to Connections authentication on 2026-11-08; the Meetings desktop pilot and [desktop PR #1](https://github.com/Ntrakiyski/meetings/pull/1) are separate follow-up work. Staging deployment `tigxgeanayz9qnodpyijoxdr` finished at server commit `15d422102038b8f1d586d6d6951c06300eefa075`; trusted HTTPS `/health` returned 200. Live authentication and rollback evidence are still required. Production promotion remains with the operator.
 
 ## Staging resources and deployment guard
 
@@ -10,11 +10,11 @@ Before any staging deployment, inspect its authoritative application details and
 
 - Compose file `/docker-compose.staging.yml`.
 - Connector service domain `https://connections-migration.159.69.35.245.sslip.io`.
-- Auto-deploy disabled, and the reviewed feature-branch commit recorded.
+- Auto-deploy enabled as explicitly required by the operator, and the reviewed feature-branch commit recorded. Treat pushes to the watched branch as staging deployments.
 - Four staging-only environment variables: `CONNECTIONS_STAGING_ORIGIN`, `CONNECTIONS_STAGING_AUTH_SECRET`, `CONNECTIONS_STAGING_ENCRYPTION_KEY`, `CONNECTIONS_STAGING_DATABASE_PASSWORD`. Secrets remain runtime-only and outside git.
 - Separate connector and PostgreSQL volumes. No production database URL, encryption key, transit-file directory, provider account or Clerk human-auth credentials.
 
-The current connector ignores the Compose-path, service-domain and auto-deploy fields on application create/update. Those fields require a dashboard edit followed by read-back verification. A created application or successful API response alone does not prove that configuration was saved. Do not deploy the default `/docker-compose.yaml` setting.
+The current connector ignores the Compose-path, service-domain and auto-deploy fields on application create/update. Those fields require a dashboard edit followed by read-back verification. All three were read back in the operator-approved state on 2026-11-08. A created application or successful API response alone does not prove that configuration was saved. Do not deploy the default `/docker-compose.yaml` setting.
 
 `docker/staging-schema.sql` initializes a **fresh staging database** once with the existing baseline and checked application migrations. Its readiness marker prevents application startup before initialization succeeds. It is not an upgrade runner or a production migration command. A restored database uses its original migration ledger and reviewed migration sequence. Record the exact server commit and applied script hashes before a rehearsal.
 
@@ -31,6 +31,8 @@ Use synthetic source identities and provider accounts throughout the rehearsal. 
 Keep an untouched snapshot copy for comparison. Record snapshot/import counts and hashed exceptions in the [verification ledger](BETTER_AUTH_VERIFICATION.md); never record raw secret material.
 
 ## Live staging verification
+
+The staging Compose entrypoint runs `scripts/staging-auth-rehearsal.ts` once per successful synthetic rehearsal ID, through the trusted public HTTPS origin and private Mailpit API. Set staging-only runtime variables `CONNECTIONS_STAGING_REHEARSAL_ID` and `CONNECTIONS_STAGING_REHEARSAL_PASSWORD` before deployment. It refuses other origins, SMTP hosts and database targets; only sanitized steps/statuses/counts are logged. A failed rehearsal leaves the server available and requires investigation. Successful ledgers are stored with mode 0600 in the isolated connector data volume. This runner is not a production entrypoint.
 
 Run the tests through the actual HTTPS reverse proxy and application, with PostgreSQL persistence:
 
@@ -54,8 +56,8 @@ Verify on the recovery target that previously removed members, archived workspac
 
 ## Retirement and operator promotion
 
-Retire legacy human-auth settings only after the paired compatibility and recovery gates pass. Rewrite the production Compose/configuration and operating instructions around Better Auth, remove Clerk human session/webhook paths and unused dependencies, and review remaining intentional references. Current pending references include production Compose/Docker public-key arguments, legacy server auth/webhook modules, their Cloudflare configuration and old README/operations settings. `@clerk/backend` is also used by the server-only source exporter; preserve that import capability until the final reviewed export is complete. Provider catalog integrations are independent and must remain functional.
+Retire legacy human-auth settings only after the Connections authentication and recovery gates pass. The desktop pilot is separate follow-up work. Rewrite the production Compose/configuration and operating instructions around Better Auth, remove Clerk human session/webhook paths and unused dependencies, and review remaining intentional references. Current pending references include production Compose/Docker public-key arguments, legacy server auth/webhook modules, their Cloudflare configuration and old README/operations settings. `@clerk/backend` is also used by the server-only source exporter; preserve that import capability until the final reviewed export is complete. Provider catalog integrations are independent and must remain functional.
 
 Run `npm ci`, `npm run fix-check`, the complete tests with disposable PostgreSQL enabled, and `npm run build:web` on the final retirement commit. Evaluate the recorded dependency audit findings. Repeat affected staging checks when the final code or configuration changes.
 
-Provide the operator with the complete release record, migration counts/exceptions, supported deployment modes, intentional references, paired client version, backup references and recovery stop conditions. Keep #10/#11/#12 and tracker #2 open until that evidence is reviewed after coordinated merge. Production `main` auto-deploys; merging the server PR is a production action, not a way to start the staging rehearsal.
+Provide the operator with the complete connector release record, migration counts/exceptions, supported deployment modes, intentional references, backup references and recovery stop conditions. Keep the connector implementation issues and tracker #2 open until their evidence is reviewed after merge; #10/#11 retain their separate desktop follow-up evidence. Production `main` auto-deploys; merging the server PR is a production action, not a way to start the staging rehearsal.

@@ -4,6 +4,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
+    command: ["node", "scripts/staging-auth-rehearsal.ts"]
     depends_on:
       staging-postgres:
         condition: service_healthy
@@ -24,6 +25,8 @@ services:
       DATABASE_URL: postgresql://project_admin:${CONNECTIONS_STAGING_DATABASE_PASSWORD:?Set a separate staging database password}@staging-postgres:5432/connections_staging
       SMTP_URL: smtp://staging-mail:1025
       SMTP_FROM: Connections Staging <noreply@connections-staging.invalid>
+      CONNECTIONS_STAGING_REHEARSAL_ID: ${CONNECTIONS_STAGING_REHEARSAL_ID:?Set a unique synthetic rehearsal ID}
+      CONNECTIONS_STAGING_REHEARSAL_PASSWORD: ${CONNECTIONS_STAGING_REHEARSAL_PASSWORD:?Set a synthetic-only rehearsal password}
       # Synthetic workspace grants explicitly enable providers during the pilot.
       OOMOL_CONNECT_ALLOWED_ACTIONS: ${CONNECTIONS_STAGING_ALLOWED_ACTIONS:-}
       OOMOL_CONNECT_ALLOWED_PROXIES: ${CONNECTIONS_STAGING_ALLOWED_PROXIES:-}
