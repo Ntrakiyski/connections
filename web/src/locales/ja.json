@@ -379,6 +379,10 @@
     "openapi": {
       "title": "OpenAPI JSON",
       "description": "生成された spec を script や tool importer で使用します。"
+    },
+    "openFlow": {
+      "title": "Open Flow",
+      "description": "コード、連携アプリ、AIでビジュアルワークフローを構築。編集可能なGitHubフォークをご覧ください。"
     }
   }
 }

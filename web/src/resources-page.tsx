@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 import { useTranslate } from "@embra/i18n/react";
 import { useClipboard } from "foxact/use-clipboard";
-import { BookOpen, Check, Copy, ExternalLink, KeyRound, Link2, TerminalSquare } from "lucide-react";
+import { BookOpen, Check, Copy, ExternalLink, KeyRound, Link2, TerminalSquare, Workflow } from "lucide-react";
 import { WorkspaceLink as Link } from "./workspace-context";
 import { Button } from "@/components/ui/button";
 
@@ -88,6 +88,12 @@ export function ResourcesPage(props: { workspaceName?: string }): ReactNode {
       </section>
 
       <div className="docs-grid">
+        <DocCard
+          icon={<Workflow size={20} />}
+          title={t("resources.openFlow.title")}
+          description={t("resources.openFlow.description")}
+          href="https://github.com/Ntrakiyski/open-flow"
+        />
         <DocCard
           icon={<BookOpen size={20} />}
           title={t("resources.apiReference.title")}

@@ -379,6 +379,10 @@
     "openapi": {
       "title": "OpenAPI JSON",
       "description": "在脚本或工具导入器中使用生成的规格。"
+    },
+    "openFlow": {
+      "title": "Open Flow",
+      "description": "使用代码、已连接的应用和 AI 构建可视化工作流。查看我们可修改的 GitHub 分支仓库。"
     }
   }
 }
