@@ -1,0 +1,90 @@
+{
+  "production": true,
+  "passed": true,
+  "counts": {
+    "connections_legacy_unowned_meetings_20261108": 2,
+    "auth_user": 1,
+    "organizations": 1,
+    "organization_memberships": 1,
+    "workspaces": 1,
+    "workspace_memberships": 1,
+    "connections": 6,
+    "runtime_tokens": 5,
+    "runs": 119,
+    "audit_events": 27
+  },
+  "import": "applied",
+  "repeat": "already_applied",
+  "resourceFingerprint": "7b87637952c7360655a92a2f7713b90904ca232197811a7da8882f53648e1df0",
+  "filesFingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "finalization": {
+    "mode": "apply",
+    "status": "finalized",
+    "counts": {
+      "unmapped_workspaces": 0,
+      "unmapped_grants": 0,
+      "pending_imports": 0,
+      "unverified_legacy_workspaces": 0,
+      "missing_company_owners": 0,
+      "missing_workspace_admins": 0
+    }
+  },
+  "backupSHA256": "a3435351d644723d856168a7af4bc56bdecd7ce40b45530e0f91a5b5b1afdbf2",
+  "completedAt": "2026-11-08T08:30:11.390Z",
+  "mergeCommit": "0df5b48a34bda856a9e9d64b5937f506d7e382a0",
+  "deploymentUUID": "b1myk42mjsldikwajc5mffjk",
+  "backupVolumeService": "sskglbc3wtwzekgjpmeevp72",
+  "volumeBackupSHA256": "874c3d251d2b1eebbfa535a631f738de4299e8198bc01b547ad93b08b70afa9a",
+  "volumeRestored": true,
+  "legacyUnownedMeetingsPreservedPrivately": 2,
+  "productionSmoke": {
+    "passed": true,
+    "origin": "https://connections.fractals-solutions.com",
+    "checks": [
+      {
+        "path": "/health",
+        "status": 200,
+        "expected": 200
+      },
+      {
+        "path": "/api/identity/get-session",
+        "status": 200,
+        "expected": 200
+      },
+      {
+        "path": "/api/account",
+        "status": 401,
+        "expected": 401
+      },
+      {
+        "path": "/api/companies",
+        "status": 401,
+        "expected": 401
+      },
+      {
+        "path": "/api/connections",
+        "status": 401,
+        "expected": 401
+      },
+      {
+        "path": "/v1/apps/authenticated",
+        "status": 401,
+        "expected": 401
+      },
+      {
+        "path": "foreign-origin sign-in mutation",
+        "status": 403,
+        "expected": 403
+      },
+      {
+        "path": "selected-account password setup through production Resend HTTPS",
+        "status": 200,
+        "expected": 200
+      }
+    ],
+    "passwordSetupRequested": true,
+    "passwordChosenByOperator": false,
+    "completedAt": "2026-11-08T08:32:41.627Z"
+  },
+  "operatorSignInVerified": false
+}
