@@ -618,22 +618,22 @@ export class ConnectServer {
     }
 
     const body = await readJsonBody(context);
-    const connectionName = readConnectionName(context, body);
-    if (!connectionName) {
-      return writeRuntimeFailure(context, {
-        status: 400,
-        errorCode: "connection_name_required",
-        message: "connectionName is required when executing an action.",
-        meta: { actionId },
-      });
-    }
     try {
+      const connectionName = await this.readRuntimeConnectionName(context, action.service, body);
+      if (!connectionName) {
+        return writeRuntimeFailure(context, {
+          status: 400,
+          errorCode: "connection_name_required",
+          message: "connectionName is required when executing an action.",
+          meta: { actionId },
+        });
+      }
       const run = await this.services(context).actions.run({
         actionId,
         input: body.input ?? {},
         caller: "http",
         connectionName,
-        idempotencyKey: optionalString(body.idempotencyKey),
+        idempotencyKey: optionalString(body.idempotencyKey) ?? optionalString(context.req.header("idempotency-key")),
       });
       if (!run) {
         return writeRuntimeFailure(context, {
@@ -677,7 +677,18 @@ export class ConnectServer {
       throw error;
     }
 
-    const connectionName = readConnectionName(context, body);
+    let connectionName: string | undefined;
+    try {
+      connectionName = await this.readRuntimeConnectionName(context, service, body);
+    } catch (error) {
+      if (!(error instanceof ConnectionError)) throw error;
+      return writeRuntimeFailure(context, {
+        status: mapConnectionErrorStatus(error),
+        errorCode: error.code,
+        message: error.message,
+        meta: { service },
+      });
+    }
     if (!connectionName) {
       return writeRuntimeFailure(context, {
         status: 400,
@@ -709,6 +720,23 @@ export class ConnectServer {
       data: result.data,
       meta: result.meta,
     });
+  }
+
+  private async readRuntimeConnectionName(
+    context: Context,
+    service: string,
+    body: Record<string, unknown>,
+  ): Promise<string | undefined> {
+    const label = readConnectionName(context, body);
+    const appId = optionalString(context.req.header("x-oo-connector-app-id"));
+    if (!appId) return label;
+    const connection = (await this.services(context).connections.listConnectionsByService(service)).find(
+      (item) => item.id === appId,
+    );
+    if (!connection) throw new ConnectionError("connection_not_found", "The selected connection is unavailable.");
+    if (label && label !== connection.connectionName)
+      throw new ConnectionError("invalid_connection_name", "Connection selectors must identify the same account.");
+    return connection.connectionName;
   }
 
   private async listRuntimeApps(context: Context): Promise<Response> {
