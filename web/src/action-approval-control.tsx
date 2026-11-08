@@ -5,6 +5,7 @@ import { Loader2, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { apiGet, apiPut } from "./api";
 import { InlineError } from "./shared-ui";
+import { useWorkspaceRequests } from "./workspace-context";
 import { Toggle } from "@/components/ui/toggle";
 
 interface WorkspaceActionPolicy {
@@ -18,6 +19,7 @@ interface ActionApprovalControlProps {
 
 /** Workspace policy switch shared by action detail and provider action lists. */
 export function ActionApprovalControl(props: ActionApprovalControlProps): ReactNode {
+  const requests = useWorkspaceRequests();
   const t = useTranslate();
   const [requireApproval, setRequireApproval] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -28,7 +30,7 @@ export function ActionApprovalControl(props: ActionApprovalControlProps): ReactN
     let disposed = false;
     setRequireApproval(true);
     setError(null);
-    void apiGet<WorkspaceActionPolicy>(`/api/workspace/action-policies/${encodeURIComponent(props.actionId)}`)
+    void apiGet<WorkspaceActionPolicy>(`/api/workspace/action-policies/${encodeURIComponent(props.actionId)}`, requests)
       .then((policy) => {
         if (!disposed) setRequireApproval(policy.requireApproval);
       })
@@ -49,6 +51,7 @@ export function ActionApprovalControl(props: ActionApprovalControlProps): ReactN
       const policy = await apiPut<WorkspaceActionPolicy>(
         `/api/workspace/action-policies/${encodeURIComponent(props.actionId)}`,
         { requireApproval: nextRequireApproval },
+        requests,
       );
       setRequireApproval(policy.requireApproval);
     } catch {

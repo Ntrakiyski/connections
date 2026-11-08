@@ -10,7 +10,7 @@ export interface RuntimeTokenAuthOptions {
   workspaceStore?: IWorkspaceStore;
 }
 
-/** Resolves opaque runtime tokens after Clerk has handled human sessions. */
+/** Resolves stored workspace tokens for the explicit local development entrypoint. */
 export function createRuntimeTokenAuthMiddleware(options: RuntimeTokenAuthOptions): MiddlewareHandler {
   return async (context, next) => {
     const token = readBearerToken(context);

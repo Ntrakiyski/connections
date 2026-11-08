@@ -21,11 +21,20 @@ export class FixtureD1Database implements D1DatabaseBinding {
     return new FixtureD1Statement(this.sqlite, query);
   }
 
-  async batch(statements: D1PreparedStatementBinding[]): Promise<D1RunResult[]> {
+  async exec(query: string): Promise<unknown> {
+    this.sqlite.exec(query);
+    return {};
+  }
+
+  async batch<T = never>(statements: D1PreparedStatementBinding[]): Promise<D1RunResult<T>[]> {
     this.sqlite.exec("begin");
     try {
-      const results: D1RunResult[] = [];
-      for (const statement of statements) results.push(await statement.run());
+      const results: D1RunResult<T>[] = [];
+      for (const statement of statements) {
+        if (!(statement instanceof FixtureD1Statement)) throw new Error("Fixture batch contains a foreign statement.");
+        const result = statement.executeAll<T>();
+        results.push({ success: true, results: result.results, meta: result.meta ?? {} });
+      }
       this.sqlite.exec("commit");
       return results;
     } catch (error) {
@@ -60,8 +69,14 @@ class FixtureD1Statement implements D1PreparedStatementBinding {
     return (this.database.prepare(this.query).get(...this.values) as T | undefined) ?? null;
   }
 
-  async all<T>(): Promise<{ results: T[] }> {
-    return { results: this.database.prepare(this.query).all(...this.values) as T[] };
+  async all<T>(): Promise<{ results: T[]; meta: D1RunResult["meta"] }> {
+    return this.executeAll<T>();
+  }
+
+  executeAll<T>(): { results: T[]; meta: D1RunResult["meta"] } {
+    const results = this.database.prepare(this.query).all(...this.values) as T[];
+    const metadata = this.database.prepare("select changes() as changes, last_insert_rowid() as last_row_id").get();
+    return { results, meta: { changes: Number(metadata?.changes), last_row_id: Number(metadata?.last_row_id) } };
   }
 
   async run(): Promise<D1RunResult> {

@@ -1,15 +1,7 @@
-import type { FixtureSql } from "../test-fixtures/two-company.ts";
-import type { RuntimeDatabase } from "./runtime-database.ts";
+import type { FixtureDatabase } from "../test-fixtures/runtime-database.ts";
 
-import { readFileSync, readdirSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
-import { Pool } from "pg";
 import { afterEach, describe, expect, it } from "vitest";
-import { AesGcmSecretCodec } from "../secrets/secret-codec.ts";
-import { FixtureD1Database } from "../test-fixtures/sqlite-d1.ts";
+import { createFixtureDatabase } from "../test-fixtures/runtime-database.ts";
 import {
   fixtureRunner,
   fixtureService,
@@ -17,15 +9,6 @@ import {
   sentinelCredential,
   SentinelProviderLoader,
 } from "../test-fixtures/two-company.ts";
-import { D1RuntimeDatabase } from "./d1-runtime-store.ts";
-import { PostgresRuntimeDatabase } from "./postgres-runtime-store.ts";
-import { SqliteRuntimeDatabase } from "./sqlite-runtime-store.ts";
-
-interface FixtureDatabase {
-  database: RuntimeDatabase;
-  sql: FixtureSql;
-  close(): Promise<void>;
-}
 
 const fixtures: FixtureDatabase[] = [];
 const postgresUrl = process.env.CONNECTIONS_TEST_POSTGRES_URL;
@@ -239,80 +222,4 @@ for (const adapter of ["SQLite", "D1", "PostgreSQL"]) {
       expect(loader.selectedAccounts).toEqual([]);
     });
   });
-}
-
-async function createFixtureDatabase(adapter: string): Promise<FixtureDatabase> {
-  const codec = new AesGcmSecretCodec("synthetic-fixture-key");
-  if (adapter === "D1") {
-    const binding = new FixtureD1Database();
-    return {
-      database: new D1RuntimeDatabase(binding, { secretCodec: codec }),
-      sql: {
-        write: async (sql, values) => {
-          binding.sqlite.prepare(sql).run(...values);
-        },
-        placeholder: () => "?",
-        authTimestamp: "2026-07-15T00:00:00.000Z",
-        verifiedBoolean: 1,
-      },
-      close: async () => {
-        binding.sqlite.close();
-      },
-    };
-  }
-  if (adapter === "PostgreSQL") {
-    const schema = `fixture_${crypto.randomUUID().replaceAll("-", "")}`;
-    const admin = new Pool({ connectionString: postgresUrl });
-    await admin.query(`create schema ${schema}`);
-    const pool = new Pool({ connectionString: postgresUrl, options: `-c search_path=${schema}` });
-    try {
-      await pool.query(readFileSync(new URL("../../../connections-docs/insforge-schema.sql", import.meta.url), "utf8"));
-      const directory = new URL("../../../migrations/", import.meta.url);
-      const expansion = readdirSync(directory).find((name) => name.includes("organization-identity"));
-      if (!expansion) throw new Error("Multi-organization migration missing.");
-      await pool.query(readFileSync(new URL(expansion, directory), "utf8"));
-    } catch (error) {
-      await pool.end();
-      await admin.query(`drop schema ${schema} cascade`);
-      await admin.end();
-      throw error;
-    }
-    return {
-      database: new PostgresRuntimeDatabase(pool, codec),
-      sql: {
-        write: async (sql, values) => {
-          await pool.query(sql, values);
-        },
-        placeholder: (index) => `$${index}`,
-        authTimestamp: "2026-07-15T00:00:00.000Z",
-        verifiedBoolean: true,
-      },
-      close: async () => {
-        await pool.end();
-        await admin.query(`drop schema ${schema} cascade`);
-        await admin.end();
-      },
-    };
-  }
-  const directory = await mkdtemp(join(tmpdir(), "connections-fixture-"));
-  const path = join(directory, "fixture.sqlite");
-  const database = new SqliteRuntimeDatabase(path, { secretCodec: codec });
-  const raw = new DatabaseSync(path);
-  raw.exec("pragma foreign_keys = on");
-  return {
-    database,
-    sql: {
-      write: async (sql, values) => {
-        raw.prepare(sql).run(...values);
-      },
-      placeholder: () => "?",
-      authTimestamp: "2026-07-15T00:00:00.000Z",
-      verifiedBoolean: 1,
-    },
-    close: async () => {
-      raw.close();
-      database.close();
-      await rm(directory, { recursive: true, force: true });
-    },
-  };
 }

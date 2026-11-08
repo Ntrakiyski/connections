@@ -1,0 +1,55 @@
+{
+  "runtime": "Wrangler 4.107.0 / Workerd",
+  "database": "native local D1 with shipped migrations",
+  "mail": "real local SMTP delivery using Nodemailer",
+  "checks": [
+    {
+      "path": "/api/identity/sign-in/email",
+      "status": 403
+    },
+    {
+      "path": "/api/identity/verify-email",
+      "status": 302
+    },
+    {
+      "path": "/api/identity/sign-in/email",
+      "status": 200
+    },
+    {
+      "path": "/api/account",
+      "status": 200
+    },
+    {
+      "path": "/api/auth/logout",
+      "status": 403
+    },
+    {
+      "path": "/api/account",
+      "status": 200
+    },
+    {
+      "path": "/api/identity/request-password-reset",
+      "status": 200
+    },
+    {
+      "path": "/api/identity/reset-password",
+      "status": 200
+    },
+    {
+      "path": "/api/account",
+      "status": 401
+    },
+    {
+      "path": "/api/identity/sign-in/email",
+      "status": 200
+    },
+    {
+      "path": "/api/auth/logout",
+      "status": 200
+    },
+    {
+      "path": "/api/account",
+      "status": 401
+    }
+  ]
+}

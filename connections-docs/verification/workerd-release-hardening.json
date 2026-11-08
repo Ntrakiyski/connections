@@ -1,0 +1,159 @@
+{
+  "runtime": "Wrangler 4.158.0 / native local Workerd",
+  "database": "native D1 with shipped migrations through 0012",
+  "mail": "real local SMTP via Nodemailer 10.4.0",
+  "checks": [
+    {
+      "path": "/api/identity/sign-up/email",
+      "status": 200
+    },
+    {
+      "path": "/api/identity/sign-in/email",
+      "status": 403
+    },
+    {
+      "path": "/api/identity/verify-email",
+      "status": 302
+    },
+    {
+      "path": "/api/identity/sign-in/email",
+      "status": 200
+    },
+    {
+      "path": "/api/account",
+      "status": 200
+    },
+    {
+      "path": "/api/auth/logout",
+      "status": 403
+    },
+    {
+      "path": "/api/account",
+      "status": 200
+    },
+    {
+      "path": "/api/account",
+      "status": 200
+    },
+    {
+      "path": "/api/companies",
+      "status": 201
+    },
+    {
+      "path": "/api/companies/:id/workspaces",
+      "status": 201
+    },
+    {
+      "path": "/api/companies",
+      "status": 201
+    },
+    {
+      "path": "/api/account",
+      "status": 200
+    },
+    {
+      "path": "/api/identity/oauth2/authorize",
+      "status": 200
+    },
+    {
+      "path": "/api/meetings-oauth/select",
+      "status": 200
+    },
+    {
+      "path": "/api/meetings-oauth/continue",
+      "status": 200
+    },
+    {
+      "path": "/api/meetings-oauth/consent",
+      "status": 200
+    },
+    {
+      "path": "/api/identity/oauth2/token",
+      "status": 200
+    },
+    {
+      "path": "/api/identity/oauth2/authorize",
+      "status": 200
+    },
+    {
+      "path": "/api/meetings-oauth/select",
+      "status": 200
+    },
+    {
+      "path": "/api/meetings-oauth/continue",
+      "status": 200
+    },
+    {
+      "path": "/api/meetings-oauth/consent",
+      "status": 200
+    },
+    {
+      "path": "/api/identity/oauth2/token",
+      "status": 200
+    },
+    {
+      "path": "/api/meetings-identity",
+      "status": 200
+    },
+    {
+      "path": "/api/meetings-identity",
+      "status": 403
+    },
+    {
+      "path": "/api/meetings/offline-review",
+      "status": 201
+    },
+    {
+      "path": "/api/meetings",
+      "status": 200
+    },
+    {
+      "path": "/api/meetings",
+      "status": 200
+    },
+    {
+      "path": "/api/identity/oauth2/token",
+      "status": 200
+    },
+    {
+      "path": "/api/meetings-identity",
+      "status": 200
+    },
+    {
+      "path": "/api/identity/oauth2/revoke",
+      "status": 200
+    },
+    {
+      "path": "/api/meetings",
+      "status": 401
+    },
+    {
+      "path": "/api/meetings-identity",
+      "status": 200
+    },
+    {
+      "path": "/api/identity/request-password-reset",
+      "status": 200
+    },
+    {
+      "path": "/api/identity/reset-password",
+      "status": 200
+    },
+    {
+      "path": "/api/account",
+      "status": 401
+    },
+    {
+      "path": "/api/identity/sign-in/email",
+      "status": 200
+    },
+    {
+      "path": "/api/auth/logout",
+      "status": 200
+    },
+    {
+      "path": "/api/account",
+      "status": 401
+    }
+  ]
+}

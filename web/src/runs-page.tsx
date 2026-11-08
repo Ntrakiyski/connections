@@ -8,6 +8,7 @@ import { useSearchParams } from "react-router";
 import { apiGet } from "./api";
 import { compactJson, formatDate, formatDuration } from "./model";
 import { Badge, EmptyState, InlineError } from "./shared-ui";
+import { useWorkspaceRequests } from "./workspace-context";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -26,6 +27,7 @@ const allServicesFilterValue = "__all_services__";
 const runPageLimit = 50;
 
 export function RunsPage(props: RunsPageProps): ReactNode {
+  const requests = useWorkspaceRequests();
   const t = useTranslate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryService = runServiceFromSearchParams(searchParams);
@@ -61,7 +63,7 @@ export function RunsPage(props: RunsPageProps): ReactNode {
     setLoadingMore(true);
     setRunsError(null);
     try {
-      const page = await apiGet<RunLogPage>(runListPath({ cursor: nextCursor, service: selectedService }));
+      const page = await apiGet<RunLogPage>(runListPath({ cursor: nextCursor, service: selectedService }), requests);
       setRuns((current) => [...current, ...page.items]);
       setNextCursor(page.nextCursor);
     } catch (caught) {
@@ -74,7 +76,7 @@ export function RunsPage(props: RunsPageProps): ReactNode {
   async function loadRunsForService(service: string, requestId: number): Promise<void> {
     setLoadingMore(true);
     try {
-      const page = await apiGet<RunLogPage>(runListPath({ service }));
+      const page = await apiGet<RunLogPage>(runListPath({ service }), requests);
       if (requestId !== serviceLoadRequestId.current) return;
       setRuns(page.items);
       setNextCursor(page.nextCursor);

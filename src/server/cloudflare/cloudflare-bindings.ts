@@ -1,17 +1,19 @@
 export interface D1DatabaseBinding {
   prepare(query: string): D1PreparedStatementBinding;
-  batch(statements: D1PreparedStatementBinding[]): Promise<D1RunResult[]>;
+  batch<T = never>(statements: D1PreparedStatementBinding[]): Promise<D1RunResult<T>[]>;
+  exec?(query: string): Promise<unknown>;
 }
 
-export interface D1RunResult {
+export interface D1RunResult<T = never> {
   success: boolean;
-  meta: { changes?: number };
+  results?: T[];
+  meta: { changes?: number; last_row_id?: number };
 }
 
 export interface D1PreparedStatementBinding {
   bind(...values: unknown[]): D1PreparedStatementBinding;
   first<T = Record<string, unknown>>(): Promise<T | null>;
-  all<T = Record<string, unknown>>(): Promise<{ results: T[] }>;
+  all<T = Record<string, unknown>>(): Promise<{ results: T[]; meta?: D1RunResult["meta"] }>;
   run(): Promise<D1RunResult>;
 }
 

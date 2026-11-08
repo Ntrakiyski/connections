@@ -7,7 +7,19 @@ export interface ResponseCachePolicy {
 const catalogBrowserCacheControl = "public, max-age=0, must-revalidate";
 const catalogEdgeCacheControl = "public, max-age=31536000, stale-while-revalidate=86400";
 
-export function getResponseCachePolicy(method: string, path: string, status: number): ResponseCachePolicy | undefined {
+export function getResponseCachePolicy(
+  method: string,
+  path: string,
+  status: number,
+  tenantAuthenticated = false,
+): ResponseCachePolicy | undefined {
+  if (tenantAuthenticated && isRuntimeResponsePath(path)) {
+    return {
+      cacheControl: "private, no-store",
+      cloudflareCdnCacheControl: "no-store",
+      vary: "Cookie, Authorization, X-Workspace-Id",
+    };
+  }
   if (isCatalogResponse(method, path) && status >= 200 && status < 300) {
     return {
       cacheControl: catalogBrowserCacheControl,

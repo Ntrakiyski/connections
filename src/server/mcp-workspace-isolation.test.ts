@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createCatalogStore } from "../catalog-store.ts";
 import { createConnectApp } from "./connect-app.ts";
 import { TransitFileService } from "./files/transit-files.ts";
+import { createHumanAuth } from "./human-auth.ts";
 import { PlainTextSecretCodec } from "./secrets/secret-codec-core.ts";
 import { RuntimeTokenService } from "./storage/runtime-token-service.ts";
 import { SqliteRuntimeDatabase } from "./storage/sqlite-runtime-store.ts";
@@ -71,7 +72,16 @@ describe("MCP workspace isolation", () => {
         }),
         publicOrigin: "http://localhost",
         secretCodec: new PlainTextSecretCodec(),
-        clerkSecretKey: "sk_test_two_company_fixture",
+        authMailDelivery: async () => {},
+        humanAuth: createHumanAuth(
+          {
+            baseURL: "http://localhost",
+            secret: "synthetic-two-company-auth-secret-for-tests",
+            trustedOrigins: ["http://localhost"],
+            sendMail: async () => {},
+          },
+          database.authDatabase,
+        ),
       });
       const tokens = new RuntimeTokenService(database.runtimeTokenStore);
       for (const [workspaceId, expected] of [
@@ -151,7 +161,7 @@ describe("MCP workspace isolation", () => {
       }),
       publicOrigin: "http://localhost",
       secretCodec: new PlainTextSecretCodec(),
-      clerkSecretKey: "sk_test_mcp_workspace_isolation",
+      developmentBypass: true,
     });
 
     try {

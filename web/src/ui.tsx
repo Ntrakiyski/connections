@@ -1,3 +1,4 @@
+import type { AccountDirectory } from "./account-model";
 import type { AppLang } from "./i18n";
 import type {
   AppData,
@@ -10,9 +11,9 @@ import type {
   WorkspaceRole,
 } from "./model";
 import type { ThemeMode } from "./theme";
+import type { WorkspaceScope } from "./workspace-scope";
 import type { ReactNode } from "react";
 
-import { OrganizationSwitcher, SignIn, SignOutButton, useAuth, useClerk } from "@clerk/clerk-react";
 import { useI18n, useLang, useTranslate } from "@embra/i18n/react";
 import {
   Activity,
@@ -24,17 +25,23 @@ import {
   Monitor,
   Moon,
   RefreshCw,
+  Settings,
   Sun,
   TerminalSquare,
   UserRound,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Navigate, NavLink, Route, Routes, useLocation } from "react-router";
+import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
 import { AccessPage } from "./access-page";
+import { loadAccountDirectory } from "./account-model";
+import { AccountPage } from "./account-page";
 import { ActionsPage } from "./actions-page";
-import { apiGet } from "./api";
+import { ApiError, apiGet, apiPost } from "./api";
 import oomolConnectLogoUrl from "./assets/oomol-connect-logo.png";
+import { authClient } from "./auth-client";
+import { AuthPage } from "./auth-page";
 import { persistLang, supportedLangs } from "./i18n";
+import { MeetingsConsentPage } from "./meetings-consent-page";
 import { emptyData } from "./model";
 import { OverviewPage } from "./overview-page";
 import { ProvidersPage } from "./providers-page";
@@ -42,6 +49,9 @@ import { ResourcesPage } from "./resources-page";
 import { RunsPage } from "./runs-page";
 import { InlineError, StatusDot } from "./shared-ui";
 import { useThemeMode } from "./theme";
+import { WorkspaceContext, WorkspaceNavLink } from "./workspace-context";
+import { WorkspacePage } from "./workspace-page";
+import { createWorkspaceScope, workspaceHref } from "./workspace-scope";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -59,10 +69,10 @@ const navItems: readonly NavItem[] = [
   { path: "/runs", labelKey: "nav.runs", icon: Activity },
   { path: "/access", labelKey: "nav.access", icon: KeyRound },
   { path: "/resources", labelKey: "nav.docs", icon: BookOpen },
+  { path: "/workspace", labelKey: "nav.settings", icon: Settings, roles: ["admin"] },
 ];
 
 const oauthCompletionChannelName = "oomol-connect-oauth";
-const oauthCompletedType = "oauth.completed";
 
 const themeOptions = [
   { value: "auto", labelKey: "shell.themeMode.auto", icon: Monitor },
@@ -73,40 +83,27 @@ const themeOptions = [
 export interface AuthSession {
   adminAuthConfigured: boolean;
   authenticated: boolean;
-  workspaceId?: string;
-  workspaceName?: string;
-  role?: AppData["role"];
-  userId?: string;
-  sessionClaims?: Record<string, unknown>;
+  workspaceId: string;
+  workspaceName: string;
+  role: AppData["role"];
+  userId: string;
 }
 
-export interface OAuthCompletionMessage {
-  type: typeof oauthCompletedType;
-  service: string;
-}
-
-export function subscribeToOAuthCompletions(onComplete: (message: OAuthCompletionMessage) => void): () => void {
+export function subscribeToOAuthCompletions(scope: WorkspaceScope, onComplete: () => void): () => void {
   const handleMessage = (event: MessageEvent<unknown>): void => {
-    if (isOAuthCompletionMessage(event.data)) {
-      onComplete(event.data);
-    }
+    if (scope.consumeCompletion(event.data)) onComplete();
   };
-
-  if (typeof BroadcastChannel === "undefined") {
-    return () => {};
-  }
-
-  const channel = new BroadcastChannel(oauthCompletionChannelName);
-  channel.addEventListener("message", handleMessage);
-  return () => channel.close();
-}
-
-function isOAuthCompletionMessage(value: unknown): value is OAuthCompletionMessage {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-  const message = value as { type?: unknown; service?: unknown };
-  return message.type === oauthCompletedType && typeof message.service === "string";
+  const handleWindowMessage = (event: MessageEvent<unknown>): void => {
+    if (event.origin === window.location.origin) handleMessage(event);
+  };
+  const channel =
+    typeof BroadcastChannel === "undefined" ? undefined : new BroadcastChannel(oauthCompletionChannelName);
+  channel?.addEventListener("message", handleMessage);
+  if (typeof window !== "undefined") window.addEventListener("message", handleWindowMessage);
+  return () => {
+    channel?.close();
+    if (typeof window !== "undefined") window.removeEventListener("message", handleWindowMessage);
+  };
 }
 
 export interface RuntimeLoadResult {
@@ -114,52 +111,34 @@ export interface RuntimeLoadResult {
   data: AppData;
 }
 
-export interface OrganizationTokenGetter {
-  (options: { organizationId: string; skipCache: boolean }): Promise<string | null>;
-}
+export async function loadRuntimeData(scope: WorkspaceScope): Promise<RuntimeLoadResult> {
+  const requests = scope.requests;
+  const rawSession = await apiGet<AuthSession>("/api/auth/session", requests);
+  if (
+    !rawSession.authenticated ||
+    rawSession.workspaceId !== scope.intent.workspaceId ||
+    rawSession.userId !== scope.intent.userId ||
+    !rawSession.role
+  )
+    throw new ApiError(403, "The requested workspace is no longer available.");
+  const authSession = rawSession;
 
-/**
- * Gets a Clerk session token for the organization selected in this browser tab.
- *
- * Clerk sessions can have different active organizations in separate tabs, so the
- * browser-to-API bearer token must carry this explicit workspace context.
- */
-export async function getOrganizationToken(
-  getToken: OrganizationTokenGetter,
-  organizationId: string,
-): Promise<string | null> {
-  return await getToken({ organizationId, skipCache: true });
-}
-
-export async function loadRuntimeData(clerkToken: string | null): Promise<RuntimeLoadResult> {
-  const bearerToken = clerkToken ?? undefined;
-  const rawSession = await apiGet<Partial<AuthSession>>("/api/auth/session", { bearerToken });
-  const authSession: AuthSession = {
-    adminAuthConfigured: rawSession.adminAuthConfigured ?? true,
-    authenticated: rawSession.authenticated ?? true,
-    workspaceId: rawSession.workspaceId,
-    workspaceName: rawSession.workspaceName ?? sessionClaim(rawSession.sessionClaims, "org_name"),
-    role: rawSession.role,
-    userId: rawSession.userId,
-    sessionClaims: rawSession.sessionClaims,
-  };
-  if (!authSession.authenticated) {
-    return { authSession, data: emptyData };
-  }
-
-  const [providers, connections, oauthConfigs, runtimeTokens, runPage, workspaceSafetyConfig] = await Promise.all([
-    apiGet<ProviderDefinition[]>("/api/providers", { bearerToken }),
-    apiGet<ConnectionRecord[]>("/api/connections", { bearerToken }),
-    apiGet<OAuthConfig[]>("/api/oauth/configs", { bearerToken }),
-    apiGet<RuntimeTokenSummary[]>("/api/runtime-tokens", { bearerToken }),
-    apiGet<RunLogPage>("/api/runs", { bearerToken }),
-    apiGet<ResolvedProviderSafetyConfig>("/api/workspace/safety-config", { bearerToken }),
-  ]);
+  const [providers, connections, oauthConfigs, runtimeTokens, runPage, workspaceSafetyConfig, enabledProviders] =
+    await Promise.all([
+      apiGet<ProviderDefinition[]>("/api/providers", requests),
+      apiGet<ConnectionRecord[]>("/api/connections", requests),
+      apiGet<OAuthConfig[]>("/api/oauth/configs", requests),
+      apiGet<RuntimeTokenSummary[]>("/api/runtime-tokens", requests),
+      apiGet<RunLogPage>("/api/runs", requests),
+      apiGet<ResolvedProviderSafetyConfig>("/api/workspace/safety-config", requests),
+      apiGet<ProviderDefinition[]>("/api/workspace/providers", requests),
+    ]);
 
   return {
     authSession,
     data: {
       providers,
+      enabledServices: enabledProviders.map((provider) => provider.service),
       connections,
       oauthConfigs,
       runtimeTokens,
@@ -175,92 +154,221 @@ export async function loadRuntimeData(clerkToken: string | null): Promise<Runtim
 }
 
 export function App(): ReactNode {
-  const t = useTranslate();
-  const { theme, setTheme } = useThemeMode();
-  const { isSignedIn, getToken, orgId, signOut } = useAuth();
-  const [data, setData] = useState<AppData>(emptyData);
-  const [loading, setLoading] = useState(true);
-  const [runtimeChecked, setRuntimeChecked] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [refreshToken, setRefreshToken] = useState(0);
-
-  useEffect(
-    () =>
-      subscribeToOAuthCompletions(() => {
-        setRefreshToken((value) => value + 1);
-      }),
-    [],
-  );
-
+  const session = authClient.useSession();
+  const [identityChecked, setIdentityChecked] = useState(false);
   useEffect(() => {
-    if (!isSignedIn || !orgId) {
-      setData(emptyData);
-      setError(null);
-      setLoading(false);
-      setRuntimeChecked(true);
-      return;
-    }
-
-    let cancelled = false;
-    setLoading(true);
-    getOrganizationToken(getToken, orgId)
-      .then((clerkToken) => loadRuntimeData(clerkToken))
-      .then(({ data: nextData }) => {
-        if (!cancelled) {
-          setData(nextData);
-          setError(null);
-        }
+    if (!session.isPending) setIdentityChecked(true);
+  }, [session.isPending]);
+  const location = useLocation();
+  const [directory, setDirectory] = useState<AccountDirectory | null>(null);
+  const [revision, setRevision] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const userId = session.data?.user.id;
+  function refreshDirectory(): void {
+    setRevision((value) => value + 1);
+  }
+  useEffect(() => {
+    setDirectory((current) => (current?.account.user.id === userId ? current : null));
+    setError(null);
+    if (!userId) return;
+    const controller = new AbortController();
+    void loadAccountDirectory(controller.signal)
+      .then((next) => {
+        if (!controller.signal.aborted) setDirectory(next);
       })
       .catch((caught: unknown) => {
-        if (cancelled) return;
-        setError(caught instanceof Error ? caught.message : t("shell.loadRuntimeFailed"));
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-          setRuntimeChecked(true);
-        }
+        if (!controller.signal.aborted)
+          setError(caught instanceof Error ? caught.message : "Account data could not be loaded.");
       });
-
-    return () => {
-      cancelled = true;
+    return () => controller.abort();
+  }, [userId, revision]);
+  useEffect(() => {
+    const refresh = (): void => {
+      void session.refetch();
+      refreshDirectory();
     };
-  }, [refreshToken, isSignedIn, orgId, getToken, t]);
-
-  function refresh(): void {
-    setRefreshToken((value) => value + 1);
-  }
-
+    window.addEventListener("focus", refresh);
+    window.addEventListener("connections-session-invalidated", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("connections-session-invalidated", refresh);
+    };
+  }, [session.refetch]);
   function logout(): void {
-    void signOut().then(() => refresh());
+    void authClient.signOut().then((result) => {
+      if (result.error) {
+        setError(result.error.message ?? "Sign out failed.");
+        return;
+      }
+      setDirectory(null);
+      void session.refetch();
+    });
   }
-
-  if (!isSignedIn) {
+  if (session.isPending && !identityChecked) return <InitialLoadingView />;
+  if (!session.data?.user.emailVerified) return <AuthPage onSignedIn={() => void session.refetch()} />;
+  if (error)
     return (
       <main className="unlock-screen">
-        <SignIn forceRedirectUrl="/" signUpForceRedirectUrl="/" />
+        <div className="unlock-panel">
+          <h1>Account unavailable</h1>
+          <p role="alert">{error}</p>
+          <Button onClick={refreshDirectory}>Try again</Button>
+          <Button variant="outline" onClick={logout}>
+            Sign out
+          </Button>
+        </div>
       </main>
     );
-  }
-
-  if (!orgId) {
-    return <OrganizationRequiredView />;
-  }
-
-  if (!runtimeChecked) {
-    return <InitialLoadingView />;
-  }
-
+  if (!directory || directory.account.user.id !== session.data.user.id) return <InitialLoadingView />;
+  if (location.pathname === "/desktop/connect")
+    return <MeetingsConsentPage key={`${userId}:${location.search}`} directory={directory} onLogout={logout} />;
+  const query = new URLSearchParams(location.search);
+  const workspaceId = query.get("workspaceId");
+  const companyId = query.get("companyId");
+  const accountPage =
+    location.pathname.startsWith("/account") ||
+    location.pathname.startsWith("/companies") ||
+    location.pathname.startsWith("/invitations");
+  if (accountPage || (!workspaceId && !companyId))
+    return <AccountPage directory={directory} onRefresh={refreshDirectory} onLogout={logout} />;
+  const selected = directory.account.workspaces.find(
+    (workspace) => workspace.workspaceId === workspaceId && workspace.organizationId === companyId,
+  );
+  if (!selected)
+    return (
+      <main className="unlock-screen">
+        <div className="unlock-panel">
+          <h1>Workspace access unavailable</h1>
+          <p>Your current company membership and workspace grant do not allow this workspace.</p>
+          <Button asChild>
+            <Link to="/">Choose another workspace</Link>
+          </Button>
+        </div>
+      </main>
+    );
+  const intent = {
+    userId: directory.account.user.id,
+    organizationId: selected.organizationId,
+    workspaceId: selected.workspaceId,
+  };
+  if (selected.archived)
+    return (
+      <ArchivedWorkspace
+        key={`${userId}:${workspaceId}`}
+        selected={selected}
+        intent={intent}
+        onRefresh={refreshDirectory}
+      />
+    );
   return (
-    <AppShell
-      data={data}
-      loading={loading}
-      error={error}
-      theme={theme}
-      onRefresh={refresh}
-      onThemeChange={setTheme}
+    <RuntimeWorkspace
+      key={`${userId}:${companyId}:${workspaceId}:${selected.role}`}
+      intent={intent}
+      directory={directory}
       onLogout={logout}
+      onDirectoryRefresh={refreshDirectory}
     />
+  );
+}
+
+function ArchivedWorkspace(props: {
+  selected: AccountDirectory["account"]["workspaces"][number];
+  intent: WorkspaceScope["intent"];
+  onRefresh(): void;
+}): ReactNode {
+  const [status, setStatus] = useState("");
+  async function restore(): Promise<void> {
+    try {
+      await apiPost("/api/workspace/restore", {}, { workspaceId: props.intent.workspaceId });
+      props.onRefresh();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Restore failed.");
+    }
+  }
+  return (
+    <main className="unlock-screen">
+      <div className="unlock-panel">
+        <h1>{props.selected.workspaceName} is archived</h1>
+        <p>
+          Its resources are unavailable. An admin can restore it during the retention window. Revoked keys remain
+          revoked.
+        </p>
+        {props.selected.role === "admin" ? <Button onClick={() => void restore()}>Restore workspace</Button> : null}
+        <Button variant="outline" asChild>
+          <Link to="/">Choose another workspace</Link>
+        </Button>
+        <p role="status">{status}</p>
+      </div>
+    </main>
+  );
+}
+
+function RuntimeWorkspace(props: {
+  intent: WorkspaceScope["intent"];
+  directory: AccountDirectory;
+  onLogout(): void;
+  onDirectoryRefresh(): void;
+}): ReactNode {
+  const { theme, setTheme } = useThemeMode();
+  const [scope] = useState(() => createWorkspaceScope(props.intent));
+  const [data, setData] = useState<AppData>(emptyData);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [revision, setRevision] = useState(0);
+  function refresh(): void {
+    setRevision((value) => value + 1);
+  }
+  useEffect(() => () => scope.close(), [scope]);
+  useEffect(() => subscribeToOAuthCompletions(scope, refresh), [scope]);
+  useEffect(() => {
+    let disposed = false;
+    setLoading(true);
+    setError(null);
+    void loadRuntimeData(scope)
+      .then((result) => {
+        if (!disposed) setData(result.data);
+      })
+      .catch((caught: unknown) => {
+        if (!disposed) {
+          setData(emptyData);
+          setError(caught instanceof Error ? caught.message : "Workspace unavailable.");
+        }
+      })
+      .finally(() => {
+        if (!disposed) setLoading(false);
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [scope, revision]);
+  if (error)
+    return (
+      <main className="unlock-screen">
+        <div className="unlock-panel">
+          <h1>Workspace unavailable</h1>
+          <p role="alert">{error}</p>
+          <Button onClick={refresh}>Try again</Button>
+          <Button variant="outline" asChild>
+            <Link to="/">Choose another workspace</Link>
+          </Button>
+        </div>
+      </main>
+    );
+  if (!data.workspaceId) return <InitialLoadingView />;
+  return (
+    <WorkspaceContext.Provider value={scope}>
+      <AppShell
+        data={data}
+        loading={loading}
+        error={null}
+        theme={theme}
+        onRefresh={refresh}
+        onThemeChange={setTheme}
+        onLogout={props.onLogout}
+        directory={props.directory}
+        onDirectoryRefresh={props.onDirectoryRefresh}
+      />
+    </WorkspaceContext.Provider>
   );
 }
 
@@ -277,18 +385,6 @@ function InitialLoadingView(): ReactNode {
   );
 }
 
-function OrganizationRequiredView(): ReactNode {
-  return (
-    <main className="unlock-screen">
-      <div className="unlock-panel">
-        <h1>Choose a workspace</h1>
-        <p>Select an existing organization or create one to continue.</p>
-        <OrganizationSwitcher hidePersonal defaultOpen afterCreateOrganizationUrl="/" afterSelectOrganizationUrl="/" />
-      </div>
-    </main>
-  );
-}
-
 function AppShell(props: {
   data: AppData;
   loading: boolean;
@@ -297,10 +393,12 @@ function AppShell(props: {
   onRefresh(): void;
   onThemeChange(theme: ThemeMode): void;
   onLogout(): void;
+  directory: AccountDirectory;
+  onDirectoryRefresh(): void;
 }): ReactNode {
   const t = useTranslate();
   const location = useLocation();
-  const { openUserProfile } = useClerk();
+  const navigate = useNavigate();
   const heading = headingForPath(location.pathname);
   const section = location.pathname.split("/").filter(Boolean)[0];
   const isOverviewPage = heading === "overview";
@@ -321,27 +419,45 @@ function AppShell(props: {
         <div className="brand">
           <img className="brand-mark" src={oomolConnectLogoUrl} alt="" />
           <div>
-            <div className="brand-name">OOMOL Connect</div>
+            <div className="brand-name">Connections</div>
             <div className="brand-subtitle">{t("brand.subtitle")}</div>
           </div>
         </div>
 
-        <div className="clerk-organization-switcher">
-          <OrganizationSwitcher hidePersonal afterCreateOrganizationUrl="/" afterSelectOrganizationUrl="/" />
-        </div>
+        <label className="workspace-switcher">
+          Workspace
+          <select
+            aria-label="Workspace"
+            value={props.data.workspaceId}
+            onChange={(event) => {
+              const selected = props.directory.account.workspaces.find(
+                (workspace) => workspace.workspaceId === event.target.value,
+              );
+              if (selected) navigate(workspaceHref("/overview", selected));
+            }}
+          >
+            {props.directory.account.workspaces.map((workspace) => (
+              <option key={workspace.workspaceId} value={workspace.workspaceId}>
+                {workspace.organizationName} / {workspace.workspaceName}
+                {workspace.archived ? " (Archived)" : ""}
+              </option>
+            ))}
+          </select>
+          <Link to="/">Manage companies</Link>
+        </label>
 
         <nav className="sidebar-nav" aria-label={t("shell.primaryNav")}>
           {visibleNavItems.map((item) => {
             const Icon = item.icon;
             return (
-              <NavLink
+              <WorkspaceNavLink
                 key={item.path}
                 className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}
                 to={item.path}
               >
                 <Icon size={16} />
                 <span>{t(item.labelKey)}</span>
-              </NavLink>
+              </WorkspaceNavLink>
             );
           })}
         </nav>
@@ -357,11 +473,9 @@ function AppShell(props: {
             <Button variant="outline" size="icon-sm" onClick={props.onRefresh} aria-label={t("shell.refreshData")}>
               {props.loading ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} />}
             </Button>
-            <SignOutButton>
-              <Button variant="outline" size="sm">
-                {t("shell.logout")}
-              </Button>
-            </SignOutButton>
+            <Button variant="outline" size="sm" onClick={props.onLogout}>
+              {t("shell.logout")}
+            </Button>
           </div>
         </div>
       </aside>
@@ -378,13 +492,10 @@ function AppShell(props: {
               {t("common.loadingRuntimeData")}
             </div>
           ) : (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => openUserProfile()}
-              aria-label={t("shell.openProfile")}
-            >
-              <UserRound size={17} />
+            <Button variant="ghost" size="icon-sm" asChild aria-label={t("shell.openProfile")}>
+              <Link to="/account/security">
+                <UserRound size={17} />
+              </Link>
             </Button>
           )}
         </header>
@@ -393,7 +504,18 @@ function AppShell(props: {
           {props.error ? <InlineError message={props.error} /> : null}
 
           <Routes>
-            <Route index element={<Navigate to="/overview" replace />} />
+            <Route
+              index
+              element={
+                <Navigate
+                  to={workspaceHref("/overview", {
+                    organizationId: new URLSearchParams(location.search).get("companyId") ?? "",
+                    workspaceId: props.data.workspaceId ?? "",
+                  })}
+                  replace
+                />
+              }
+            />
             <Route path="/overview" element={<OverviewPage data={props.data} onRefresh={props.onRefresh} />} />
             <Route path="/providers" element={<ProvidersPage data={props.data} onRefresh={props.onRefresh} />} />
             <Route
@@ -424,7 +546,22 @@ function AppShell(props: {
               }
             />
             <Route path="/resources" element={<ResourcesPage workspaceName={props.data.workspaceName} />} />
-            <Route path="*" element={<Navigate to="/overview" replace />} />
+            <Route
+              path="/workspace"
+              element={<WorkspacePage data={props.data} onDirectoryRefresh={props.onDirectoryRefresh} />}
+            />
+            <Route
+              path="*"
+              element={
+                <Navigate
+                  to={workspaceHref("/overview", {
+                    organizationId: new URLSearchParams(location.search).get("companyId") ?? "",
+                    workspaceId: props.data.workspaceId ?? "",
+                  })}
+                  replace
+                />
+              }
+            />
           </Routes>
         </main>
       </div>
@@ -500,9 +637,4 @@ function headingForPath(pathname: string): string {
   if (section === "resources") return "resources";
   if (section === "workspace") return pathname.endsWith("members") ? "members" : "settings";
   return "overview";
-}
-
-function sessionClaim(claims: Record<string, unknown> | undefined, name: string): string | undefined {
-  const value = claims?.[name];
-  return typeof value === "string" && value ? value : undefined;
 }

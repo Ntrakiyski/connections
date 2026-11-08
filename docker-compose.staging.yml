@@ -1,0 +1,62 @@
+# Isolated migration rehearsal; never use this file for production cutover.
+services:
+  connector:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: staging-rehearsal
+    command: ["node", "scripts/staging-auth-rehearsal.ts"]
+    depends_on:
+      staging-postgres:
+        condition: service_healthy
+      staging-mail:
+        condition: service_started
+    volumes:
+      - staging-connector-data:/app/data
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "3000"
+      OOMOL_CONNECT_DATA_DIR: /app/data
+      OOMOL_CONNECT_ORIGIN: ${CONNECTIONS_STAGING_ORIGIN:?Set an isolated HTTPS staging origin}
+      BETTER_AUTH_URL: ${CONNECTIONS_STAGING_ORIGIN}
+      BETTER_AUTH_TRUSTED_ORIGINS: ${CONNECTIONS_STAGING_ORIGIN}
+      BETTER_AUTH_SECRET: ${CONNECTIONS_STAGING_AUTH_SECRET:?Set a separate staging auth secret}
+      OOMOL_CONNECT_ENCRYPTION_KEY: ${CONNECTIONS_STAGING_ENCRYPTION_KEY:?Set a separate staging encryption key}
+      DATABASE_URL: postgresql://project_admin:${CONNECTIONS_STAGING_DATABASE_PASSWORD:?Set a separate staging database password}@staging-postgres:5432/connections_staging
+      SMTP_URL: smtp://staging-mail:1025
+      SMTP_FROM: Connections Staging <noreply@connections-staging.invalid>
+      CONNECTIONS_STAGING_REHEARSAL_ID: ${CONNECTIONS_STAGING_REHEARSAL_ID:?Set a unique synthetic rehearsal ID}
+      CONNECTIONS_STAGING_REHEARSAL_PASSWORD: ${CONNECTIONS_STAGING_REHEARSAL_PASSWORD:?Set a synthetic-only rehearsal password}
+      # Synthetic workspace grants explicitly enable providers during the pilot.
+      OOMOL_CONNECT_ALLOWED_ACTIONS: ${CONNECTIONS_STAGING_ALLOWED_ACTIONS:-}
+      OOMOL_CONNECT_ALLOWED_PROXIES: ${CONNECTIONS_STAGING_ALLOWED_PROXIES:-}
+  staging-postgres:
+    build:
+      context: .
+      dockerfile: docker/staging-postgres.Dockerfile
+    environment:
+      POSTGRES_DB: connections_staging
+      POSTGRES_USER: project_admin
+      POSTGRES_PASSWORD: ${CONNECTIONS_STAGING_DATABASE_PASSWORD}
+    volumes:
+      - staging-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'psql -U project_admin -d connections_staging -h 127.0.0.1 -Atc "select ready from connections_staging_schema_ready where id=1" | grep -qx t',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+  staging-mail:
+    image: axllent/mailpit:v1.27.8
+    # SMTP and captured messages are reachable only inside this staging network.
+    environment:
+      MP_MAX_MESSAGES: "1000"
+
+volumes:
+  staging-connector-data:
+  staging-postgres-data:

@@ -1,3 +1,4 @@
+import type { MeetingsOAuthService } from "../meetings-oauth.ts";
 import type { IMeetingStore, MeetingSyncState } from "../storage/runtime-database.ts";
 import type { JsonRequestBody } from "./http-utils.ts";
 import type { Hono } from "hono";
@@ -7,7 +8,33 @@ import { getWorkspaceContext } from "./workspace-helpers.ts";
 
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
 
-export function registerMeetingRoutes(app: Hono, meetings: IMeetingStore): void {
+export function registerMeetingRoutes(app: Hono, meetings: IMeetingStore, oauth?: MeetingsOAuthService): void {
+  app.get("/api/meetings-identity/legacy", async (context) => {
+    const principal = context.get("principal");
+    if (principal?.kind !== "meetings" || !oauth)
+      throw new HttpRequestError("principal_forbidden", "A Meetings grant is required.", 401);
+    return context.json({
+      contract: "meetings-v1",
+      issuer: oauth.issuer,
+      userId: principal.userId,
+      organizationId: principal.organizationId,
+      workspaceId: principal.workspaceId,
+      mapping: await oauth.legacyMapping(principal),
+    });
+  });
+  app.get("/api/meetings-identity", (context) => {
+    const workspace = getWorkspaceContext(context);
+    const principal = context.get("principal");
+    if (principal?.kind !== "meetings")
+      throw new HttpRequestError("principal_forbidden", "A Meetings grant is required.", 401);
+    return context.json({
+      contract: "meetings-v1",
+      userId: workspace.userId,
+      organizationId: workspace.organizationId,
+      workspaceId: workspace.workspaceId,
+      expiresAt: principal.expiresAt,
+    });
+  });
   app.get("/api/meetings", async (context) => {
     const workspace = getWorkspaceContext(context);
     return context.json({ meetings: await meetings.list(workspace.workspaceId) });
@@ -29,24 +56,38 @@ export function registerMeetingRoutes(app: Hono, meetings: IMeetingStore): void 
     const transcript = readTranscript(body.transcript, state);
     const transcriptSegments = readArray(body.transcriptSegments, "transcriptSegments");
     let result;
+    const principal = context.get("principal");
     try {
-      result = await meetings.put(workspace.workspaceId, {
-        externalId: context.req.param("externalId"),
-        createdBy: workspace.userId,
-        state,
-        revision,
-        title,
-        transcript,
-        transcriptSegments,
-        rawTranscript: optionalString(body.rawTranscript),
-        rawTranscriptSegments: optionalArray(body.rawTranscriptSegments),
-        summary: optionalString(body.summary),
-        startedAt: optionalDate(body.startedAt),
-        endedAt: optionalDate(body.endedAt),
-      });
+      result = await meetings.put(
+        workspace.workspaceId,
+        {
+          externalId: context.req.param("externalId"),
+          createdBy: workspace.userId,
+          state,
+          revision,
+          title,
+          transcript,
+          transcriptSegments,
+          rawTranscript: optionalString(body.rawTranscript),
+          rawTranscriptSegments: optionalArray(body.rawTranscriptSegments),
+          summary: optionalString(body.summary),
+          startedAt: optionalDate(body.startedAt),
+          endedAt: optionalDate(body.endedAt),
+        },
+        principal?.kind === "meetings"
+          ? {
+              referenceId: principal.referenceId,
+              tokenId: principal.tokenId,
+              organizationId: workspace.organizationId ?? "",
+            }
+          : undefined,
+      );
     } catch (error) {
       if (error instanceof Error && error.message === "meeting_creator_forbidden") {
         throw new HttpRequestError("meeting_creator_forbidden", "Only the meeting creator can update it.", 403);
+      }
+      if (error instanceof Error && error.message === "meeting_access_forbidden") {
+        throw new HttpRequestError("workspace_forbidden", "Meeting access is no longer available.", 403);
       }
       throw error;
     }

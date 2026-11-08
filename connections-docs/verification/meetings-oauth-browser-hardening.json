@@ -1,0 +1,36 @@
+{
+  "runtime": "Chrome/Playwright, current built frontend and actual Hono/Better Auth SQLite fixture",
+  "date": "2026-11-07",
+  "viewports": {
+    "desktop": "1440x1000",
+    "mobile": "390x844"
+  },
+  "results": {
+    "desktop": {
+      "contract": "meetings-v1",
+      "workspaceId": "9384b73c-77b0-4689-ac70-bbb00ebc140b",
+      "userId": "1wV8LPedIQAgpHeFTz9HSkCOlTvKCxAx",
+      "errors": []
+    },
+    "mobile": {
+      "error": "access_denied",
+      "width": 390,
+      "errors": []
+    }
+  },
+  "checks": [
+    "verified console sign-in",
+    "workspace required before continuing",
+    "workspace selection and visible consent identity",
+    "exact callback scheme, state and issuer",
+    "S256 code exchange and original A1 identity",
+    "mobile decline yields access_denied without a code",
+    "mobile consent fits viewport",
+    "no application page errors"
+  ],
+  "limits": [
+    "local HTTP and synthetic captured email",
+    "native custom-scheme handler and keychain not exercised",
+    "paired staging/offline recording gate remains pending"
+  ]
+}

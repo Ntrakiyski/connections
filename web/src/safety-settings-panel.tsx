@@ -6,6 +6,7 @@ import { ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { apiPut } from "./api";
 import { FormStatus } from "./shared-ui";
+import { useWorkspaceRequests } from "./workspace-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -37,6 +38,7 @@ interface SafetyFormState {
 }
 
 export function SafetySettingsPanel(props: SafetySettingsPanelProps): ReactNode {
+  const requests = useWorkspaceRequests();
   const t = useTranslate();
   const [form, setForm] = useState(() => formStateFor(props.config, props.providerOverride ?? false));
   const [status, setStatus] = useState<string | null>(null);
@@ -53,6 +55,7 @@ export function SafetySettingsPanel(props: SafetySettingsPanelProps): ReactNode 
       const config = await apiPut<ResolvedProviderSafetyConfig>(
         props.endpoint,
         payloadFor(form, props.providerOverride ?? false),
+        requests,
       );
       setStatus(t("safety.saved"));
       props.onSaved?.(config);

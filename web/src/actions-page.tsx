@@ -5,7 +5,7 @@ import { useTranslate } from "@embra/i18n/react";
 import { useClipboard } from "foxact/use-clipboard";
 import { Check, ChevronRight, Code2, Copy, ExternalLink, Loader2, Play, Search, TerminalSquare, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router";
+import { useParams } from "react-router";
 import { ActionApprovalControl } from "./action-approval-control";
 import {
   buildActionExamples,
@@ -15,6 +15,7 @@ import {
   parameterSummaries,
 } from "./model";
 import { Badge, EmptyState, TagList } from "./shared-ui";
+import { WorkspaceLink as Link } from "./workspace-context";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";

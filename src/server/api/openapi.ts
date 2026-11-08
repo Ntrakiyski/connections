@@ -94,18 +94,22 @@ export function createOpenApiDocument(
 
   const paths: Record<string, unknown> = {
     "/health": getOperation("System", "Runtime health check.", { ok: jsonSchema.boolean() }),
-    "/api/auth/session": getOperation("System", "Read the active Clerk workspace session.", {
-      $ref: "#/components/schemas/ClerkAuthSession",
-    }),
+    "/api/auth/session": getOperation(
+      "System",
+      "Read the verified human session for the explicitly selected workspace.",
+      {
+        $ref: "#/components/schemas/HumanWorkspaceSession",
+      },
+    ),
     "/api/auth/logout": {
       post: {
         tags: ["System"],
-        summary: "Clear the Clerk session cookie.",
+        summary: "End the Better Auth human session.",
         responses: {
           200: jsonResponse(
             jsonSchema.object(
               { ok: jsonSchema.boolean() },
-              { required: ["ok"], description: "Clerk logout response." },
+              { required: ["ok"], description: "Human logout response." },
             ),
           ),
         },
@@ -196,16 +200,18 @@ export function createOpenApiDocument(
     components: {
       schemas: {
         ActionDefinition: jsonSchema.unknownObject("Public action catalog definition with runtime execution status."),
-        ClerkAuthSession: jsonSchema.object(
+        HumanWorkspaceSession: jsonSchema.object(
           {
-            userId: jsonSchema.string({ description: "Clerk user ID." }),
+            userId: jsonSchema.string({ description: "Stable human user ID." }),
             workspaceId: jsonSchema.string({ description: "Connections workspace ID." }),
             role: jsonSchema.string({ description: "Effective Connections workspace role." }),
-            sessionClaims: jsonSchema.unknownObject("Verified Clerk session claims."),
+            workspaceName: jsonSchema.string({ description: "Selected workspace name." }),
+            authenticated: jsonSchema.boolean(),
+            adminAuthConfigured: jsonSchema.boolean(),
           },
           {
-            required: ["userId", "workspaceId", "role", "sessionClaims"],
-            description: "Authenticated Clerk workspace session.",
+            required: ["userId", "workspaceId", "role", "authenticated", "adminAuthConfigured"],
+            description: "Verified human session bound to explicit workspace intent.",
           },
         ),
         ActionSearchResult: jsonSchema.object(
@@ -806,7 +812,7 @@ function createWorkspaceLifecyclePath(): Record<string, unknown> {
       tags: ["Workspace"],
       summary: "Archive a workspace for 14 days.",
       description:
-        "Revokes runtime tokens and immediately makes Connections data unavailable. Clerk continues to own the Organization profile and memberships.",
+        "Revokes runtime tokens and immediately makes the selected workspace data unavailable. Company directory membership remains independent.",
       requestBody: {
         required: true,
         content: {

@@ -1,4 +1,3 @@
-import { ClerkProvider } from "@clerk/clerk-react";
 import { I18nProvider } from "@embra/i18n/react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router";
@@ -10,11 +9,9 @@ import "./style.css";
 const i18n = createAppI18n(readInitialLang());
 
 createRoot(document.getElementById("root")!).render(
-  <ClerkProvider publishableKey={import.meta.env.VITE_CLERK_PUBLISHABLE_KEY ?? ""}>
-    <I18nProvider i18n={i18n}>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
-    </I18nProvider>
-  </ClerkProvider>,
+  <I18nProvider i18n={i18n}>
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
+  </I18nProvider>,
 );

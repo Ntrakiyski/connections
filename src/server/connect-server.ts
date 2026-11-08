@@ -2,13 +2,16 @@ import type { CatalogStore, RuntimeActionDefinition } from "../catalog-store.ts"
 import type { ConnectionService } from "../connection-service.ts";
 import type { ActionPolicyService } from "../core/action-policy.ts";
 import type { ActionSearchIndexProvider, ActionSearchResult } from "../core/action-search.ts";
+import type { OAuthAuthorizationCompleteInput } from "../oauth/oauth-flow-service.ts";
 import type { IProviderLoader } from "../providers/provider-loader.ts";
-import type { ClerkAuthOptions } from "./api/clerk-auth.ts";
-import type { ClerkWebhookOptions } from "./api/clerk-webhooks.ts";
+import type { CompanyRouteOptions } from "./api/company-routes.ts";
+import type { OAuthCompletionIntent } from "./api/oauth-completion-page.ts";
+import type { PrincipalAuthOptions } from "./api/principal-auth.ts";
 import type { RuntimeTokenAuthOptions } from "./api/runtime-token-auth.ts";
 import type { ITransitFileService } from "./files/transit-file-store.ts";
 import type { TransitFileAccess } from "./files/transit-file-store.ts";
 import type { Logger } from "./logger.ts";
+import type { MeetingsOAuthService } from "./meetings-oauth.ts";
 import type { IMeetingStore } from "./storage/runtime-database.ts";
 import type { RunLogListInput } from "./storage/runtime-store.ts";
 import type { RuntimeTokenService } from "./storage/runtime-token-service.ts";
@@ -20,6 +23,7 @@ import type { Context } from "hono";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { Scalar } from "@scalar/hono-api-reference";
 import { Hono } from "hono";
+import { ZodError } from "zod";
 import { ConnectionError } from "../connection-service.ts";
 import { DEFAULT_ACTION_SEARCH_LIMIT, createActionSearchIndexProvider, searchActions } from "../core/action-search.ts";
 import { optionalRecord, optionalString, requiredString, requiredStringArray } from "../core/cast.ts";
@@ -29,13 +33,15 @@ import { OAuthFlowError, OAuthFlowService } from "../oauth/oauth-flow-service.ts
 import { ActionRunner } from "./actions/action-runner.ts";
 import { renderActionMarkdown } from "./api/action-markdown.ts";
 import { getResponseCachePolicy } from "./api/cache-policy.ts";
-import { createClerkAuthMiddleware } from "./api/clerk-auth.ts";
-import { registerClerkRoutes } from "./api/clerk-routes.ts";
-import { registerClerkWebhookRoutes } from "./api/clerk-webhooks.ts";
+import { registerCompanyRoutes } from "./api/company-routes.ts";
+import { createDevelopmentAuthMiddleware } from "./api/development-auth.ts";
 import { HttpRequestError, internalError, jsonError, notFound, readJsonBody } from "./api/http-utils.ts";
+import { registerHumanAuthRoutes } from "./api/human-auth-routes.ts";
 import { registerMeetingRoutes } from "./api/meeting-routes.ts";
+import { registerMeetingsOAuthRoutes } from "./api/meetings-oauth-routes.ts";
 import { renderOAuthCompletionPage } from "./api/oauth-completion-page.ts";
 import { createOpenApiDocument } from "./api/openapi.ts";
+import { createPrincipalAuthMiddleware } from "./api/principal-auth.ts";
 import {
   mapConnectionErrorStatus,
   serializeRuntimeAction,
@@ -48,6 +54,7 @@ import {
 } from "./api/runtime-api.ts";
 import { createRuntimeTokenAuthMiddleware } from "./api/runtime-token-auth.ts";
 import { getWorkspaceContext, requireManager } from "./api/workspace-helpers.ts";
+import { CompanyOperationError } from "./company-governance.ts";
 import { createTransitFileResponse, TransitFileError } from "./files/transit-file-store.ts";
 import { ProxyRunner } from "./proxy/proxy-runner.ts";
 import { decodeRunLogCursor } from "./storage/runtime-store.ts";
@@ -77,10 +84,15 @@ export interface IConnectServerOptions {
   actions: ActionRunner;
   transitFiles: ITransitFileService;
   staticRoot?: string;
-  auth?: ClerkAuthOptions;
-  clerkWebhooks?: ClerkWebhookOptions;
+  developmentBypass?: boolean;
+  principalAuth?: PrincipalAuthOptions;
+  meetingsOAuth?: MeetingsOAuthService;
+  companyServices?: Pick<CompanyRouteOptions, "companies" | "directory" | "invitations">;
   runtimeTokenAuth?: RuntimeTokenAuthOptions;
   createWorkspaceServices?(workspace: WorkspaceContext): WorkspaceServerServices;
+  completeProviderOAuth?(
+    input: OAuthAuthorizationCompleteInput,
+  ): Promise<OAuthCompletionIntent & { service: string; connected: true }>;
   purgeExpiredWorkspaces?(): Promise<void>;
   actionPolicy?: ActionPolicyService;
   actionSearch?: ActionSearchIndexProvider;
@@ -98,18 +110,28 @@ export class ConnectServer {
   private readonly actionSearch: ActionSearchIndexProvider;
 
   constructor(options: IConnectServerOptions) {
+    if (!options.principalAuth && !options.developmentBypass) {
+      throw new Error("Configure human authentication or an explicit loopback development bypass.");
+    }
+    if (options.principalAuth && !options.completeProviderOAuth) {
+      throw new Error("Human authentication requires stored provider OAuth consent redemption.");
+    }
     this.options = options;
     this.actionSearch = options.actionSearch ?? createActionSearchIndexProvider(options.catalog.actions);
   }
 
   createApp(): Hono {
     const app = new Hono();
-    const auth = this.options.auth ?? {};
 
     app.use("*", async (context, next) => {
       await this.options.purgeExpiredWorkspaces?.();
       await next();
-      const cachePolicy = getResponseCachePolicy(context.req.method, context.req.path, context.res.status);
+      const cachePolicy = getResponseCachePolicy(
+        context.req.method,
+        context.req.path,
+        context.res.status,
+        Boolean(this.options.principalAuth),
+      );
       if (cachePolicy) {
         context.header("Cache-Control", cachePolicy.cacheControl);
         if (cachePolicy.cloudflareCdnCacheControl) {
@@ -121,14 +143,36 @@ export class ConnectServer {
       }
     });
     app.get("/health", (context) => context.json({ ok: true }));
-    if (this.options.clerkWebhooks) {
-      registerClerkWebhookRoutes(app, this.options.clerkWebhooks);
+    if (this.options.principalAuth) {
+      if (this.options.meetingsOAuth)
+        registerMeetingsOAuthRoutes(app, {
+          auth: this.options.principalAuth.auth,
+          service: this.options.meetingsOAuth,
+          trustedOrigins: this.options.principalAuth.trustedOrigins,
+        });
+      registerHumanAuthRoutes(
+        app,
+        this.options.principalAuth.auth,
+        this.options.principalAuth.directory,
+        this.options.principalAuth.trustedOrigins,
+      );
+      if (this.options.companyServices)
+        registerCompanyRoutes(app, {
+          ...this.options.companyServices,
+          auth: this.options.principalAuth.auth,
+          trustedOrigins: this.options.principalAuth.trustedOrigins,
+        });
     }
-    app.use("*", createClerkAuthMiddleware(auth));
+    app.use(
+      "*",
+      this.options.principalAuth
+        ? createPrincipalAuthMiddleware(this.options.principalAuth)
+        : createDevelopmentAuthMiddleware(),
+    );
     if (this.options.meetingStore) {
-      registerMeetingRoutes(app, this.options.meetingStore);
+      registerMeetingRoutes(app, this.options.meetingStore, this.options.meetingsOAuth);
     }
-    if (this.options.runtimeTokenAuth) {
+    if (this.options.runtimeTokenAuth && !this.options.principalAuth) {
       const runtimeTokenAuth = createRuntimeTokenAuthMiddleware(this.options.runtimeTokenAuth);
       app.use("/v1/*", runtimeTokenAuth);
       app.use("/mcp", runtimeTokenAuth);
@@ -180,7 +224,18 @@ export class ConnectServer {
       this.getActionMarkdown(context, context.req.param("actionId")),
     );
     app.get("/api/actions/:actionId", (context) => this.getAction(context, context.req.param("actionId")));
-    registerClerkRoutes(app, auth);
+    if (this.options.principalAuth) {
+      app.get("/api/auth/session", async (context) => {
+        const workspace = getWorkspaceContext(context);
+        const stored = await this.options.principalAuth?.workspaceStore.getById(workspace.workspaceId);
+        return context.json({
+          ...workspace,
+          workspaceName: stored?.name,
+          authenticated: true,
+          adminAuthConfigured: true,
+        });
+      });
+    }
 
     app.get("/api/connections", (context) => this.listConnections(context));
     app.put("/api/connections/:service", (context) => this.upsertConnection(context, context.req.param("service")));
@@ -234,6 +289,8 @@ export class ConnectServer {
 
     this.options.registerStaticRoutes?.(app);
     app.onError((error, context) => {
+      if (error instanceof CompanyOperationError) return jsonError(context, error.status, error.code, error.message);
+      if (error instanceof ZodError) return jsonError(context, 400, "invalid_input", "Request fields are invalid.");
       if (error instanceof HttpRequestError) {
         return jsonError(context, error.status, error.code, error.message);
       }
@@ -1063,13 +1120,20 @@ export class ConnectServer {
     }
 
     let service: string;
+    let intent: OAuthCompletionIntent | undefined;
     try {
-      const workspaceId = readWorkspaceIdFromOAuthState(state);
-      const userId = readUserIdFromOAuthState(state);
-      const oauthFlow = workspaceId
-        ? this.workspaceServices({ workspaceId, userId: userId ?? "oauth-callback", role: "member" }).oauthFlow
-        : this.options.oauthFlow;
-      service = (await oauthFlow.completeAuthorization({ state, code })).service;
+      if (this.options.completeProviderOAuth) {
+        const result = await this.options.completeProviderOAuth({ state, code });
+        service = result.service;
+        intent = { state: result.state, userId: result.userId, workspaceId: result.workspaceId };
+      } else {
+        const workspaceId = readWorkspaceIdFromOAuthState(state);
+        const userId = readUserIdFromOAuthState(state);
+        const oauthFlow = workspaceId
+          ? this.workspaceServices({ workspaceId, userId: userId ?? "oauth-callback", role: "member" }).oauthFlow
+          : this.options.oauthFlow;
+        service = (await oauthFlow.completeAuthorization({ state, code })).service;
+      }
       this.options.logger?.info(
         {
           ...logContext,
@@ -1091,7 +1155,7 @@ export class ConnectServer {
       throw error;
     }
 
-    return context.html(renderOAuthCompletionPage(service));
+    return context.html(renderOAuthCompletionPage(service, intent));
   }
 
   private async writeConnectionResult(

@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { useTranslate } from "@embra/i18n/react";
 import { useClipboard } from "foxact/use-clipboard";
 import { BookOpen, Check, Copy, ExternalLink, KeyRound, Link2, TerminalSquare } from "lucide-react";
-import { Link } from "react-router";
+import { WorkspaceLink as Link } from "./workspace-context";
 import { Button } from "@/components/ui/button";
 
 interface DocCardProps {

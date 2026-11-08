@@ -5,6 +5,7 @@ export type WorkspaceRole = "member" | "manager" | "admin";
 /** Request context after token authentication and current-role resolution. */
 export interface WorkspaceContext {
   workspaceId: string;
+  organizationId?: string;
   userId: string;
   role: WorkspaceRole;
   tokenId?: string;

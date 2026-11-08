@@ -1,0 +1,22 @@
+{
+  "runtime": "Chrome / Playwright CLI, real Hono, Better Auth and local SQLite",
+  "origin": "http://localhost:8902",
+  "desktopViewport": [1440, 1000],
+  "mobileViewport": [390, 844],
+  "checks": [
+    "actual console sign-in with verified synthetic user",
+    "unselected workspace disables Continue",
+    "consent displays original company and A1 workspace",
+    "Allow redirects with exact native callback, state and issuer",
+    "real PKCE exchange returns meetings-v1 token response",
+    "dedicated identity response confirms original A1 and user",
+    "mobile Decline returns access_denied without a code",
+    "mobile consent fits viewport without horizontal overflow",
+    "no application page errors in fresh browser runs"
+  ],
+  "limits": [
+    "native custom-scheme handler not installed on this Linux browser test host",
+    "reused browser after unhandled custom-scheme navigation stalled; fresh browser desktop and mobile runs passed",
+    "paired native recording/offline queue and actual Coolify proxy remain required"
+  ]
+}

@@ -5,10 +5,10 @@ import type { ReactNode } from "react";
 
 import { useTranslate } from "@embra/i18n/react";
 import { Activity, ArrowRight, ArrowUpRight, Cable, RefreshCw, TerminalSquare } from "lucide-react";
-import { Link } from "react-router";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { createOverviewSummary, sortProviders } from "./model";
 import { EmptyState, ProviderIcon } from "./shared-ui";
+import { WorkspaceLink as Link } from "./workspace-context";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";

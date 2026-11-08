@@ -20,17 +20,26 @@ import type {
   WorkspaceMember,
   WorkspaceScopedStores,
 } from "./runtime-database.ts";
-import type { IRunLogStore, RunLog, RunLogCaller, RunLogListInput, RunLogPage } from "./runtime-store.ts";
+import type { IRunLogStore, RunLog, RunLogListInput, RunLogPage } from "./runtime-store.ts";
 import type { IRuntimeTokenStore, RuntimeTokenRecord, WorkspaceRole } from "./runtime-token-service.ts";
 import type { Pool, QueryResultRow } from "pg";
 
+import { z } from "zod";
 import { ConnectionError } from "../../connection-service.ts";
+import { commitConnectionMutation } from "./connection-mutations.ts";
+import { SqlIdentityDirectory } from "./identity-directory.ts";
+import { PostgresIdentityMutationStore } from "./identity-mutations.ts";
 import { PostgresMeetingStore } from "./meeting-store.ts";
+import { SqlProviderOAuthConsentStore } from "./provider-oauth-consent.ts";
 function now(): string {
   return new Date().toISOString();
 }
 
 export class PostgresRuntimeDatabase implements RuntimeDatabase {
+  readonly identityMutations: PostgresIdentityMutationStore;
+  readonly identityDirectory: SqlIdentityDirectory;
+  readonly providerOAuthConsents: SqlProviderOAuthConsentStore;
+  readonly authDatabase: Pool;
   readonly connectionStore: IConnectionStore;
   readonly oauthClientConfigStore: IOAuthClientConfigStore;
   readonly oauthStateStore: IOAuthStateStore;
@@ -46,12 +55,24 @@ export class PostgresRuntimeDatabase implements RuntimeDatabase {
 
   constructor(pool: Pool, secretCodec: ISecretCodec, defaultWorkspaceId = "default") {
     this.#pool = pool;
+    this.authDatabase = pool;
+    this.identityMutations = new PostgresIdentityMutationStore(pool);
+    this.identityDirectory = new SqlIdentityDirectory(async (sql, values) => {
+      let index = 0;
+      return (
+        await pool.query(
+          sql.replace(/\?/g, () => `$${++index}`),
+          values,
+        )
+      ).rows;
+    });
+    this.providerOAuthConsents = new SqlProviderOAuthConsentStore(this.identityMutations, secretCodec);
     this.#codec = secretCodec;
     const unscoped = new PostgresScopedStores(pool, secretCodec, defaultWorkspaceId);
     this.connectionStore = unscoped.connectionStore;
     this.oauthClientConfigStore = unscoped.oauthClientConfigStore;
     this.oauthStateStore = unscoped.oauthStateStore;
-    this.runtimeTokenStore = unscoped.runtimeTokenStore;
+    this.runtimeTokenStore = new PostgresTokenStore(pool);
     this.runLogStore = unscoped.runLogStore;
     this.workspaceStore = new PostgresWorkspaceStore(pool);
     this.workspaceLifecycleStore = new PostgresWorkspaceLifecycleStore(pool);
@@ -86,6 +107,7 @@ class PostgresScopedStores implements WorkspaceScopedStores {
 }
 
 class PostgresConnectionStore implements IConnectionStore {
+  private readonly mutations: PostgresIdentityMutationStore;
   readonly #pool: Pool;
   readonly #codec: ISecretCodec;
   readonly #workspaceId: string;
@@ -94,6 +116,7 @@ class PostgresConnectionStore implements IConnectionStore {
     this.#pool = pool;
     this.#codec = codec;
     this.#workspaceId = workspaceId;
+    this.mutations = new PostgresIdentityMutationStore(pool);
   }
 
   async get(service: string, connectionName: string): Promise<ResolvedCredential | undefined> {
@@ -123,34 +146,42 @@ class PostgresConnectionStore implements IConnectionStore {
     createdBy = "",
     actor?: ConnectionActor,
   ): Promise<void> {
-    const encoded = await this.#codec.encode(JSON.stringify(credential));
-    const result = await this.#pool.query(
-      `insert into connections (workspace_id, service, connection_name, label, value, created_by, updated_at)
-       values ($1, $2, $3, $4, $5, $6, $7)
-       on conflict (workspace_id, service, connection_name) do update
-       set label = $4, value = $5, created_by = case when connections.created_by = '' then excluded.created_by else connections.created_by end, updated_at = $7
-       where $8::boolean or connections.created_by = $9`,
-      [
-        this.#workspaceId,
-        service,
-        connectionName,
-        connectionName,
-        encoded,
-        createdBy,
-        now(),
-        !actor || actor.canManageWorkspace,
-        actor?.userId ?? "",
-      ],
-    );
-    if (result.rowCount === 0)
+    const result = await commitConnectionMutation(this.mutations, {
+      workspaceId: this.#workspaceId,
+      service,
+      connectionName,
+      actor,
+      allowCreate: true,
+      requireProvider: true,
+      statement: {
+        sql: "insert into connections(workspace_id, service, connection_name, label, value, created_by, updated_at) values(?,?,?,?,?,?,?) on conflict(workspace_id,service,connection_name) do update set value=excluded.value, created_by=case when connections.created_by='' then excluded.created_by else connections.created_by end, updated_at=excluded.updated_at",
+        values: [
+          this.#workspaceId,
+          service,
+          connectionName,
+          connectionName,
+          await this.#codec.encode(JSON.stringify(credential)),
+          createdBy,
+          new Date().toISOString(),
+        ],
+      },
+    });
+    if (result.changes === 0)
       throw new ConnectionError("connection_not_found", `${service} connection not found: ${connectionName}.`);
   }
 
   async delete(service: string, connectionName: string, actor?: ConnectionActor): Promise<void> {
-    await this.#pool.query(
-      `delete from connections where workspace_id = $1 and service = $2 and connection_name = $3 and ($4::boolean or created_by = $5)`,
-      [this.#workspaceId, service, connectionName, !actor || actor.canManageWorkspace, actor?.userId ?? ""],
-    );
+    await commitConnectionMutation(this.mutations, {
+      workspaceId: this.#workspaceId,
+      service,
+      connectionName,
+      actor,
+      allowCreate: true,
+      statement: {
+        sql: "delete from connections where workspace_id=? and service=? and connection_name=?",
+        values: [this.#workspaceId, service, connectionName],
+      },
+    });
   }
 
   async rename(
@@ -159,19 +190,24 @@ class PostgresConnectionStore implements IConnectionStore {
     connectionName: string,
     actor?: ConnectionActor,
   ): Promise<boolean> {
-    const result = await this.#pool.query(
-      "update connections set connection_name = $1, label = $1, updated_at = $2 where workspace_id = $3 and service = $4 and connection_name = $5 and ($6::boolean or created_by = $7)",
-      [
-        connectionName,
-        now(),
-        this.#workspaceId,
-        service,
-        currentConnectionName,
-        !actor || actor.canManageWorkspace,
-        actor?.userId ?? "",
-      ],
-    );
-    return (result.rowCount ?? 0) > 0;
+    const result = await commitConnectionMutation(this.mutations, {
+      workspaceId: this.#workspaceId,
+      service,
+      connectionName: currentConnectionName,
+      actor,
+      statement: {
+        sql: "update connections set connection_name=?, label=?, updated_at=? where workspace_id=? and service=? and connection_name=?",
+        values: [
+          connectionName,
+          connectionName,
+          new Date().toISOString(),
+          this.#workspaceId,
+          service,
+          currentConnectionName,
+        ],
+      },
+    });
+    return result.changes > 0;
   }
 
   async deleteByOwner(userId: string): Promise<void> {
@@ -263,25 +299,20 @@ class PostgresOAuthStateStore implements IOAuthStateStore {
   }
 
   async set(state: OAuthAuthorizationState): Promise<void> {
-    const encoded = await this.#codec.encode(JSON.stringify(state));
+    const encoded = await this.#codec.encode(JSON.stringify({ ...state, workspaceId: this.#workspaceId }));
     await this.#pool.query(
-      `insert into oauth_states (workspace_id, state, value, created_at)
-       values ($1, $2, $3, $4)
-       on conflict (workspace_id, state) do update set value = $3`,
-      [this.#workspaceId, state.state, encoded, now()],
+      `insert into oauth_states (workspace_id, state, user_id, value, created_at)
+       values ($1, $2, $3, $4, $5)`,
+      [this.#workspaceId, state.state, state.userId ?? null, encoded, state.createdAt],
     );
   }
 
   async take(state: string): Promise<OAuthAuthorizationState | undefined> {
-    const result = await this.#pool.query(`select value from oauth_states where workspace_id = $1 and state = $2`, [
-      this.#workspaceId,
-      state,
-    ]);
+    const result = await this.#pool.query(
+      `delete from oauth_states where workspace_id = $1 and state = $2 returning value`,
+      [this.#workspaceId, state],
+    );
     if (result.rows.length === 0) return undefined;
-    await this.#pool.query(`delete from oauth_states where workspace_id = $1 and state = $2`, [
-      this.#workspaceId,
-      state,
-    ]);
     const decoded = await this.#codec.decode(result.rows[0].value);
     return JSON.parse(decoded) as OAuthAuthorizationState;
   }
@@ -289,20 +320,21 @@ class PostgresOAuthStateStore implements IOAuthStateStore {
 
 class PostgresTokenStore implements IRuntimeTokenStore {
   readonly #pool: Pool;
-  readonly #workspaceId: string;
+  readonly #workspaceId: string | undefined;
 
-  constructor(pool: Pool, workspaceId: string) {
+  constructor(pool: Pool, workspaceId?: string) {
     this.#pool = pool;
     this.#workspaceId = workspaceId;
   }
 
   async add(record: RuntimeTokenRecord): Promise<void> {
+    this.assertWorkspace(record.workspaceId);
     await this.#pool.query(
       `insert into runtime_tokens (id, workspace_id, user_id, name, token_hash, created_at, last_used_at, revoked_at)
        values ($1, $2, $3, $4, $5, $6, $7, null)`,
       [
         record.id,
-        this.#workspaceId,
+        record.workspaceId,
         record.userId,
         record.name,
         record.tokenHash,
@@ -315,8 +347,8 @@ class PostgresTokenStore implements IRuntimeTokenStore {
   async list(): Promise<RuntimeTokenRecord[]> {
     const result = await this.#pool.query(
       `select id, workspace_id, user_id, name, token_hash, created_at, last_used_at
-       from runtime_tokens where workspace_id = $1 and revoked_at is null`,
-      [this.#workspaceId],
+       from runtime_tokens where ($1::text is null or workspace_id = $1) and revoked_at is null order by created_at desc, id desc`,
+      [this.#workspaceId ?? null],
     );
     return result.rows.map(mapTokenRow);
   }
@@ -324,8 +356,8 @@ class PostgresTokenStore implements IRuntimeTokenStore {
   async findByHash(tokenHash: string): Promise<RuntimeTokenRecord | undefined> {
     const result = await this.#pool.query(
       `select id, workspace_id, user_id, name, token_hash, created_at, last_used_at
-       from runtime_tokens where token_hash = $1 and revoked_at is null`,
-      [tokenHash],
+       from runtime_tokens where token_hash = $1 and ($2::text is null or workspace_id = $2) and revoked_at is null`,
+      [tokenHash, this.#workspaceId ?? null],
     );
     if (result.rows.length === 0) return undefined;
     return mapTokenRow(result.rows[0]);
@@ -333,13 +365,14 @@ class PostgresTokenStore implements IRuntimeTokenStore {
 
   async revoke(id: string): Promise<boolean> {
     const result = await this.#pool.query(
-      `update runtime_tokens set revoked_at = $1 where workspace_id = $2 and id = $3 and revoked_at is null`,
-      [now(), this.#workspaceId, id],
+      `update runtime_tokens set revoked_at = $1 where ($2::text is null or workspace_id = $2) and id = $3 and revoked_at is null`,
+      [now(), this.#workspaceId ?? null, id],
     );
     return (result.rowCount ?? 0) > 0;
   }
 
   async revokeByUser(workspaceId: string, userId: string): Promise<void> {
+    this.assertWorkspace(workspaceId);
     await this.#pool.query(
       `update runtime_tokens set revoked_at = $1 where workspace_id = $2 and user_id = $3 and revoked_at is null`,
       [now(), workspaceId, userId],
@@ -347,6 +380,7 @@ class PostgresTokenStore implements IRuntimeTokenStore {
   }
 
   async revokeByWorkspace(workspaceId: string): Promise<void> {
+    this.assertWorkspace(workspaceId);
     await this.#pool.query(`update runtime_tokens set revoked_at = $1 where workspace_id = $2 and revoked_at is null`, [
       now(),
       workspaceId,
@@ -354,11 +388,16 @@ class PostgresTokenStore implements IRuntimeTokenStore {
   }
 
   async markUsed(id: string, workspaceId: string, usedAt: string): Promise<void> {
-    await this.#pool.query(`update runtime_tokens set last_used_at = $1 where workspace_id = $2 and id = $3`, [
-      usedAt,
-      workspaceId,
-      id,
-    ]);
+    this.assertWorkspace(workspaceId);
+    await this.#pool.query(
+      `update runtime_tokens set last_used_at = $1 where workspace_id = $2 and id = $3 and revoked_at is null`,
+      [usedAt, workspaceId, id],
+    );
+  }
+
+  private assertWorkspace(workspaceId: string): void {
+    if (this.#workspaceId && this.#workspaceId !== workspaceId)
+      throw new Error("Runtime token workspace does not match its scoped store.");
   }
 }
 
@@ -384,12 +423,7 @@ class PostgresRunLogStore implements IRunLogStore {
         run.startedAt,
         run.completedAt,
         run.ok ? 1 : 0,
-        JSON.stringify({
-          inputSummary: run.inputSummary,
-          errorCode: run.errorCode,
-          errorMessage: run.errorMessage,
-          safety: run.safety,
-        }),
+        JSON.stringify(run),
       ],
     );
   }
@@ -425,33 +459,61 @@ class PostgresRunLogStore implements IRunLogStore {
     const result = await this.#pool.query(query, params);
     const { encodeRunLogCursor: encode } = await import("./runtime-store.ts");
 
-    const items: RunLog[] = result.rows.map((r) => {
-      const extra = typeof r.value === "string" ? JSON.parse(r.value) : (r.value ?? {});
-      const startedAt = r.started_at as string;
-      const completedAt = r.completed_at as string;
-      return {
-        id: r.id,
-        workspaceId: r.workspace_id,
-        userId: r.user_id,
-        service: r.service,
-        actionId: r.action_id,
-        caller: "http" as RunLogCaller,
-        startedAt,
-        completedAt,
-        durationMs: new Date(completedAt).getTime() - new Date(startedAt).getTime(),
-        ok: r.ok === 1,
-        inputSummary: extra.inputSummary,
-        errorCode: extra.errorCode,
-        errorMessage: extra.errorMessage,
-        safety: extra.safety,
-      };
-    });
+    const items = result.rows.map(mapRunLogRow);
 
     const lastItem = items[items.length - 1];
     const nextCursor = items.length === limit && lastItem ? encode(lastItem) : undefined;
 
     return { items, nextCursor };
   }
+}
+
+const runRowSchema = z.object({
+  id: z.string(),
+  workspace_id: z.string(),
+  user_id: z.string(),
+  service: z.string().nullable(),
+  action_id: z.string(),
+  started_at: z.string(),
+  completed_at: z.string(),
+  ok: z.number(),
+  value: z.string(),
+});
+const runMetadataSchema = z.object({
+  caller: z.enum(["http", "mcp", "web"]).optional(),
+  durationMs: z.number().optional(),
+  connectionProfile: z
+    .object({ accountId: z.string(), displayName: z.string(), grantedScopes: z.array(z.string()) })
+    .optional(),
+  inputSummary: z.unknown().optional(),
+  errorCode: z.string().optional(),
+  errorMessage: z.string().optional(),
+  safety: z
+    .object({
+      riskTags: z.array(z.string()),
+      scopePreflight: z.enum(["not_required", "passed", "missing", "unknown"]),
+      idempotency: z.enum(["none", "observed", "stored", "replayed", "conflict"]),
+      retryCount: z.number(),
+    })
+    .optional(),
+});
+
+function mapRunLogRow(value: unknown): RunLog {
+  const row = runRowSchema.parse(value);
+  const metadata = runMetadataSchema.parse(JSON.parse(row.value));
+  return {
+    ...metadata,
+    id: row.id,
+    workspaceId: row.workspace_id,
+    userId: row.user_id,
+    service: row.service ?? "",
+    actionId: row.action_id,
+    caller: metadata.caller ?? "http",
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
+    durationMs: metadata.durationMs ?? Date.parse(row.completed_at) - Date.parse(row.started_at),
+    ok: row.ok === 1,
+  };
 }
 
 class PostgresWorkspaceStore implements IWorkspaceStore {

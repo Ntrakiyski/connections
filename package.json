@@ -29,6 +29,7 @@
     "fix-check": "npm run fix && npm run typecheck"
   },
   "dependencies": {
+    "@better-auth/oauth-provider": "1.7.18",
     "@cfworker/json-schema": "^4.1.1",
     "@clerk/backend": "^2.33.6",
     "@hono/node-server": "^2.0.6",
@@ -45,11 +46,10 @@
     "mdast-util-to-markdown": "^2.1.2",
     "micromark-extension-gfm": "^3.0.0",
     "minisearch": "^7.2.0",
-    "nodemailer": "^9.0.3",
+    "nodemailer": "^10.4.0",
     "pg": "^8.22.0",
     "pino": "^10.3.1",
     "rss-parser": "^3.13.0",
-    "svix": "1.97.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -66,6 +66,9 @@
     "typescript": "^7.0.2",
     "vitest": "^4.1.9",
     "wrangler": "^4.107.0"
+  },
+  "overrides": {
+    "tinypool": "2.1.2"
   },
   "allowScripts": {
     "fsevents@2.3.3": true,

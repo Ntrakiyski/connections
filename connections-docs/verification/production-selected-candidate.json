@@ -1,0 +1,34 @@
+{
+  "candidateOnly": true,
+  "productionMutated": false,
+  "selection": "Fractals-dev; operator-selected verified-admin workspace",
+  "exactRetentionSQLPassed": true,
+  "repeatImport": "already_applied",
+  "preservedResourceFingerprint": "7b87637952c7360655a92a2f7713b90904ca232197811a7da8882f53648e1df0",
+  "counts": {
+    "users": 1,
+    "companies": 1,
+    "workspaceGrants": 1,
+    "workspaces": 1,
+    "connections": 6,
+    "oauth_client_configs": 3,
+    "runtime_tokens": 5,
+    "runs": 119,
+    "audit_events": 27
+  },
+  "historicalUnavailableOwnerReferences": 3,
+  "historicalOwnersGrantNewAccess": false,
+  "schemaFinalization": {
+    "status": "finalized",
+    "allSixBlockingCounts": 0
+  },
+  "liveFileInventory": {
+    "entries": 0,
+    "files": 0,
+    "symlinks": 0
+  },
+  "limits": [
+    "Candidate backup was not a final externally frozen snapshot",
+    "Final production export, backup, import and promotion remain outstanding"
+  ]
+}

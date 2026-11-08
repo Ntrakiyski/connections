@@ -84,6 +84,11 @@
 
 ## Schema expansion and release boundary
 
+- Production data retention for this migration is limited to the operator-selected Fractals-dev workspace and its original verified administrator. Preserve its stable workspace/user IDs, accounts, key hashes and history. Exclude the other three workspaces from the migrated runtime after a full frozen backup; do not provision their companies or user accounts. Keep recovery material private.
+
+- The operator narrowed the current release on 2026-11-08 to the Connections connector authentication migration. The Meetings desktop pilot and desktop release are separate follow-up work and do not gate this connector release. Preserve the implemented server OAuth contract; do not claim the desktop pilot passed.
+- The operator explicitly requires Coolify auto-deploy to remain enabled, including on migration staging. Verify the application, branch, Compose file and isolated runtime configuration before deployment; a push to its watched branch can deploy it.
+
 - Issue #3 introduces the pinned Better Auth schema and company/workspace constraints; it does not switch the running Clerk session handler. Issues #5–#12 gate human auth, provisioning, import, Meetings compatibility and release.
 - `auth_user`, `auth_session`, `auth_account`, `auth_verification`, `organizations`, `organization_memberships`, and `organization_invitations` are Better Auth-owned server tables. `workspace_memberships` remains Connections-owned.
 - `workspaces.organization_id` and `workspace_memberships.organization_id` stay nullable only for pre-import Clerk/local compatibility. Every mapped workspace grant must reference the same parent company and an independent company membership. NULL grants in mapped workspaces and company reassignment are rejected by the database.

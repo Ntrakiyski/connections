@@ -186,10 +186,12 @@ export class SentinelProviderLoader implements IProviderLoader {
       },
       customCredential: async ({ values }) => {
         this.validatedAccounts.push(values.password);
+        await this.validationBarrier?.();
         return {};
       },
       oauth2: async (credential) => {
         this.validatedAccounts.push(credential.accessToken);
+        await this.validationBarrier?.();
         return {};
       },
     };

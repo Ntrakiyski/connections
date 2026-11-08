@@ -4,8 +4,12 @@ import type { ResolvedCredential } from "../../core/types.ts";
 import type { IOAuthClientConfigStore } from "../../oauth/oauth-client-config-service.ts";
 import type { OAuthClientConfig } from "../../oauth/oauth-client-config-service.ts";
 import type { IOAuthStateStore } from "../../oauth/oauth-flow-service.ts";
+import type { IIdentityDirectory } from "./identity-directory.ts";
+import type { IIdentityMutationStore } from "./identity-mutations.ts";
+import type { IProviderOAuthConsentStore } from "./provider-oauth-consent.ts";
 import type { IRunLogStore, RunLog, RunLogListInput, RunLogPage } from "./runtime-store.ts";
 import type { IRuntimeTokenStore, RuntimeTokenRecord, WorkspaceRole } from "./runtime-token-service.ts";
+import type { BetterAuthOptions } from "better-auth";
 
 export interface Workspace {
   id: string;
@@ -119,12 +123,18 @@ export interface MeetingRecord {
 export type MeetingWrite = Omit<MeetingRecord, "id" | "workspaceId" | "createdAt" | "updatedAt" | "finalizedAt">;
 export type MeetingWriteResult = { status: "created" | "updated" | "ignored"; meeting: MeetingRecord };
 
+export interface MeetingWriteAuthorization {
+  referenceId: string;
+  organizationId: string;
+  tokenId: string;
+}
+
 export interface IMeetingStore {
   list(workspaceId: string): Promise<MeetingRecord[]>;
   getById(workspaceId: string, id: string): Promise<MeetingRecord | undefined>;
   /** Private sync key used only by PUT idempotency. */
   get(workspaceId: string, externalId: string): Promise<MeetingRecord | undefined>;
-  put(workspaceId: string, input: MeetingWrite): Promise<MeetingWriteResult>;
+  put(workspaceId: string, input: MeetingWrite, authorization?: MeetingWriteAuthorization): Promise<MeetingWriteResult>;
 }
 
 export interface IWorkspaceControlStore {
@@ -207,6 +217,11 @@ export interface WorkspaceScopedStores {
 }
 
 export interface RuntimeDatabase {
+  identityMutations?: IIdentityMutationStore;
+  providerOAuthConsents?: IProviderOAuthConsentStore;
+  /** Native database used by Better Auth's matching adapter. */
+  authDatabase?: BetterAuthOptions["database"];
+  identityDirectory?: IIdentityDirectory;
   /** Legacy default-workspace access for local tools and migration compatibility. */
   connectionStore: IConnectionStore;
   oauthClientConfigStore: IOAuthClientConfigStore;
