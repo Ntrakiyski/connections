@@ -1,0 +1,19 @@
+{
+  "passed": true,
+  "serverCommit": "f54edae364dd3da13d1d74631f99d1e0d86a711e",
+  "origin": "https://connections-migration.159.69.35.245.sslip.io",
+  "browser": "Chrome via Playwright; trusted HTTPS",
+  "publicFlows": ["sign-in", "sign-up", "password-recovery"],
+  "signedIn": true,
+  "twoIndependentWorkspaceTabs": true,
+  "scopedRequestStatuses": [200, 200],
+  "pageErrors": [],
+  "desktopViewport": [1440, 1000],
+  "mobileViewport": [390, 844],
+  "desktopOverflow": false,
+  "mobileOverflow": false,
+  "limits": [
+    "No native desktop pilot; outside current release scope",
+    "Provider account execution and backup recovery are separate evidence"
+  ]
+}

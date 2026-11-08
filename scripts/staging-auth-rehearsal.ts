@@ -5,6 +5,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import pg from "pg";
 import { z } from "zod";
 import { logger } from "../src/server/logger.ts";
+import { rehearseRecovery, takeRecoverySnapshot } from "./staging-auth-recovery.ts";
 
 const origin = "https://connections-migration.159.69.35.245.sslip.io";
 const runId = z
@@ -229,6 +230,19 @@ async function rehearse(): Promise<void> {
   step = "human cookie cannot become runtime credential";
   await request("/v1/apps", 401, { cookie: member.cookie });
   step = "company A offboarding";
+  const fileText = "Synthetic A1 file retained across recovery";
+  const form = new FormData();
+  form.set("file", new File([fileText], "recovery.txt", { type: "text/plain" }));
+  const upload = await fetch(origin + "/api/files", {
+    method: "POST",
+    headers: { Origin: origin, Cookie: member.cookie, "x-workspace-id": A.workspaceId },
+    body: form,
+  });
+  assert.equal(upload.status, 200);
+  const fileId = z.object({ fileId: z.string() }).parse(await upload.json()).fileId;
+  step = "consistent database and file backup under writer freeze";
+  const snapshot = await takeRecoverySnapshot(runId, server);
+  step = "company A offboarding";
   await request(`/api/companies/${A.organizationId}/members/${member.userId}`, 200, {
     method: "DELETE",
     cookie: operator.cookie,
@@ -254,6 +268,21 @@ async function rehearse(): Promise<void> {
   step = "restored data does not resurrect revoked token";
   await request("/api/connections", 200, { cookie: member.cookie, workspaceId: B.workspaceId });
   await request("/v1/apps", 401, { bearer: bToken.token });
+  step = "restored backup and security-delta reconciliation";
+  const recovery = await rehearseRecovery({
+    snapshot,
+    runId,
+    operatorCookie: operator.cookie,
+    memberCookie: member.cookie,
+    memberId: member.userId,
+    companyA: A.organizationId,
+    workspaceA: A.workspaceId,
+    workspaceB: B.workspaceId,
+    tokenA: aToken.token,
+    tokenB: bToken.token,
+    fileId,
+    fileText,
+  });
   step = "delivered password recovery link";
   await request("/api/identity/request-password-reset", 200, {
     body: { email: member.email, redirectTo: `${origin}/reset-password` },
@@ -289,6 +318,7 @@ async function rehearse(): Promise<void> {
       completedAt: new Date().toISOString(),
       checks,
       counts,
+      recovery,
     };
     await writeFile(ledgerPath, JSON.stringify(ledger, null, 2) + "\n", { mode: 0o600 });
     logger.info({ rehearsal: ledger }, "staging auth rehearsal passed");

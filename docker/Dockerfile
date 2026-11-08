@@ -12,7 +12,7 @@ RUN npm run generate:catalog
 RUN npm run build
 RUN npm run build --workspace web
 
-FROM node:24-alpine
+FROM node:24-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
@@ -22,6 +22,7 @@ COPY package.json package-lock.json ./
 COPY scripts/healthcheck.ts ./scripts/healthcheck.ts
 COPY scripts/ensure-generated.ts ./scripts/ensure-generated.ts
 COPY scripts/staging-auth-rehearsal.ts ./scripts/staging-auth-rehearsal.ts
+COPY scripts/staging-auth-recovery.ts ./scripts/staging-auth-recovery.ts
 COPY migrations ./migrations
 COPY sqlite-migrations ./sqlite-migrations
 COPY --from=build /app/src ./src
@@ -34,3 +35,8 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD ["node", "scripts/healthcheck.ts"]
 CMD ["node", "src/server/index.ts"]
+
+FROM runtime AS staging-rehearsal
+RUN apk add --no-cache postgresql16-client
+
+FROM runtime AS production

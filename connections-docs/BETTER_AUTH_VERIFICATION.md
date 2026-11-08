@@ -8,6 +8,10 @@ The current release covers Connections connector authentication. The operator ex
 
 Coolify staging deployment `tigxgeanayz9qnodpyijoxdr` finished at `15d422102038b8f1d586d6d6951c06300eefa075`. The connector uses the isolated staging Compose file and origin, and trusted public HTTPS `/health` returns 200. This proves deployment and routing; it does not prove the live auth or rollback acceptance matrix.
 
+The deployed `f54edae` staging runner passed 49 HTTP requests, including one production rate-limit response followed by a successful `Retry-After` retry. Actual signup/verification, secure session cookies, private SMTP links, password recovery/session revocation, company/workspace provisioning, invitations, A2 grant denial, independent A1/B1 requests, principal separation, offboarding and archive/restore all passed. PostgreSQL confirmed zero remaining company-A memberships and A1 grants for the removed synthetic member. [Sanitized live auth evidence](verification/coolify-auth.json) records the exact deployment and statuses.
+
+Chrome/Playwright against the trusted staging HTTPS origin passed public auth screens and a real signed-in two-tab A1/B1 check. Scoped requests returned 200 in both tabs; desktop 1440×1000 and mobile 390×844 had no layout overflow or application page errors. [Browser evidence](verification/coolify-browser.json) records the checks. Backup/recovery, final retirement and merged review remain incomplete.
+
 ## Reviewed and merged
 
 - [x] #3: Company/workspace schema, reviewed in merged PR #13.

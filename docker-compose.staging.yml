@@ -4,6 +4,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
+      target: staging-rehearsal
     command: ["node", "scripts/staging-auth-rehearsal.ts"]
     depends_on:
       staging-postgres:
