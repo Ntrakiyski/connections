@@ -6,8 +6,8 @@ This guide is for the person operating a deployed Connections instance. After re
 
 ## Production boundaries
 
-- Clerk authenticates people and owns Organization creation, switching, invitations, profile, and membership UI.
-- One Clerk Organization is one Connections workspace.
+- Better Auth owns verified human identity, sessions and company directory membership.
+- Companies own workspaces. Connections owns explicit workspace grants, provisioning, invitations and scoped offboarding; company membership alone grants no provider resources.
 - The Connections API is the only browser and MCP route to product data.
 - InsForge PostgreSQL stores encrypted workspace data, runtime-token hashes, runs, and audit events.
 - Coolify runs the Connections container and receives its operational logs.
@@ -19,23 +19,23 @@ This guide is for the person operating a deployed Connections instance. After re
 1. Push the reviewed change to GitHub `main`.
 2. Redeploy the Compose service in Coolify, or let its Git integration deploy the pushed revision.
 3. Confirm the deployment built the current Git commit and the container becomes healthy on port 3000.
-4. Open the console, sign in through Clerk, and select an Organization.
+4. Open the console, sign in with a verified Better Auth account, and select a company-owned workspace.
 5. Check `/health` and, when the change affects execution, make one safe action call from the intended workspace.
 
-Production requires the public origin, PostgreSQL URL, stable credential-encryption key, Clerk secret and publishable keys, and Clerk webhook signing secret. The project README lists the exact variable names and optional runtime controls.
+Production requires the exact public origin, PostgreSQL URL, stable credential-encryption key, Better Auth session secret and working SMTP or Resend HTTPS delivery. The project README lists the exact variable names and optional runtime controls. Keep secrets runtime-only in Coolify. Auto Deploy stays enabled by operator decision; merging or pushing `main` is a production deployment and must follow the reviewed migration record.
 
 ## Workspace and MCP verification
 
-Create runtime tokens only from the active Clerk Organization. A token is permanently bound to the workspace and member that created it; it does not follow later browser Organization switches.
+Create runtime tokens from an explicitly selected workspace. A token is permanently bound to the workspace and member that created it; it does not follow later browser company or workspace navigation.
 
 For a basic isolation check:
 
-1. Create distinct tokens in two Organizations.
-2. Give each Organization a differently labelled provider connection.
+1. Create distinct tokens in workspaces owned by two companies.
+2. Give each workspace a differently labelled provider connection.
 3. Connect each MCP client with its matching token and call `list_apps`.
-4. Verify each client sees only its Organization's labels. An action request naming the other Organization's label must return `connection_not_found`.
+4. Verify each client sees only its permitted workspace labels. An action request naming the other workspace's label must return `connection_not_found`.
 
-Members see only their own connections, tokens, runs, and temporary files. Managers and admins can work with all workspace connections. Clerk remains the surface for membership and Organization-profile changes.
+Members see only their own connections, tokens, runs, and temporary files. Managers and admins can work with all workspace connections. Company management and independent workspace grants live in the Connections console. Role changes apply to existing keys immediately; offboarding affects only the selected company.
 
 ## Debugging and logs
 
@@ -67,9 +67,9 @@ The previous `workspace-security-controls` and `seed-workspace-providers` previe
 
 ## Company identity schema expansion (#3)
 
-The migration branch's [authentication contract](AUTHENTICATION.md), [Clerk importer runbook](CLERK_IMPORT.md) and [verification ledger](BETTER_AUTH_VERIFICATION.md) and [Coolify cutover runbook](COOLIFY_CUTOVER.md) describe the Better Auth transition. The deployment instructions above describe the currently deployed Clerk release; production promotion of the transition is gated by issue #12.
+The [authentication contract](AUTHENTICATION.md), [Clerk importer runbook](CLERK_IMPORT.md), [verification ledger](BETTER_AUTH_VERIFICATION.md) and [Coolify cutover runbook](COOLIFY_CUTOVER.md) describe the Better Auth release. Production promotion remains operator-owned and requires reviewed import/recovery evidence and production email configuration. The Meetings desktop pilot is outside this connector release.
 
-This step changes the schema while existing Clerk human-auth paths remain in use. It does not deploy Better Auth sessions or enable new membership workflows. The target ownership and permission contract is in `LOCKED.md`.
+Expansion migrations preserve the original source mapping while the verified importer establishes Better Auth users and company/workspace ownership. The running release serves Better Auth and has no Clerk human session or membership-webhook path. Retain the server-only source exporter and original encryption key until the reviewed export/import is complete. The target ownership and permission contract is in `LOCKED.md`.
 
 Pin: `better-auth@1.7.18`; organization plugin and field/table mappings live in `src/server/auth-schema.ts`. The checked-in migrations match those mappings, including core session/account/verification tables. Upgrade the pin only with schema compatibility review. Do not run automatic auth-schema generation during server startup.
 

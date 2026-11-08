@@ -29,6 +29,22 @@ describe("hosted authentication startup configuration", () => {
     });
   });
 
+  it("supports explicit Resend HTTPS delivery without SMTP and requires its key", () => {
+    const env = {
+      ...configured,
+      AUTH_MAIL_TRANSPORT: "resend",
+      RESEND_API_KEY: "synthetic-resend-key",
+      SMTP_URL: undefined,
+    };
+    expect(readDeploymentAuthSettings(env)).toMatchObject({ mail: { kind: "resend", apiKey: "synthetic-resend-key" } });
+    expect(() => readDeploymentAuthSettings({ ...env, RESEND_API_KEY: undefined })).toThrow(
+      "RESEND_API_KEY is required.",
+    );
+    expect(() => readDeploymentAuthSettings({ ...configured, AUTH_MAIL_TRANSPORT: "unknown" })).toThrow(
+      "must be smtp or resend",
+    );
+  });
+
   it("rejects mismatched origins, weak secrets and public production bypasses", () => {
     expect(() =>
       readDeploymentAuthSettings({ ...configured, OOMOL_CONNECT_ORIGIN: "https://other.example.test" }),

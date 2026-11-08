@@ -35,10 +35,7 @@ export interface ConnectAppOptions {
   humanAuth?: ConnectionsHumanAuth;
   authMailDelivery?: AuthMailDelivery;
   trustedAuthOrigins?: string[];
-  clerkSecretKey?: string;
-  clerkPublishableKey?: string;
-  meetingsOAuthClientId?: string;
-  clerkOptional?: boolean;
+  developmentBypass?: boolean;
   actionPolicy?: ActionPolicyService;
   registerStaticRoutes?: (app: Hono) => void;
   logger?: Logger;
@@ -140,7 +137,7 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
       }),
       runtimeTokens: new RuntimeTokenService(stores.runtimeTokenStore),
       lifecycle:
-        (options.humanAuth || options.clerkSecretKey) && options.runtimeDatabase.workspaceLifecycleStore
+        options.humanAuth && options.runtimeDatabase.workspaceLifecycleStore
           ? new WorkspaceLifecycleService(
               options.runtimeDatabase.workspaceLifecycleStore,
               runtimeTokens,
@@ -168,14 +165,7 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
       transitFiles: options.transitFiles,
       runtimeTokens: defaultServices.runtimeTokens,
       registerStaticRoutes: options.registerStaticRoutes,
-      auth: {
-        secretKey: options.clerkSecretKey,
-        publishableKey: options.clerkPublishableKey,
-        optional: options.clerkOptional,
-        workspaceStore: options.runtimeDatabase.workspaceStore,
-        membershipStore: options.runtimeDatabase.membershipStore,
-        meetingsOAuthClientId: options.meetingsOAuthClientId,
-      },
+      developmentBypass: options.developmentBypass,
       principalAuth:
         options.humanAuth && options.runtimeDatabase.identityDirectory
           ? {
@@ -201,16 +191,6 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
           : undefined,
       meetingStore: options.runtimeDatabase.meetingStore,
       meetingsOAuth,
-      clerkWebhooks: {
-        signingSecret: process.env.CLERK_WEBHOOK_SIGNING_SECRET,
-        workspaceStore: options.runtimeDatabase.workspaceStore,
-        membershipStore: options.runtimeDatabase.membershipStore,
-        workspaceControls: options.runtimeDatabase.workspaceControlStore,
-        runtimeTokens,
-        removeMemberConnections: async (workspaceId, userId) => {
-          await options.runtimeDatabase.createScopedStores(workspaceId).connectionStore.deleteByOwner(userId);
-        },
-      },
       runtimeTokenAuth: {
         runtimeTokens,
         memberships: options.runtimeDatabase.membershipStore,
@@ -234,12 +214,11 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
             return { ...result, state: input.state, userId: consent.userId, workspaceId: consent.workspaceId };
           }
         : undefined,
-      purgeExpiredWorkspaces:
-        options.humanAuth || options.clerkSecretKey
-          ? async () => {
-              await options.runtimeDatabase.workspaceLifecycleStore?.purgeExpired(new Date().toISOString());
-            }
-          : undefined,
+      purgeExpiredWorkspaces: options.humanAuth
+        ? async () => {
+            await options.runtimeDatabase.workspaceLifecycleStore?.purgeExpired(new Date().toISOString());
+          }
+        : undefined,
       actionPolicy: options.actionPolicy,
       logger: options.logger,
     }).createApp(),

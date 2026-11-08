@@ -11,7 +11,6 @@ import type {
 import type { IOAuthClientConfigStore, OAuthClientConfig } from "../oauth/oauth-client-config-service.ts";
 import type { IOAuthStateStore, OAuthAuthorizationState } from "../oauth/oauth-flow-service.ts";
 import type { IProviderLoader } from "../providers/provider-loader.ts";
-import type { ClerkAuthOptions } from "./api/clerk-auth.ts";
 import type { Logger } from "./logger.ts";
 import type { IRunLogStore, RunLog, RunLogListInput, RunLogPage } from "./storage/runtime-store.ts";
 import type { IRuntimeTokenStore, RuntimeTokenRecord } from "./storage/runtime-token-service.ts";
@@ -729,7 +728,7 @@ describe("ConnectServer", () => {
   });
 
   it("accepts the shared OAuth callback route without a service path segment", async () => {
-    const app = createTestServer([apiKeyProvider], { auth: { adminToken: "local-token" } }).createApp();
+    const app = createTestServer([apiKeyProvider]).createApp();
 
     const response = await app.request("/oauth/callback?state=missing&code=example-code");
 
@@ -813,23 +812,22 @@ describe("ConnectServer", () => {
     }
   });
 
-  it("reports the default local Clerk session", async () => {
+  it("does not expose the retired Clerk session endpoint in development", async () => {
     const app = createTestServer([apiKeyProvider]).createApp();
 
     const response = await app.request("/api/auth/session");
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      workspaceId: "default",
-      userId: "local-dev",
-      role: "admin",
-      sessionClaims: {},
-    });
+    expect(response.status).toBe(404);
+  });
+
+  it("refuses an unconfigured server without the explicit development bypass", () => {
+    expect(() => createTestServer([apiKeyProvider], { developmentBypass: false })).toThrow(
+      "Configure human authentication",
+    );
   });
 
   it("does not accept the admin token for stored runtime token access", async () => {
     const runtimeTokens = new RuntimeTokenService(new MemoryRuntimeTokenStore());
     const app = createTestServer([apiKeyProvider], {
-      auth: { adminToken: "local-token" },
       runtimeTokens,
     }).createApp();
 
@@ -1800,7 +1798,7 @@ describe("ConnectServer", () => {
 });
 
 interface CreateTestServerOptions {
-  auth?: ClerkAuthOptions & { adminToken?: string; runtimeToken?: string };
+  developmentBypass?: boolean;
   actionPolicy?: ActionPolicyService;
   actionSearch?: ActionSearchIndexProvider;
   providerLoader?: IProviderLoader;
@@ -1862,7 +1860,7 @@ function createTestServer(providers: ProviderDefinition[], options: CreateTestSe
     transitFiles,
     runtimeTokens,
     registerStaticRoutes: staticRoot ? (app) => registerStaticRoutes(app, staticRoot) : undefined,
-    auth: options.auth,
+    developmentBypass: options.developmentBypass ?? true,
     actionPolicy: options.actionPolicy,
     actionSearch: options.actionSearch,
     logger: options.logger,

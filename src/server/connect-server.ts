@@ -4,8 +4,6 @@ import type { ActionPolicyService } from "../core/action-policy.ts";
 import type { ActionSearchIndexProvider, ActionSearchResult } from "../core/action-search.ts";
 import type { OAuthAuthorizationCompleteInput } from "../oauth/oauth-flow-service.ts";
 import type { IProviderLoader } from "../providers/provider-loader.ts";
-import type { ClerkAuthOptions } from "./api/clerk-auth.ts";
-import type { ClerkWebhookOptions } from "./api/clerk-webhooks.ts";
 import type { CompanyRouteOptions } from "./api/company-routes.ts";
 import type { OAuthCompletionIntent } from "./api/oauth-completion-page.ts";
 import type { PrincipalAuthOptions } from "./api/principal-auth.ts";
@@ -35,10 +33,8 @@ import { OAuthFlowError, OAuthFlowService } from "../oauth/oauth-flow-service.ts
 import { ActionRunner } from "./actions/action-runner.ts";
 import { renderActionMarkdown } from "./api/action-markdown.ts";
 import { getResponseCachePolicy } from "./api/cache-policy.ts";
-import { createClerkAuthMiddleware } from "./api/clerk-auth.ts";
-import { registerClerkRoutes } from "./api/clerk-routes.ts";
-import { registerClerkWebhookRoutes } from "./api/clerk-webhooks.ts";
 import { registerCompanyRoutes } from "./api/company-routes.ts";
+import { createDevelopmentAuthMiddleware } from "./api/development-auth.ts";
 import { HttpRequestError, internalError, jsonError, notFound, readJsonBody } from "./api/http-utils.ts";
 import { registerHumanAuthRoutes } from "./api/human-auth-routes.ts";
 import { registerMeetingRoutes } from "./api/meeting-routes.ts";
@@ -88,11 +84,10 @@ export interface IConnectServerOptions {
   actions: ActionRunner;
   transitFiles: ITransitFileService;
   staticRoot?: string;
-  auth?: ClerkAuthOptions;
+  developmentBypass?: boolean;
   principalAuth?: PrincipalAuthOptions;
   meetingsOAuth?: MeetingsOAuthService;
   companyServices?: Pick<CompanyRouteOptions, "companies" | "directory" | "invitations">;
-  clerkWebhooks?: ClerkWebhookOptions;
   runtimeTokenAuth?: RuntimeTokenAuthOptions;
   createWorkspaceServices?(workspace: WorkspaceContext): WorkspaceServerServices;
   completeProviderOAuth?(
@@ -115,6 +110,9 @@ export class ConnectServer {
   private readonly actionSearch: ActionSearchIndexProvider;
 
   constructor(options: IConnectServerOptions) {
+    if (!options.principalAuth && !options.developmentBypass) {
+      throw new Error("Configure human authentication or an explicit loopback development bypass.");
+    }
     if (options.principalAuth && !options.completeProviderOAuth) {
       throw new Error("Human authentication requires stored provider OAuth consent redemption.");
     }
@@ -124,7 +122,6 @@ export class ConnectServer {
 
   createApp(): Hono {
     const app = new Hono();
-    const auth = this.options.auth ?? {};
 
     app.use("*", async (context, next) => {
       await this.options.purgeExpiredWorkspaces?.();
@@ -165,14 +162,12 @@ export class ConnectServer {
           auth: this.options.principalAuth.auth,
           trustedOrigins: this.options.principalAuth.trustedOrigins,
         });
-    } else if (this.options.clerkWebhooks) {
-      registerClerkWebhookRoutes(app, this.options.clerkWebhooks);
     }
     app.use(
       "*",
       this.options.principalAuth
         ? createPrincipalAuthMiddleware(this.options.principalAuth)
-        : createClerkAuthMiddleware(auth),
+        : createDevelopmentAuthMiddleware(),
     );
     if (this.options.meetingStore) {
       registerMeetingRoutes(app, this.options.meetingStore, this.options.meetingsOAuth);
@@ -240,8 +235,6 @@ export class ConnectServer {
           adminAuthConfigured: true,
         });
       });
-    } else {
-      registerClerkRoutes(app, auth);
     }
 
     app.get("/api/connections", (context) => this.listConnections(context));

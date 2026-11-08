@@ -1,0 +1,219 @@
+{
+  "passed": true,
+  "runId": "auth-1794123199",
+  "runtime": "Coolify / Node 24 / PostgreSQL 16",
+  "origin": "https://connections-migration.159.69.35.245.sslip.io",
+  "mail": "private Mailpit; delivered links completed over trusted public HTTPS",
+  "completedAt": "2026-11-08T07:36:16.544Z",
+  "checks": [
+    {
+      "step": "operator: signup",
+      "status": 200
+    },
+    {
+      "step": "operator: unverified sign-in denied",
+      "status": 403
+    },
+    {
+      "step": "operator: delivered verification link",
+      "status": 302
+    },
+    {
+      "step": "operator: verified sign-in and secure cookie",
+      "status": 200
+    },
+    {
+      "step": "operator: verified sign-in and secure cookie",
+      "status": 200
+    },
+    {
+      "step": "member: signup",
+      "status": 200
+    },
+    {
+      "step": "member: unverified sign-in denied",
+      "status": 403
+    },
+    {
+      "step": "member: delivered verification link",
+      "status": 302
+    },
+    {
+      "step": "member: verified sign-in and secure cookie",
+      "status": 429
+    },
+    {
+      "step": "member: verified sign-in and secure cookie",
+      "status": 200
+    },
+    {
+      "step": "member: verified sign-in and secure cookie",
+      "status": 200
+    },
+    {
+      "step": "foreign-origin mutation denied",
+      "status": 403
+    },
+    {
+      "step": "auth plugin governance bypass denied",
+      "status": 403
+    },
+    {
+      "step": "A company and A1 provisioning",
+      "status": 201
+    },
+    {
+      "step": "A2 provisioning",
+      "status": 201
+    },
+    {
+      "step": "B company and B1 provisioning",
+      "status": 201
+    },
+    {
+      "step": "company invitation with explicit grant",
+      "status": 201
+    },
+    {
+      "step": "invitation acceptance",
+      "status": 200
+    },
+    {
+      "step": "company invitation with explicit grant",
+      "status": 201
+    },
+    {
+      "step": "invitation acceptance",
+      "status": 200
+    },
+    {
+      "step": "directory membership does not grant A2 resources",
+      "status": 403
+    },
+    {
+      "step": "parallel A1 and B1 requests retain explicit scope",
+      "status": 200
+    },
+    {
+      "step": "parallel A1 and B1 requests retain explicit scope",
+      "status": 200
+    },
+    {
+      "step": "member workspace configuration denied",
+      "status": 403
+    },
+    {
+      "step": "runtime token A1 issuance",
+      "status": 200
+    },
+    {
+      "step": "runtime token B1 issuance",
+      "status": 200
+    },
+    {
+      "step": "runtime keys usable in original workspaces",
+      "status": 200
+    },
+    {
+      "step": "runtime keys usable in original workspaces",
+      "status": 200
+    },
+    {
+      "step": "runtime key cannot become human account session",
+      "status": 401
+    },
+    {
+      "step": "human cookie cannot become runtime credential",
+      "status": 401
+    },
+    {
+      "step": "company A offboarding",
+      "status": 200
+    },
+    {
+      "step": "removed A1 human and runtime access denied",
+      "status": 403
+    },
+    {
+      "step": "removed A1 human and runtime access denied",
+      "status": 401
+    },
+    {
+      "step": "independent B1 human and runtime access retained",
+      "status": 200
+    },
+    {
+      "step": "independent B1 human and runtime access retained",
+      "status": 200
+    },
+    {
+      "step": "archive B1",
+      "status": 200
+    },
+    {
+      "step": "archived B1 resources and tokens denied",
+      "status": 403
+    },
+    {
+      "step": "archived B1 resources and tokens denied",
+      "status": 401
+    },
+    {
+      "step": "restore B1 data",
+      "status": 200
+    },
+    {
+      "step": "restored data does not resurrect revoked token",
+      "status": 200
+    },
+    {
+      "step": "restored data does not resurrect revoked token",
+      "status": 401
+    },
+    {
+      "step": "delivered password recovery link",
+      "status": 200
+    },
+    {
+      "step": "delivered password recovery link",
+      "status": 302
+    },
+    {
+      "step": "delivered password recovery link",
+      "status": 200
+    },
+    {
+      "step": "password reset revokes existing session",
+      "status": 401
+    },
+    {
+      "step": "old password denied",
+      "status": 401
+    },
+    {
+      "step": "replacement password and logout",
+      "status": 200
+    },
+    {
+      "step": "replacement password and logout",
+      "status": 200
+    },
+    {
+      "step": "replacement password and logout",
+      "status": 401
+    }
+  ],
+  "counts": {
+    "removed_memberships": 0,
+    "removed_grants": 0
+  },
+  "recovery": {
+    "passed": true,
+    "dumpSHA256": "b078e386422a9b23a262a4fad288f0d1ef3bf802b4499f3cd35a8033f449c523",
+    "filesSHA256": "650606f738107dc758bf0e4b6f6496df150f006a8967587b88c57eb4275cf80b",
+    "requests": 13,
+    "reconciledMutations": ["company A offboarding", "B1 archive", "B1 restore without revoked-token resurrection"]
+  },
+  "commit": "b66f557453e25d865f30bfe8c7c87559e354d163",
+  "deployment": "ngtgdzlra821bvup2ozmie8w"
+}

@@ -83,6 +83,17 @@ After success, compare the preserved fingerprints and counts, verify active and 
 
 Before new identity/security writes or extra workspaces exist, the restored backup is the rehearsal recovery boundary. After that boundary, reconcile subsequent removals, revoked keys and grants or roll forward; replaying an older source or dropping the expansion tables cannot safely recover access state. The full Coolify switch, delta reconciliation and rollback rehearsal remain issue #12.
 
+## Finalize the hosted company schema
+
+After the verified import, freeze all company/workspace writers and preview the hosted PostgreSQL constraint change:
+
+```sh
+node scripts/finalize-company-schema.ts --dry-run
+node scripts/finalize-company-schema.ts --apply --maintenance
+```
+
+The preview is read-only. Apply locks the relevant identity/workspace tables and refuses unmapped workspaces/grants, pending import verification, legacy workspaces without verified source mappings, companies without verified owners and workspaces without admins. All six counts must be zero before both company-reference columns become NOT NULL. An explicit local SQLite compatibility workspace is not a hosted PostgreSQL exemption. Keep the historical `clerk_org_id` mapping and server-only source exporter until the reviewed migration/export record is complete; neither authenticates human sessions in this release. Keep the original backup and encryption key, and reconcile security deltas rather than dropping expansion tables to recover.
+
 ## Local verification
 
 ```sh

@@ -12,11 +12,10 @@ export interface CloudflareEnv {
   BETTER_AUTH_SECRET?: string;
   BETTER_AUTH_URL?: string;
   BETTER_AUTH_TRUSTED_ORIGINS?: string;
+  AUTH_MAIL_TRANSPORT?: string;
+  RESEND_API_KEY?: string;
   SMTP_URL?: string;
   SMTP_FROM?: string;
-  CLERK_SECRET_KEY?: string;
-  CLERK_PUBLISHABLE_KEY?: string;
-  CLERK_MEETINGLY_OAUTH_CLIENT_ID?: string;
   OOMOL_CONNECT_ENCRYPTION_KEY?: string;
   OOMOL_CONNECT_ALLOWED_ACTIONS?: string;
   OOMOL_CONNECT_BLOCKED_ACTIONS?: string;

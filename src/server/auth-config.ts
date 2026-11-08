@@ -3,7 +3,7 @@ export interface SessionAuthSettings {
   secret: string;
   baseURL: string;
   trustedOrigins: string[];
-  smtpURL: string;
+  mail: { kind: "smtp"; url: string } | { kind: "resend"; apiKey: string };
   mailFrom: string;
 }
 
@@ -51,7 +51,7 @@ export function readDeploymentAuthSettings(
     secret,
     baseURL,
     trustedOrigins: [...new Set(trustedOrigins)],
-    smtpURL: required(env.SMTP_URL, "SMTP_URL"),
+    mail: readMailTransport(env),
     mailFrom: required(env.SMTP_FROM, "SMTP_FROM"),
   };
 }
@@ -59,4 +59,11 @@ export function readDeploymentAuthSettings(
 function required(value: string | undefined, name: string): string {
   if (!value?.trim()) throw new Error(`${name} is required.`);
   return value;
+}
+
+function readMailTransport(env: Record<string, string | undefined>): SessionAuthSettings["mail"] {
+  const transport = env.AUTH_MAIL_TRANSPORT ?? "smtp";
+  if (transport === "resend") return { kind: "resend", apiKey: required(env.RESEND_API_KEY, "RESEND_API_KEY") };
+  if (transport === "smtp") return { kind: "smtp", url: required(env.SMTP_URL, "SMTP_URL") };
+  throw new Error("AUTH_MAIL_TRANSPORT must be smtp or resend.");
 }

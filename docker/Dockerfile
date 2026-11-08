@@ -1,7 +1,5 @@
 FROM node:24-alpine AS build
 WORKDIR /app
-ARG VITE_CLERK_PUBLISHABLE_KEY
-ENV VITE_CLERK_PUBLISHABLE_KEY=${VITE_CLERK_PUBLISHABLE_KEY}
 COPY package.json package-lock.json tsconfig.json vitest.config.ts ./
 COPY web ./web
 COPY src ./src
@@ -23,6 +21,7 @@ COPY scripts/healthcheck.ts ./scripts/healthcheck.ts
 COPY scripts/ensure-generated.ts ./scripts/ensure-generated.ts
 COPY scripts/staging-auth-rehearsal.ts ./scripts/staging-auth-rehearsal.ts
 COPY scripts/staging-auth-recovery.ts ./scripts/staging-auth-recovery.ts
+COPY scripts/finalize-company-schema.ts ./scripts/finalize-company-schema.ts
 COPY migrations ./migrations
 COPY sqlite-migrations ./sqlite-migrations
 COPY --from=build /app/src ./src

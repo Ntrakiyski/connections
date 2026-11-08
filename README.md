@@ -3,13 +3,13 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/auth-clerk_orgs-8FC2F7?style=flat-square&labelColor=1E1B16" alt="Auth: Clerk Organizations">
+  <img src="https://img.shields.io/badge/auth-Better_Auth-8FC2F7?style=flat-square&labelColor=1E1B16" alt="Auth: Better Auth">
   <img src="https://img.shields.io/badge/protocol-MCP-8FC2F7?style=flat-square&labelColor=1E1B16" alt="Protocol: MCP">
   <img src="https://img.shields.io/badge/license-Apache--2.0-8FC2F7?style=flat-square&labelColor=1E1B16" alt="License: Apache-2.0">
   <a href="https://github.com/Ntrakiyski"><img src="https://img.shields.io/badge/fractals-studio-FA5C2C?style=flat-square&labelColor=1E1B16" alt="Fractals Studio"></a>
 </p>
 
-Connections is a shared SaaS for workspace-scoped provider connections and MCP access. It is built on the OpenConnector provider runtime, but the product is a multi-workspace application: a Clerk Organization maps to one Connections workspace.
+Connections is a shared SaaS for workspace-scoped provider connections and MCP access. It builds on the OpenConnector provider runtime. One verified account can belong to multiple companies, and each company can own multiple workspaces with independent resource grants.
 
 People connect their work accounts once, then approved AI agents use those accounts through MCP or the runtime API. Provider credentials stay on the server; agents receive only safe account metadata, action schemas, and execution results.
 
@@ -31,7 +31,7 @@ The result is a single connection layer for people and AI: team-wide when author
 
 ## What works today
 
-- Clerk sign-in, organization switching, organization profile, invitations, and membership management.
+- Better Auth sign-in, email verification and password recovery; company invitations, scoped offboarding and explicit workspace grants.
 - Workspace-scoped provider enablement, OAuth client configuration, connection accounts, runtime tokens, runs, files, approval settings, and audit events.
 - Multiple clearly labelled accounts per provider, such as `personal-gmail` and `finance-gmail`.
 - MCP discovery and execution across the provider catalog, with an explicit account label required for every action.
@@ -41,7 +41,7 @@ The result is a single connection layer for people and AI: team-wide when author
 
 ## Workspace roles and isolation
 
-Clerk owns identity, organization membership, invitations, and organization profile. Connections synchronizes that membership into its own authorization data so runtime API keys take effect immediately when roles change or a member is removed.
+Better Auth owns human identity, sessions and company membership. Connections governs company workflows and explicit workspace grants. A company role alone grants no provider resources; runtime keys use the member's current company membership and workspace role on every request.
 
 | Role    | Connections permissions                                                                                                                                    |
 | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -57,10 +57,10 @@ Consequently, a token issued in Organization 1 can discover and use only Organiz
 
 ```mermaid
 flowchart LR
-  Person["Person"] --> Clerk["Clerk: identity and Organizations"]
+  Person["Person"] --> Auth["Better Auth: identity and sessions"]
   Agent["Agent / MCP client"] -->|"Bearer oct_ runtime token"| API["Connections Hono API"]
-  Console["Web console"] -->|"Clerk session"| API
-  Clerk -->|"signed membership webhooks"| API
+  Console["Web console"] -->|"Verified session and explicit workspace"| API
+  API --> Auth
   API -->|"workspace-scoped encrypted records"| DB["InsForge PostgreSQL"]
   API -->|"MCP, HTTP, OAuth, policy, audit"| Runtime["OpenConnector runtime"]
   Runtime --> Providers["Provider APIs"]
@@ -94,15 +94,18 @@ The service listens on port `3000`; configure Coolify's domain to route to that 
 
 Set these production environment variables in Coolify:
 
-| Variable                          | Purpose                                                                                                                                                                               |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OOMOL_CONNECT_ORIGIN`            | Public HTTPS origin, for example `https://connections.example.com`. Used for OAuth callbacks and generated URLs.                                                                      |
-| `DATABASE_URL`                    | PostgreSQL connection string for the Connections database.                                                                                                                            |
-| `OOMOL_CONNECT_ENCRYPTION_KEY`    | Server-only key that encrypts stored provider credentials and OAuth client secrets. Keep it stable; changing it without a key-rotation procedure makes old encrypted data unreadable. |
-| `CLERK_SECRET_KEY`                | Server-only Clerk key used to verify human sessions.                                                                                                                                  |
-| `CLERK_PUBLISHABLE_KEY`           | Clerk public key. It is also supplied at Docker build time so the Vite console can load Clerk.                                                                                        |
-| `CLERK_MEETINGLY_OAUTH_CLIENT_ID` | Public Clerk OAuth client ID accepted by the organization-scoped Meetings API.                                                                                                        |
-| `CLERK_WEBHOOK_SIGNING_SECRET`    | Verifies Clerk membership webhooks. Configure Clerk to send organization membership events to `https://your-domain/api/webhooks/clerk`.                                               |
+| Variable                       | Purpose                                                                                                                                                                               |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OOMOL_CONNECT_ORIGIN`         | Public HTTPS origin, for example `https://connections.example.com`. Used for OAuth callbacks and generated URLs.                                                                      |
+| `DATABASE_URL`                 | PostgreSQL connection string for the Connections database.                                                                                                                            |
+| `OOMOL_CONNECT_ENCRYPTION_KEY` | Server-only key that encrypts stored provider credentials and OAuth client secrets. Keep it stable; changing it without a key-rotation procedure makes old encrypted data unreadable. |
+| `BETTER_AUTH_URL`              | Exact public HTTPS origin; must match `OOMOL_CONNECT_ORIGIN`.                                                                                                                         |
+| `BETTER_AUTH_SECRET`           | Server-only session secret, at least 32 characters.                                                                                                                                   |
+| `BETTER_AUTH_TRUSTED_ORIGINS`  | Optional comma-separated exact trusted HTTPS origins.                                                                                                                                 |
+| `AUTH_MAIL_TRANSPORT`          | `smtp` (default) or `resend` for HTTPS delivery when SMTP egress is unavailable.                                                                                                      |
+| `RESEND_API_KEY`               | Server-only Resend key, required with `AUTH_MAIL_TRANSPORT=resend`.                                                                                                                   |
+| `SMTP_URL`                     | Server-only SMTP connection, required with `AUTH_MAIL_TRANSPORT=smtp`.                                                                                                                |
+| `SMTP_FROM`                    | Verified sender address and display name.                                                                                                                                             |
 
 Useful optional controls:
 
@@ -131,7 +134,7 @@ npm install
 npm run dev
 ```
 
-The API listens on `http://localhost:3000`; the Vite console runs on `http://localhost:5173`. Without `DATABASE_URL`, local development uses SQLite under the runtime data directory. Without Clerk keys, it uses a single local admin workspace only; do not use that fallback in production.
+The API listens on `http://localhost:3000`; the Vite console runs on `http://localhost:5173`. Without `DATABASE_URL`, local development uses SQLite under the runtime data directory. The single local admin workspace requires explicit `NODE_ENV=development`, `CONNECTIONS_DEV_AUTH_BYPASS=true` and a loopback listener. Hosted entrypoints require Better Auth, PostgreSQL, encryption and mail configuration and fail closed when it is missing. See the [authentication contract](connections-docs/AUTHENTICATION.md).
 
 To validate changes:
 
@@ -147,7 +150,7 @@ npm run build --workspace web
 - All provider network egress uses the shared SSRF-protected fetch layer.
 - Provider credentials, OAuth configurations, runtime tokens, runs, provider enablement, approval rules, files, and audit events are persisted with a workspace boundary.
 - Credentials and OAuth configuration are encrypted server-side. Runtime token plaintext is returned only at creation; the database stores a SHA-256 hash.
-- Clerk Organization membership webhooks synchronize the effective workspace role. Removing a member revokes their runtime tokens and removes their owned provider connections.
+- Current company membership and explicit workspace grants control access. Removing a grant or offboarding a company member revokes the affected runtime tokens and disconnects the affected provider connections while retaining independent company access.
 - The MCP API exposes safe account labels and profiles only—never raw provider credentials or OAuth tokens.
 
 ## Product references

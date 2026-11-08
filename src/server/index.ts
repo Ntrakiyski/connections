@@ -79,7 +79,7 @@ const { app, runtimeAuthConfigured } = await createConnectApp({
         )
       : undefined,
   trustedAuthOrigins: authSettings.kind === "sessions" ? authSettings.trustedOrigins : undefined,
-  clerkOptional: authSettings.kind === "development-bypass",
+  developmentBypass: authSettings.kind === "development-bypass",
   actionPolicy,
   registerStaticRoutes: (app) => registerStaticRoutes(app, staticRoot),
   logger,
@@ -107,7 +107,7 @@ serve(
       logger.warn("Explicit loopback development authentication bypass is active.");
     }
     if (!runtimeAuthConfigured) {
-      logger.warn("runtime API authentication is disabled; create a runtime token in the web console.");
+      logger.warn("No runtime tokens exist; create a workspace-scoped token in the web console.");
     }
     if (!secretCodec.encrypted) {
       logger.warn(

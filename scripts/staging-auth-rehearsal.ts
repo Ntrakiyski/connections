@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, execFile } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
+import { promisify } from "node:util";
 import pg from "pg";
 import { z } from "zod";
 import { logger } from "../src/server/logger.ts";
@@ -309,6 +310,21 @@ async function rehearse(): Promise<void> {
       [A.organizationId, member.userId, A.workspaceId],
     );
     const counts = z.object({ removed_memberships: z.literal(0), removed_grants: z.literal(0) }).parse(result.rows[0]);
+    step = "verified company schema finalization under writer freeze";
+    assert(server.kill("SIGSTOP"));
+    let schemaFinalization;
+    try {
+      const result = await promisify(execFile)(
+        process.execPath,
+        ["scripts/finalize-company-schema.ts", "--apply", "--maintenance"],
+        { timeout: 30000 },
+      );
+      schemaFinalization = z
+        .object({ status: z.literal("finalized"), counts: z.record(z.string(), z.literal(0)) })
+        .parse(JSON.parse(result.stdout));
+    } finally {
+      assert(server.kill("SIGCONT"));
+    }
     const ledger = {
       passed: true,
       runId,
@@ -319,6 +335,7 @@ async function rehearse(): Promise<void> {
       checks,
       counts,
       recovery,
+      schemaFinalization,
     };
     await writeFile(ledgerPath, JSON.stringify(ledger, null, 2) + "\n", { mode: 0o600 });
     logger.info({ rehearsal: ledger }, "staging auth rehearsal passed");
