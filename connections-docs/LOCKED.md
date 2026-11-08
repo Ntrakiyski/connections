@@ -84,6 +84,8 @@
 
 ## Schema expansion and release boundary
 
+- Production data retention for this migration is limited to the operator-selected Fractals-dev workspace and its original verified administrator. Preserve its stable workspace/user IDs, accounts, key hashes and history. Exclude the other three workspaces from the migrated runtime after a full frozen backup; do not provision their companies or user accounts. Keep recovery material private.
+
 - The operator narrowed the current release on 2026-11-08 to the Connections connector authentication migration. The Meetings desktop pilot and desktop release are separate follow-up work and do not gate this connector release. Preserve the implemented server OAuth contract; do not claim the desktop pilot passed.
 - The operator explicitly requires Coolify auto-deploy to remain enabled, including on migration staging. Verify the application, branch, Compose file and isolated runtime configuration before deployment; a push to its watched branch can deploy it.
 
