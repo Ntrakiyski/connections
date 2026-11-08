@@ -49,7 +49,7 @@ import { ResourcesPage } from "./resources-page";
 import { RunsPage } from "./runs-page";
 import { InlineError, StatusDot } from "./shared-ui";
 import { useThemeMode } from "./theme";
-import { WorkspaceContext, WorkspaceNavLink } from "./workspace-context";
+import { WorkspaceContext, WorkspaceLink, WorkspaceNavLink } from "./workspace-context";
 import { WorkspacePage } from "./workspace-page";
 import { createWorkspaceScope, workspaceHref } from "./workspace-scope";
 import { Button } from "@/components/ui/button";
@@ -69,7 +69,7 @@ const navItems: readonly NavItem[] = [
   { path: "/runs", labelKey: "nav.runs", icon: Activity },
   { path: "/access", labelKey: "nav.access", icon: KeyRound },
   { path: "/resources", labelKey: "nav.docs", icon: BookOpen },
-  { path: "/workspace", labelKey: "nav.settings", icon: Settings, roles: ["admin"] },
+  { path: "/workspace", labelKey: "nav.settings", icon: Settings },
 ];
 
 const oauthCompletionChannelName = "oomol-connect-oauth";
@@ -433,7 +433,13 @@ function AppShell(props: {
               const selected = props.directory.account.workspaces.find(
                 (workspace) => workspace.workspaceId === event.target.value,
               );
-              if (selected) navigate(workspaceHref("/overview", selected));
+              if (selected) {
+                const target =
+                  location.pathname === "/workspace"
+                    ? `/workspace?settingsTab=${new URLSearchParams(location.search).get("settingsTab") ?? "companies"}`
+                    : "/overview";
+                navigate(workspaceHref(target, selected));
+              }
             }}
           >
             {props.directory.account.workspaces.map((workspace) => (
@@ -443,7 +449,7 @@ function AppShell(props: {
               </option>
             ))}
           </select>
-          <Link to="/">Manage companies</Link>
+          <WorkspaceLink to="/workspace?settingsTab=companies">Manage companies</WorkspaceLink>
         </label>
 
         <nav className="sidebar-nav" aria-label={t("shell.primaryNav")}>
@@ -493,9 +499,9 @@ function AppShell(props: {
             </div>
           ) : (
             <Button variant="ghost" size="icon-sm" asChild aria-label={t("shell.openProfile")}>
-              <Link to="/account/security">
+              <WorkspaceLink to="/workspace?settingsTab=account">
                 <UserRound size={17} />
-              </Link>
+              </WorkspaceLink>
             </Button>
           )}
         </header>
@@ -548,7 +554,14 @@ function AppShell(props: {
             <Route path="/resources" element={<ResourcesPage workspaceName={props.data.workspaceName} />} />
             <Route
               path="/workspace"
-              element={<WorkspacePage data={props.data} onDirectoryRefresh={props.onDirectoryRefresh} />}
+              element={
+                <WorkspacePage
+                  data={props.data}
+                  directory={props.directory}
+                  onDirectoryRefresh={props.onDirectoryRefresh}
+                  onLogout={props.onLogout}
+                />
+              }
             />
             <Route
               path="*"

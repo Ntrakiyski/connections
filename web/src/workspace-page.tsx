@@ -1,14 +1,75 @@
+import type { AccountDirectory } from "./account-model";
 import type { AppData } from "./model";
 import type { FormEvent, ReactNode } from "react";
 
 import { useState } from "react";
+import { useSearchParams } from "react-router";
+import { AccountPage } from "./account-page";
 import { apiDelete } from "./api";
 import { useWorkspaceRequests } from "./workspace-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-export function WorkspacePage(props: { data: AppData; onDirectoryRefresh(): void }): ReactNode {
+interface WorkspacePageProps {
+  data: AppData;
+  directory: AccountDirectory;
+  onDirectoryRefresh(): void;
+  onLogout(): void;
+}
+
+export function WorkspacePage(props: WorkspacePageProps): ReactNode {
+  const [search, setSearch] = useSearchParams();
+  const requested = search.get("settingsTab");
+  const tab = requested === "account" || requested === "archive" ? requested : "companies";
+  return (
+    <div className="workspace-settings">
+      <p className="settings-description">Manage your companies, workspace access and account in one place.</p>
+      <Tabs
+        value={tab}
+        onValueChange={(value) => {
+          setSearch((current) => {
+            const next = new URLSearchParams(current);
+            next.set("settingsTab", value);
+            next.delete("managedCompanyId");
+            return next;
+          });
+        }}
+      >
+        <TabsList className="settings-tabs" aria-label="Settings sections">
+          <TabsTrigger value="companies">Companies &amp; workspaces</TabsTrigger>
+          <TabsTrigger value="account">Account &amp; security</TabsTrigger>
+          {props.data.role === "admin" ? <TabsTrigger value="archive">Archive workspace</TabsTrigger> : null}
+        </TabsList>
+        <TabsContent value="companies">
+          <AccountPage
+            embedded
+            view="companies"
+            managedCompanyId={search.get("managedCompanyId") ?? undefined}
+            directory={props.directory}
+            onRefresh={props.onDirectoryRefresh}
+            onLogout={props.onLogout}
+          />
+        </TabsContent>
+        <TabsContent value="account">
+          <AccountPage
+            embedded
+            view="security"
+            directory={props.directory}
+            onRefresh={props.onDirectoryRefresh}
+            onLogout={props.onLogout}
+          />
+        </TabsContent>
+        <TabsContent value="archive">
+          <ArchiveWorkspace data={props.data} onDirectoryRefresh={props.onDirectoryRefresh} />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+function ArchiveWorkspace(props: Pick<WorkspacePageProps, "data" | "onDirectoryRefresh">): ReactNode {
   const requests = useWorkspaceRequests();
   const [confirmation, setConfirmation] = useState("");
   const [busy, setBusy] = useState(false);
