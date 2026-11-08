@@ -1,0 +1,21 @@
+{
+  "verifiedAt": "2026-11-08T11:09:14.293Z",
+  "connectorOrigin": "https://connections.fractals-solutions.com",
+  "flowOrigin": "https://openflow.159.69.35.245.sslip.io",
+  "flowId": "flow_bdd13e4ac5b141a9b3eb39371ca0be70",
+  "revisionId": "revision_989f98d94eb746bc8c7613488c3d2acc",
+  "runId": "7631e684-ddc8-4f91-8764-d8ae6a0b4f3d",
+  "source": "draft",
+  "status": "completed",
+  "actionId": "board.list_boards",
+  "connectionId": "board:default",
+  "workspaceId": "a4719be4-d5b3-4d4b-a12c-24eaed32ba70",
+  "boardCount": 4,
+  "allResultsMatchWorkspace": true,
+  "mutationPerformed": false,
+  "gmailProfileTest": {
+    "actionId": "gmail.get_profile",
+    "status": "provider_error",
+    "message": "Bad Request"
+  }
+}

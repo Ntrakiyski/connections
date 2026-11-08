@@ -16,7 +16,7 @@
 ## Provider connections
 
 - The Resources page links to the operator-owned `Ntrakiyski/open-flow` GitHub fork of `oomol-lab/open-flow` so workflow source can be modified independently.
-- The operator's Open Flow deployment uses Connections as its custom Connector gateway through a dedicated runtime token bound to the existing Fractals-dev administrator and workspace. A manual Gmail profile workflow verifies the integration.
+- The operator's Open Flow deployment uses Connections as its custom Connector gateway through a dedicated runtime token bound to the existing Fractals-dev administrator and workspace. A manual Board read workflow verifies the integration.
 
 - A workspace owns provider enablement, OAuth application configuration, and action availability.
 - A workspace admin or manager configures a provider's OAuth app and enables the provider for the team.

@@ -37,12 +37,21 @@ safety policy when the JSON body does not specify an idempotency key.
 
 ## Manual verification workflow
 
-`Connections Gmail smoke test` contains two nodes:
+The verified [Connections smoke test](https://openflow.159.69.35.245.sslip.io/flows/flow_bdd13e4ac5b141a9b3eb39371ca0be70/design) contains two nodes:
 
 1. **Start** with no inputs.
-2. **Read Gmail account profile**, action `gmail.get_profile`, explicitly bound to `gmail:default`.
+2. **List my boards**, action `board.list_boards`, explicitly bound to `board:default`.
 
-The workflow reads profile metadata and mailbox totals. It does not send mail, modify settings,
-or register a trigger. It is retained as a Draft for manual tests.
+The workflow reads the Board directory without modifying records or registering a trigger.
+It is retained as a Draft for manual tests using **Test Start**. Both a Control API run and a
+Workbench run completed successfully; each returned four boards belonging to the original
+Fractals-dev workspace. The [redacted verification receipt](verification/open-flow-integration.json)
+records the pinned revision, latest run and workspace checks.
 
-Flow ID: `flow_fac9df51328543bc8e1b0dd08edf7328`.
+Flow ID: `flow_bdd13e4ac5b141a9b3eb39371ca0be70`.
+
+The earlier `Connections Gmail smoke test` is retained separately as a diagnostic Draft
+(`flow_fac9df51328543bc8e1b0dd08edf7328`). Its `gmail.get_profile` call reaches Connections
+but returns `provider_error` / `Bad Request`. The same request fails when called directly
+against Connections, independently of Open Flow. Gmail account availability in the directory
+does not prove a provider call works; this remaining provider error has not been resolved.
