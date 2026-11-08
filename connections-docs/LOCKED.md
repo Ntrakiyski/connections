@@ -9,7 +9,7 @@
 - Company directory roles are `owner`, `admin`, and `member`. Owners/admins manage company people and provision workspaces; every company retains an owner. A company role alone grants no access to connections, tokens, runs, files, or provider configuration.
 - Workspace grants are independently `admin`, `manager`, or `member`. A grant is valid only while the user belongs to the parent company. Company owners/admins assign an initial workspace admin during atomic provisioning; every workspace retains an admin.
 - A member can belong to A and B with different directory roles and receive different grants in A1, A2, and B1. Removing access in one scope preserves independent access elsewhere.
-- The console owns account/company/workspace management screens. Each tab carries explicit workspace intent in its URL and requests; global active-company/session state is never a resource authorization boundary.
+- The console owns account/company/workspace management screens. Company/workspace management, account/security controls and admin archive controls share the Workspace settings area inside the sidebar console. Account and directory management remain available to members; workspace archival still requires an admin grant. Each tab carries explicit workspace intent in its URL and requests; global active-company/session state is never a resource authorization boundary.
 - Existing Clerk organizations map to one company and their existing initial workspace through a verified importer. Preserve workspace IDs, user/resource ownership mappings, encrypted credentials, token hashes and revocation history.
 - A physically isolated deployment is an optional customer-demand exception, not the default.
 

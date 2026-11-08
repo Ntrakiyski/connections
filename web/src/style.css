@@ -3199,3 +3199,52 @@ tr:last-child td {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+
+.workspace-settings {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+}
+.settings-description {
+  color: var(--muted-foreground);
+  margin: 0 0 20px;
+}
+.workspace-settings .settings-tabs {
+  width: 100%;
+  height: auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  margin-bottom: 12px;
+}
+.settings-tabs [data-slot="tabs-trigger"] {
+  min-height: 36px;
+  white-space: normal;
+  flex: 1 1 auto;
+}
+.settings-account .account-section {
+  padding: 20px 24px;
+  margin: 16px 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+}
+.settings-account .account-section > h2:first-child {
+  margin-top: 0;
+}
+.settings-account .company-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
+}
+.settings-account .account-row > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+  .settings-account .account-section {
+    padding: 18px;
+  }
+  .workspace-settings .settings-tabs {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+}

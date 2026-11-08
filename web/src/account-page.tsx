@@ -6,6 +6,7 @@ import { Link, useLocation } from "react-router";
 import { z } from "zod";
 import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from "./api";
 import { authClient } from "./auth-client";
+import { useWorkspaceScope } from "./workspace-context";
 import { workspaceHref } from "./workspace-scope";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,39 +16,57 @@ interface AccountPageProps {
   directory: AccountDirectory;
   onRefresh(): void;
   onLogout(): void;
+  embedded?: boolean;
+  view?: "companies" | "security";
+  managedCompanyId?: string;
 }
 export function AccountPage(props: AccountPageProps): ReactNode {
   const location = useLocation();
-  const companyId = location.pathname.startsWith("/companies/")
-    ? decodeURIComponent(location.pathname.slice("/companies/".length))
-    : undefined;
+  const scope = useWorkspaceScope();
+  const companyId = props.embedded
+    ? props.managedCompanyId
+    : location.pathname.startsWith("/companies/")
+      ? decodeURIComponent(location.pathname.slice("/companies/".length))
+      : undefined;
   const company = props.directory.companies.find((item) => item.id === companyId);
+  const security = props.view === "security" || (!props.embedded && location.pathname === "/account/security");
+  const companiesHref = props.embedded && scope ? workspaceHref("/workspace?settingsTab=companies", scope.intent) : "/";
+  const Container = props.embedded ? "div" : "main";
   return (
-    <main className="account-home">
-      <header className="account-header">
-        <div>
-          <h1>Connections</h1>
-          <p>{props.directory.account.user.email}</p>
-        </div>
-        <Button variant="outline" onClick={props.onLogout}>
-          Sign out
+    <Container className={props.embedded ? "settings-account" : "account-home"}>
+      {!props.embedded ? (
+        <>
+          <header className="account-header">
+            <div>
+              <h1>Connections</h1>
+              <p>{props.directory.account.user.email}</p>
+            </div>
+            <Button variant="outline" onClick={props.onLogout}>
+              Sign out
+            </Button>
+          </header>
+          <nav className="button-row" aria-label="Account navigation">
+            <Button variant="outline" asChild>
+              <Link to="/">Companies and workspaces</Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <Link to="/account/security">Account and security</Link>
+            </Button>
+          </nav>
+        </>
+      ) : null}
+      {props.embedded && companyId ? (
+        <Button variant="outline" size="sm" asChild>
+          <Link to={companiesHref}>All companies</Link>
         </Button>
-      </header>
-      <nav className="button-row" aria-label="Account navigation">
-        <Button variant="outline" asChild>
-          <Link to="/">Companies and workspaces</Link>
-        </Button>
-        <Button variant="outline" asChild>
-          <Link to="/account/security">Account and security</Link>
-        </Button>
-      </nav>
-      {location.pathname === "/account/security" ? (
+      ) : null}
+      {security ? (
         <SecurityPanel key={props.directory.account.user.id} directory={props.directory} onRefresh={props.onRefresh} />
       ) : companyId && (!company || company.role === "member") ? (
         <section className="account-section">
           <h2>Company management unavailable</h2>
           <p role="alert">A current company owner or admin role is required.</p>
-          <Link to="/">Choose a company or workspace</Link>
+          <Link to={companiesHref}>Choose a company or workspace</Link>
         </section>
       ) : company && company.role !== "member" ? (
         <CompanyPanel
@@ -91,7 +110,18 @@ export function AccountPage(props: AccountPageProps): ReactNode {
                     )}
                     {item.role !== "member" ? (
                       <Button variant="outline" size="sm" asChild>
-                        <Link to={`/companies/${encodeURIComponent(item.id)}`}>Manage company</Link>
+                        <Link
+                          to={
+                            props.embedded && scope
+                              ? workspaceHref(
+                                  `/workspace?settingsTab=companies&managedCompanyId=${encodeURIComponent(item.id)}`,
+                                  scope.intent,
+                                )
+                              : `/companies/${encodeURIComponent(item.id)}`
+                          }
+                        >
+                          Manage company
+                        </Link>
                       </Button>
                     ) : null}
                   </article>
@@ -103,7 +133,7 @@ export function AccountPage(props: AccountPageProps): ReactNode {
           <CreateCompany onRefresh={props.onRefresh} />
         </>
       )}
-    </main>
+    </Container>
   );
 }
 
