@@ -15,10 +15,13 @@ import type { WorkspaceScope } from "./workspace-scope";
 import type { ReactNode } from "react";
 
 import { useI18n, useLang, useTranslate } from "@embra/i18n/react";
+import { Content as InlineDialogContent } from "@radix-ui/react-dialog";
 import {
   Activity,
   BookOpen,
   Cable,
+  Check,
+  ChevronDown,
   Home,
   KeyRound,
   Loader2,
@@ -32,7 +35,7 @@ import {
   Workflow,
 } from "lucide-react";
 import { lazy, Suspense, useEffect, useState } from "react";
-import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
+import { Link, Navigate, Route, Routes, useLocation } from "react-router";
 import { AccessPage } from "./access-page";
 import { loadAccountDirectory } from "./account-model";
 import { AccountPage } from "./account-page";
@@ -54,6 +57,7 @@ import { WorkspaceContext, WorkspaceLink, WorkspaceNavLink } from "./workspace-c
 import { WorkspacePage } from "./workspace-page";
 import { createWorkspaceScope, workspaceHref } from "./workspace-scope";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogClose, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const WorkflowsPage = lazy(() => import("./workflows-page"));
@@ -389,6 +393,10 @@ function InitialLoadingView(): ReactNode {
   );
 }
 
+function workspaceLabel(workspace: AccountDirectory["account"]["workspaces"][number]): string {
+  return `${workspace.organizationName} / ${workspace.workspaceName}${workspace.archived ? " (Archived)" : ""}`;
+}
+
 function AppShell(props: {
   data: AppData;
   loading: boolean;
@@ -402,7 +410,6 @@ function AppShell(props: {
 }): ReactNode {
   const t = useTranslate();
   const location = useLocation();
-  const navigate = useNavigate();
   const heading = headingForPath(location.pathname);
   const section = location.pathname.split("/").filter(Boolean)[0];
   const isOverviewPage = heading === "overview";
@@ -421,6 +428,15 @@ function AppShell(props: {
   const currentNavItem =
     visibleNavItems.find((item) => item.path.slice(1) === heading) ?? visibleNavItems[0] ?? navItems[0];
   const CurrentNavIcon = currentNavItem.icon;
+  const workspaces = props.directory.account.workspaces;
+  const currentWorkspace = workspaces.find((workspace) => workspace.workspaceId === props.data.workspaceId);
+  const currentWorkspaceLabel = currentWorkspace ? workspaceLabel(currentWorkspace) : "Select workspace";
+  const switchTarget =
+    location.pathname === "/workspace"
+      ? `/workspace?settingsTab=${new URLSearchParams(location.search).get("settingsTab") ?? "companies"}`
+      : isWorkflowsPage
+        ? "/workflows"
+        : "/overview";
 
   return (
     <div className="connections-shell">
@@ -433,35 +449,51 @@ function AppShell(props: {
           </div>
         </div>
 
-        <label className="workspace-switcher">
-          Workspace
-          <select
-            aria-label="Workspace"
-            value={props.data.workspaceId}
-            onChange={(event) => {
-              const selected = props.directory.account.workspaces.find(
-                (workspace) => workspace.workspaceId === event.target.value,
-              );
-              if (selected) {
-                const target =
-                  location.pathname === "/workspace"
-                    ? `/workspace?settingsTab=${new URLSearchParams(location.search).get("settingsTab") ?? "companies"}`
-                    : isWorkflowsPage
-                      ? "/workflows"
-                      : "/overview";
-                navigate(workspaceHref(target, selected));
-              }
-            }}
-          >
-            {props.directory.account.workspaces.map((workspace) => (
-              <option key={workspace.workspaceId} value={workspace.workspaceId}>
-                {workspace.organizationName} / {workspace.workspaceName}
-                {workspace.archived ? " (Archived)" : ""}
-              </option>
-            ))}
-          </select>
-          <WorkspaceLink to="/workspace?settingsTab=companies">Manage companies</WorkspaceLink>
-        </label>
+        <div className="workspace-switcher">
+          <span id="workspace-switcher-label">Workspace</span>
+          <Dialog modal={false}>
+            <DialogTrigger asChild>
+              <Button
+                variant="outline"
+                title={currentWorkspaceLabel}
+                aria-labelledby="workspace-switcher-label workspace-switcher-current"
+              >
+                <span id="workspace-switcher-current" className="workspace-switcher-text">
+                  {currentWorkspaceLabel}
+                </span>
+                <ChevronDown aria-hidden="true" />
+              </Button>
+            </DialogTrigger>
+            <InlineDialogContent className="workspace-switcher-popup" aria-describedby={undefined}>
+              <DialogTitle className="sr-only">Switch workspace</DialogTitle>
+              {workspaces.map((workspace) => {
+                const label = workspaceLabel(workspace);
+                const selected = workspace === currentWorkspace;
+                return (
+                  <DialogClose key={workspace.workspaceId} asChild>
+                    <Link
+                      to={selected ? location : workspaceHref(switchTarget, workspace)}
+                      className="workspace-switcher-option"
+                      title={label}
+                      aria-current={selected ? "true" : undefined}
+                    >
+                      <span className="workspace-switcher-text">{label}</span>
+                      {selected && <Check size={14} aria-hidden="true" />}
+                    </Link>
+                  </DialogClose>
+                );
+              })}
+              <DialogClose asChild>
+                <WorkspaceLink
+                  className="workspace-switcher-option workspace-switcher-manage"
+                  to="/workspace?settingsTab=companies"
+                >
+                  Manage companies
+                </WorkspaceLink>
+              </DialogClose>
+            </InlineDialogContent>
+          </Dialog>
+        </div>
 
         <nav className="sidebar-nav" aria-label={t("shell.primaryNav")}>
           {visibleNavItems.map((item) => {
