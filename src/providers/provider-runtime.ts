@@ -12,9 +12,17 @@ import type {
 } from "../core/types.ts";
 
 import { Buffer } from "node:buffer";
-import { CastError, optionalRecord, optionalScalarString, optionalString, requiredString } from "../core/cast.ts";
+import {
+  CastError,
+  optionalRecord,
+  optionalScalarString,
+  optionalString,
+  requiredNumber,
+  requiredRecord,
+  requiredString,
+} from "../core/cast.ts";
 import { createGuardedFetch } from "../core/guarded-fetch.ts";
-import { readBoundedResponseBytes } from "../core/request.ts";
+import { hasUnsafeProxyPath, readBoundedResponseBytes } from "../core/request.ts";
 
 /**
  * Fetch-compatible function accepted by provider runtime helpers and tests.
@@ -86,6 +94,7 @@ export interface ProviderExecutorDefinition<TContext> {
   handlers: Record<string, ProviderRuntimeHandler<TContext>>;
   createContext: ProviderRuntimeContextFactory<TContext>;
   fallbackMessage?: string;
+  mapError?: (error: unknown) => ExecutionResult;
   /** Deployment-gated private-network opt-in applied to this provider's egress fetch (currently Dokploy). */
   allowPrivateNetwork?: () => boolean;
   /** Skip the redundant DNS resolved-address check; only for hardcoded-host providers. */
@@ -106,6 +115,7 @@ export interface ApiKeyProviderContext {
 
 export interface OAuthProviderContext {
   accessToken: string;
+  accountId?: string;
   tokenType?: string;
   fetcher: ProviderFetch;
   transitFiles?: TransitFileWriter;
@@ -136,17 +146,25 @@ export interface ProviderInputFile {
   sizeBytes: number;
 }
 
-/**
- * Error raised for provider API responses and mapped to stable execution errors.
- */
+const providerErrorCodes = new Set([
+  "authorization_failed",
+  "insufficient_credit",
+  "invalid_input",
+  "provider_error",
+  "rate_limited",
+]);
+
+/** Error raised for provider API responses and mapped to stable execution errors. */
 export class ProviderRequestError extends Error {
   readonly status: number;
   readonly details?: unknown;
+  readonly code?: string;
 
-  constructor(status: number, message: string, details?: unknown) {
+  constructor(status: number, message: string, details?: unknown, code?: string) {
     super(message);
     this.status = status;
     this.details = details;
+    this.code = code;
   }
 }
 
@@ -178,9 +196,13 @@ export interface ProviderProxyRequestCustomizationInput {
   context: ExecutionContext;
   service: string;
   endpoint: string;
+  method: string;
   url: URL;
   headers: Headers;
+  body: unknown;
+  setBody(body: unknown): void;
   credential?: ResolvedCredential;
+  fetcher: ProviderFetch;
 }
 
 export interface ProviderProxyDefinition {
@@ -189,6 +211,7 @@ export interface ProviderProxyDefinition {
   auth: ProviderProxyAuth;
   allowedEndpoint?: (endpoint: string) => boolean;
   customizeRequest?: (input: ProviderProxyRequestCustomizationInput) => Promise<void> | void;
+  readError?: (response: Response) => Promise<ProviderRequestError>;
   /** Deployment-gated private-network opt-in applied to this proxy's egress fetch (currently Dokploy). */
   allowPrivateNetwork?: () => boolean;
   /** Skip the redundant DNS resolved-address check; only for hardcoded-base-URL proxies. */
@@ -203,7 +226,7 @@ const blockedProxyRequestHeaders = new Set([
   "transfer-encoding",
 ]);
 const defaultProviderProxyMaxResponseBytes = 20 * 1024 * 1024;
-const defaultProviderJsonMaxResponseBytes = 20 * 1024 * 1024;
+export const defaultProviderJsonMaxResponseBytes: number = 20 * 1024 * 1024;
 
 export function createProviderProxyUrl(baseUrl: string, endpointInput: unknown, queryInput?: unknown): URL {
   const endpoint = normalizeProviderProxyEndpoint(endpointInput);
@@ -228,24 +251,10 @@ export function normalizeProviderProxyEndpoint(endpointInput: unknown): string {
       throw error;
     }
   }
-  if (endpoint.includes("\\") || hasPathTraversalSegment(endpoint)) {
+  if (endpoint.includes("\\") || hasUnsafeProxyPath(endpoint)) {
     throw new ProviderRequestError(400, "endpoint must not contain path traversal segments");
   }
   return endpoint;
-}
-
-function hasPathTraversalSegment(endpoint: string): boolean {
-  const path = endpoint.split(/[?#]/u)[0]!;
-  for (const segment of path.split("/")) {
-    try {
-      if (decodeURIComponent(segment) === "..") {
-        return true;
-      }
-    } catch {
-      return true;
-    }
-  }
-  return false;
 }
 
 export function normalizeProviderProxyQuery(queryInput: unknown): Record<string, string> {
@@ -385,13 +394,20 @@ export function defineProviderProxy(input: ProviderProxyDefinition): ProviderPro
       const headers = normalizeProviderProxyHeaders(proxyInput.headers);
       headers.set("user-agent", providerUserAgent);
       const credential = await applyProviderProxyAuth(input, context, url, headers);
+      let body = proxyInput.body;
       await input.customizeRequest?.({
         context,
         service: input.service,
         endpoint,
+        method: proxyInput.method,
         url,
         headers,
+        body,
+        setBody(value) {
+          body = value;
+        },
         credential,
+        fetcher: egressFetch,
       });
 
       const init: RequestInit = {
@@ -399,15 +415,16 @@ export function defineProviderProxy(input: ProviderProxyDefinition): ProviderPro
         headers,
         signal: context.signal,
       };
-      if (proxyInput.body !== undefined) {
-        init.body = typeof proxyInput.body === "string" ? proxyInput.body : JSON.stringify(proxyInput.body);
-        if (!headers.has("content-type") && typeof proxyInput.body !== "string") {
+      if (body !== undefined) {
+        init.body = typeof body === "string" ? body : JSON.stringify(body);
+        if (!headers.has("content-type") && typeof body !== "string") {
           headers.set("content-type", "application/json");
         }
       }
 
       const response = await egressFetch(url, init);
       if (!response.ok) {
+        if (input.readError) throw await input.readError(response);
         throw new ProviderRequestError(
           response.status,
           await readProviderProxyErrorMessage(response, `provider request failed with HTTP ${response.status}`),
@@ -509,7 +526,13 @@ async function applyProviderProxyAuth(
  * Return an abort signal that fires when either the parent signal aborts or the
  * provider-local timeout expires.
  */
-export function createProviderTimeout(parentSignal: AbortSignal | undefined, timeoutMs: number): ProviderTimeout {
+export const defaultProviderRequestTimeoutMs = 30_000;
+const defaultProviderErrorMaxResponseBytes = 64 * 1024;
+
+export function createProviderTimeout(
+  parentSignal: AbortSignal | undefined,
+  timeoutMs: number = defaultProviderRequestTimeoutMs,
+): ProviderTimeout {
   const controller = new AbortController();
   let timeoutReached = false;
   const timeoutId = setTimeout(() => {
@@ -517,7 +540,8 @@ export function createProviderTimeout(parentSignal: AbortSignal | undefined, tim
     controller.abort();
   }, timeoutMs);
   const abortFromParent = (): void => controller.abort();
-  parentSignal?.addEventListener("abort", abortFromParent, { once: true });
+  if (parentSignal?.aborted) abortFromParent();
+  else parentSignal?.addEventListener("abort", abortFromParent, { once: true });
   return {
     signal: controller.signal,
     didTimeout: () => timeoutReached,
@@ -598,12 +622,16 @@ export async function readProviderTextBody(
   response: Response,
   fieldName: string,
   maxBytes: number = defaultProviderJsonMaxResponseBytes,
+  signal?: AbortSignal,
 ): Promise<string> {
+  signal?.throwIfAborted();
   const bytes = await readBoundedResponseBytes(response, {
     maxBytes,
     fieldName,
+    signal,
     createError: (message) => new ProviderRequestError(413, message),
   });
+  signal?.throwIfAborted();
   return new TextDecoder().decode(bytes);
 }
 
@@ -809,13 +837,15 @@ export function toProviderExecutionError(error: unknown, fallbackMessage: string
       ok: false,
       error: {
         code:
-          error.status === 401 || error.status === 403
-            ? "authorization_failed"
-            : error.status === 429
-              ? "rate_limited"
-              : error.status < 500
-                ? "invalid_input"
-                : "provider_error",
+          error.code && providerErrorCodes.has(error.code)
+            ? error.code
+            : error.status === 401 || error.status === 403
+              ? "authorization_failed"
+              : error.status === 429
+                ? "rate_limited"
+                : error.status < 500
+                  ? "invalid_input"
+                  : "provider_error",
         message: error.message,
         details: {
           status: error.status,
@@ -871,7 +901,7 @@ export function defineProviderExecutors<TContext>(input: ProviderExecutorDefinit
           ),
         };
       } catch (error) {
-        return toProviderExecutionError(error, fallbackMessage);
+        return input.mapError?.(error) ?? toProviderExecutionError(error, fallbackMessage);
       }
     };
   }
@@ -932,6 +962,7 @@ export function defineOAuthProviderExecutors(
       const credential = await requireOAuthCredential(context, service);
       const providerContext: OAuthProviderContext = {
         accessToken: credential.accessToken,
+        accountId: credential.profile.accountId,
         tokenType: credential.tokenType,
         fetcher,
         signal: context.signal,
@@ -1060,4 +1091,168 @@ export async function requireBearerCredential(context: ExecutionContext, service
   }
 
   throw new ProviderRequestError(401, `Configure ${service} credentials first.`);
+}
+
+export function providerInputError(message: string): ProviderRequestError {
+  return new ProviderRequestError(400, message);
+}
+
+/**
+ * Return the 502 error providers throw for an upstream response they cannot
+ * use. The message is surfaced verbatim as the `provider_error` execution error.
+ */
+export function providerResponseError(message: string): ProviderRequestError {
+  return new ProviderRequestError(502, message);
+}
+
+/**
+ * Read a required string action input, raising the 400 error providers map
+ * missing or blank fields to. Example: `requiredInputString(" x ", "name") => "x"`;
+ * `requiredInputString("", "name")` throws `name is required.`.
+ */
+export function requiredInputString(value: unknown, fieldName: string): string {
+  return requiredString(value, fieldName, providerInputError);
+}
+
+/**
+ * Read a required number action input, raising the 400 error providers map
+ * missing or non-numeric fields to. Example: `requiredInputNumber(1.5, "weight") => 1.5`;
+ * `requiredInputNumber("x", "weight")` throws `weight must be a number`.
+ */
+export function requiredInputNumber(value: unknown, fieldName: string): number {
+  return requiredNumber(value, fieldName, providerInputError);
+}
+
+/**
+ * Read a record out of an upstream response, raising the 502 error providers
+ * map malformed payloads to. Example: `requiredResponseRecord([], "payload")`
+ * throws `payload must be an object`.
+ */
+export function requiredResponseRecord(value: unknown, label: string): Record<string, unknown> {
+  return requiredRecord(value, label, providerResponseError);
+}
+
+export function basicAuthorizationHeader(value: string): string {
+  return `Basic ${Buffer.from(value, "utf8").toString("base64")}`;
+}
+
+export interface ProviderRequestOptions {
+  /** Caller signal, usually the execution context's; aborting it aborts the request. */
+  signal?: AbortSignal;
+  /** Provider-local budget for the whole request; defaults to 30 seconds. */
+  timeoutMs?: number;
+  /** Provider name used in the timeout and failure messages, e.g. `"Skio"`. */
+  label: string;
+}
+
+/**
+ * Run a provider request under the shared timeout and error mapping.
+ *
+ * `request` receives the combined abort signal and should perform the fetch and
+ * read the body. A `ProviderRequestError` thrown inside passes through
+ * untouched; a timeout or abort becomes `504 "<label> request timed out"`; any
+ * other failure becomes `502 "<label> request failed[: <message>]"`. The
+ * timeout is always cleaned up.
+ */
+export async function runProviderRequest<T>(
+  options: ProviderRequestOptions,
+  request: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const timeout = createProviderTimeout(options.signal, options.timeoutMs);
+  try {
+    return await request(timeout.signal);
+  } catch (error) {
+    if (error instanceof ProviderRequestError) {
+      throw error;
+    }
+    if (timeout.didTimeout() || isAbortLikeError(error) || isAbortSignalError(timeout.signal, error)) {
+      throw new ProviderRequestError(504, `${options.label} request timed out`);
+    }
+    throw new ProviderRequestError(
+      502,
+      error instanceof Error ? `${options.label} request failed: ${error.message}` : `${options.label} request failed`,
+    );
+  } finally {
+    timeout.cleanup();
+  }
+}
+
+export async function readProviderErrorTextBody(
+  response: Response,
+  fieldName: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  try {
+    return await readProviderTextBody(response, fieldName, defaultProviderErrorMaxResponseBytes, signal);
+  } catch (error) {
+    // A size-limit or broken-body failure degrades to the fallback message, but
+    // a timeout, abort, or the caller's own abort reason must keep propagating
+    // so runProviderRequest reports 504 instead of the upstream status the body
+    // read was interrupted for. `AbortSignal.abort(reason)` accepts arbitrary
+    // reasons, which `isAbortLikeError` alone cannot recognize.
+    if (signal?.aborted) throw signal.reason;
+    if (isAbortLikeError(error)) throw error;
+    return "";
+  }
+}
+
+// The three HTTP-date forms of RFC 9110 section 5.6.7. Date.parse alone is too
+// lenient for a header: V8 reads "wait 5" as 1 May 2001, and reads the zone-less
+// asctime form as local time although every HTTP-date is UTC.
+
+const imfFixdatePattern =
+  /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$/;
+
+const rfc850DatePattern =
+  /^(?:Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day, \d{2}-(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2} \d{2}:\d{2}:\d{2} GMT$/;
+
+const asctimeDatePattern =
+  /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) [ \d]\d \d{2}:\d{2}:\d{2} \d{4}$/;
+
+/**
+ * Read a `Retry-After` header as whole seconds from now: an integer delay
+ * verbatim, an HTTP-date as the seconds until that instant (never negative).
+ * Examples: `"73" => 73`; a date 90 s ahead `=> 90`; absent or unparseable
+ * `=> undefined`.
+ */
+export function readRetryAfterSeconds(headers: Headers, now: number = Date.now()): number | undefined {
+  const value = headers.get("retry-after")?.trim();
+  if (!value) {
+    return undefined;
+  }
+  if (/^\d+$/.test(value)) {
+    const seconds = Number(value);
+    return Number.isSafeInteger(seconds) ? seconds : undefined;
+  }
+  const retryAt =
+    imfFixdatePattern.test(value) || rfc850DatePattern.test(value)
+      ? Date.parse(value)
+      : asctimeDatePattern.test(value)
+        ? Date.parse(`${value} GMT`)
+        : Number.NaN;
+  return Number.isFinite(retryAt) ? Math.max(0, Math.ceil((retryAt - now) / 1000)) : undefined;
+}
+
+/**
+ * Attach a rate-limited response's `Retry-After` to its error details in the
+ * shape Slack established, `details.retryAfterSeconds`, so every provider's
+ * 429 (and 503) reaches the action envelope with the same pacing hint.
+ * Other statuses, and responses without a usable header, return `details`
+ * untouched; non-record details are kept under `body`.
+ */
+export function withRetryAfterSeconds(response: Response, details?: unknown): unknown {
+  if (response.status !== 429 && response.status !== 503) {
+    return details;
+  }
+  const retryAfterSeconds = readRetryAfterSeconds(response.headers);
+  if (retryAfterSeconds === undefined) {
+    return details;
+  }
+  const record = optionalRecord(details) ?? (details == null ? {} : { body: details });
+  return { ...record, retryAfterSeconds };
+}
+
+export function providerProxyEndpointPrefixes(...prefixes: string[]): (endpoint: string) => boolean {
+  return (endpoint) =>
+    prefixes.some((prefix) => endpoint === prefix || endpoint.startsWith(prefix.endsWith("/") ? prefix : `${prefix}/`));
 }

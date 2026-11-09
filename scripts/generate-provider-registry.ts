@@ -8,6 +8,7 @@ const providersDir = join(process.cwd(), "src/providers");
 const providerSources = await loadProviderSources();
 
 await Promise.all([
+  writeActionContracts(providerSources),
   writeRegistry("registry.generated.ts", providerSources),
   writeRegistry(
     "registry.cloudflare.generated.ts",
@@ -68,4 +69,19 @@ async function readTextFile(path: string): Promise<string | undefined> {
 
     throw error;
   }
+}
+
+async function writeActionContracts(sources: ProviderSource[]): Promise<void> {
+  const lines = [
+    "/** Generated action-name contracts for provider handlers. Do not hand-edit. */",
+    "export interface ProviderActionNames {",
+    ...sources.map(({ service, definition }) => {
+      const names = definition.actions.map((action) => JSON.stringify(action.name)).join(" | ");
+      return `  ${propertyName(service)}: ${names || "never"};`;
+    }),
+    "}",
+  ];
+  const path = join(providersDir, "registry.action-contracts.generated.ts");
+  const content = lines.join("\n") + "\n";
+  if ((await readTextFile(path)) !== content) await writeFile(path, content);
 }

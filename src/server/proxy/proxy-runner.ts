@@ -7,6 +7,7 @@ import type { Logger } from "../logger.ts";
 
 import { ConnectionError } from "../../connection-service.ts";
 import { optionalRecord, requiredString } from "../../core/cast.ts";
+import { hasUnsafeProxyPath } from "../../core/request.ts";
 import { mapConnectionErrorStatus } from "../api/runtime-api.ts";
 
 export type ProxyFailureStatus = 400 | 403 | 404 | 409 | 413 | 429 | 500 | 501;
@@ -202,23 +203,9 @@ export class ProxyRunner {
         throw error;
       }
     }
-    if (endpoint.includes("\\") || this.hasPathTraversalSegment(endpoint)) {
+    if (endpoint.includes("\\") || hasUnsafeProxyPath(endpoint)) {
       throw new ProxyInputError("endpoint must not contain path traversal segments");
     }
-  }
-
-  private hasPathTraversalSegment(endpoint: string): boolean {
-    const path = endpoint.split(/[?#]/u)[0]!;
-    for (const segment of path.split("/")) {
-      try {
-        if (decodeURIComponent(segment) === "..") {
-          return true;
-        }
-      } catch {
-        return true;
-      }
-    }
-    return false;
   }
 
   private mapProxyErrorStatus(code: string, details: unknown): ProxyFailureStatus {

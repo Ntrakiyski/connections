@@ -71,6 +71,8 @@ export type ApiKeyAuthDefinition = {
  * Custom credential connection configuration shown by the local console.
  */
 export type CustomCredentialAuthDefinition = {
+  label?: string;
+  description?: string;
   /** Auth discriminator used by catalog clients and connection routes. */
   type: "custom_credential";
   /** Complete user-editable credential field list for this provider. */
@@ -161,6 +163,8 @@ export type ProviderAuthDefinition =
   | CustomCredentialAuthDefinition
   | OAuth2AuthDefinition;
 
+export type ActionOperationType = "read" | "write" | "destructive";
+
 /**
  * Public metadata and schema contract for one action.
  *
@@ -168,6 +172,7 @@ export type ProviderAuthDefinition =
  * network calls, or executor code.
  */
 export type ActionDefinition = {
+  operationType?: ActionOperationType;
   /** Globally unique action id, usually `<service>.<name>`. */
   id: string;
   /** Provider service id that owns this action. */

@@ -68,6 +68,13 @@ const camelCaseMutationAction: ActionDefinition = {
   name: "sendEmail",
 };
 
+const declaredWriteAction: ActionDefinition = {
+  ...action,
+  id: "example.reconcile",
+  name: "reconcile",
+  operationType: "write",
+};
+
 const provider: ProviderDefinition = {
   service: "example",
   displayName: "Example",
@@ -81,6 +88,7 @@ const provider: ProviderDefinition = {
     moveAction,
     ...additionalMutationActions,
     camelCaseMutationAction,
+    declaredWriteAction,
     readAction,
   ],
 };
@@ -127,6 +135,9 @@ describe("WorkspaceControlService", () => {
       });
     }
     await expect(manager.getActionPolicy(catalog.actionsById.get(camelCaseMutationAction.id)!)).resolves.toMatchObject({
+      requireApproval: true,
+    });
+    await expect(manager.getActionPolicy(catalog.actionsById.get(declaredWriteAction.id)!)).resolves.toMatchObject({
       requireApproval: true,
     });
     await expect(manager.getActionPolicy(catalog.actionsById.get(readAction.id)!)).resolves.toMatchObject({

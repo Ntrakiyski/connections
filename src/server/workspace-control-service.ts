@@ -290,6 +290,7 @@ export class WorkspaceControlService {
 }
 
 function actionRequiresApprovalByDefault(action: RuntimeActionDefinition): boolean {
+  if (action.operationType === "write" || action.operationType === "destructive") return true;
   const words = `${action.id} ${action.name}`
     .replace(/([a-z])([A-Z])/g, "$1 $2")
     .toLowerCase()

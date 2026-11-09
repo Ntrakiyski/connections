@@ -1,3 +1,5 @@
+import type { TransitFileUpload, TransitFileWriter } from "./types.ts";
+
 /**
  * Query parameter values accepted by provider HTTP helpers.
  */
@@ -27,9 +29,19 @@ export function queryFlag(value: boolean | undefined): string | undefined {
   return value === undefined ? undefined : value ? "1" : "0";
 }
 
-/**
- * Encode one provider path segment after converting provider input to string.
- */
+/** Reject dot segments created by URL decoding before joining an upstream path. */
+export function hasUnsafeProxyPath(endpoint: string): boolean {
+  const path = endpoint.split(/[?#]/u, 1)[0]!;
+  try {
+    return decodeURIComponent(path)
+      .split(/[\\/]/u)
+      .some((segment) => segment === "." || segment === "..");
+  } catch {
+    return true;
+  }
+}
+
+/** Encode one provider path segment after converting provider input to string. */
 export function encodePathSegment(value: unknown): string {
   return encodeURIComponent(String(value));
 }
@@ -71,6 +83,7 @@ export interface BoundedResponseBytesOptions {
   maxBytes: number;
   fieldName: string;
   createError: (message: string) => Error;
+  signal?: AbortSignal;
 }
 
 /**
@@ -80,6 +93,7 @@ export async function readBoundedResponseBytes(
   response: Response,
   options: BoundedResponseBytesOptions,
 ): Promise<Uint8Array> {
+  options.signal?.throwIfAborted();
   const contentLength = parseContentLength(response.headers.get("content-length"));
   if (contentLength !== undefined) {
     assertMaxBytes(contentLength, options);
@@ -87,6 +101,7 @@ export async function readBoundedResponseBytes(
 
   if (!response.body) {
     const bytes = new Uint8Array(await response.arrayBuffer());
+    options.signal?.throwIfAborted();
     assertMaxBytes(bytes.byteLength, options);
     return bytes;
   }
@@ -97,6 +112,7 @@ export async function readBoundedResponseBytes(
   try {
     while (true) {
       const { done, value } = await reader.read();
+      options.signal?.throwIfAborted();
       if (done) {
         break;
       }
@@ -488,4 +504,33 @@ function ipv4ToNumber(value: string): number {
 function ipv4InCidr(value: number, network: number, bits: number): boolean {
   const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
   return (value & mask) === (network & mask);
+}
+
+export function isIpAddress(value: string): boolean {
+  return parseIpv4(value) !== undefined || parseIpv6(value) !== undefined;
+}
+
+interface TransitResponseOptions {
+  name: string;
+  mimeType: string;
+  fieldName: string;
+  maxBytes?: number;
+  createError(message: string): Error;
+  signal?: AbortSignal;
+}
+
+/** Store a provider response using the bounded transit file writer. */
+export async function storeResponseInTransit(
+  response: Response,
+  transitFiles: TransitFileWriter,
+  options: TransitResponseOptions,
+): Promise<TransitFileUpload> {
+  options.signal?.throwIfAborted();
+  const bytes = await readBoundedResponseBytes(response, {
+    maxBytes: Math.min(transitFiles.maxBytes, options.maxBytes ?? transitFiles.maxBytes),
+    fieldName: options.fieldName,
+    createError: options.createError,
+  });
+  options.signal?.throwIfAborted();
+  return transitFiles.create(new File([Uint8Array.from(bytes)], options.name, { type: options.mimeType }));
 }

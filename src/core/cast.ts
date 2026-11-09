@@ -385,3 +385,68 @@ export function positiveInteger(
 
   throw createError(`${fieldName} must be a positive integer`);
 }
+
+export function booleanString(value: unknown): string | undefined {
+  return typeof value === "boolean" ? String(value) : undefined;
+}
+
+export function looseArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+export function optionalNumberLike(value: unknown): number | undefined {
+  const parsed =
+    typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+export function optionalStringArray(value: unknown): string[] | undefined {
+  return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : undefined;
+}
+
+export function rawStringOrNull(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+export function recordOrEmpty(value: unknown): Record<string, unknown> {
+  return optionalRecord(value) ?? {};
+}
+
+export function requiredBoolean(
+  value: unknown,
+  fieldName: string,
+  createError: CastErrorFactory = (message) => new CastError(message),
+): boolean {
+  const result = optionalBoolean(value);
+  if (result !== undefined) {
+    return result;
+  }
+
+  throw createError(`${fieldName} must be a boolean`);
+}
+
+export function requiredNumber(
+  value: unknown,
+  fieldName: string,
+  createError: CastErrorFactory = (message) => new CastError(message),
+): number {
+  const result = optionalNumber(value);
+  if (result !== undefined) {
+    return result;
+  }
+
+  throw createError(`${fieldName} must be a number`);
+}
+
+export function requiredRawString(
+  value: unknown,
+  fieldName: string,
+  createError: CastErrorFactory = (message) => new CastError(message),
+): string {
+  const result = optionalRawString(value);
+  if (result !== undefined) {
+    return result;
+  }
+
+  throw createError(`${fieldName} must be a string`);
+}

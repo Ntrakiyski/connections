@@ -1,12 +1,21 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   assertPublicHttpUrl,
+  hasUnsafeProxyPath,
   isBlockedIpAddress,
   isIpv4Address,
   isPrivateNetworkAccessAllowed,
   parsePrivateNetworkAccessFlag,
   setPrivateNetworkAccessAllowed,
 } from "./request.ts";
+
+describe("hasUnsafeProxyPath", () => {
+  it("blocks decoded traversal and leaves encoded identifiers intact", () => {
+    expect(hasUnsafeProxyPath("/api/%2E%2E%2Fadmin")).toBe(true);
+    expect(hasUnsafeProxyPath("/api/%2e%2e%5cadmin")).toBe(true);
+    expect(hasUnsafeProxyPath("/api/repos/group%2Fproject")).toBe(false);
+  });
+});
 
 describe("assertPublicHttpUrl", () => {
   it("canonicalizes public hostnames with trailing dots", () => {
