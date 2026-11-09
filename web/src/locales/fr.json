@@ -36,7 +36,15 @@
     "ru": "Русский",
     "fr": "Français"
   },
+  "workflows": {
+    "loading": "Chargement des flux de travail…",
+    "unavailable": "Les flux de travail ne sont pas configurés pour votre compte dans cet espace.",
+    "error": "Les flux de travail sont indisponibles. Réessayez.",
+    "retry": "Réessayer",
+    "dismiss": "Fermer"
+  },
   "nav": {
+    "workflows": "Flux de travail",
     "overview": "Vue d’ensemble",
     "providers": "Fournisseurs",
     "actions": "Actions",
@@ -61,6 +69,10 @@
       "dark": "Sombre"
     },
     "headings": {
+      "workflows": {
+        "title": "Flux de travail",
+        "subtitle": "Créez et exécutez des flux de travail dans cet espace."
+      },
       "overview": {
         "title": "Vue d’ensemble",
         "subtitle": "État et santé du runtime."

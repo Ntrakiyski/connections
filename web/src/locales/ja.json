@@ -36,7 +36,15 @@
     "ru": "Русский",
     "fr": "Français"
   },
+  "workflows": {
+    "loading": "ワークフローを読み込み中…",
+    "unavailable": "このワークスペースで、お使いのアカウントのワークフローは設定されていません。",
+    "error": "ワークフローを利用できません。もう一度お試しください。",
+    "retry": "再試行",
+    "dismiss": "閉じる"
+  },
   "nav": {
+    "workflows": "ワークフロー",
     "overview": "概要",
     "providers": "プロバイダー",
     "actions": "アクション",
@@ -61,6 +69,10 @@
       "dark": "ダーク"
     },
     "headings": {
+      "workflows": {
+        "title": "ワークフロー",
+        "subtitle": "このワークスペースのワークフローを作成して実行します。"
+      },
       "overview": {
         "title": "概要",
         "subtitle": "ランタイムの状態とヘルスを確認します。"

@@ -29,8 +29,9 @@ import {
   Sun,
   TerminalSquare,
   UserRound,
+  Workflow,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
 import { AccessPage } from "./access-page";
 import { loadAccountDirectory } from "./account-model";
@@ -55,6 +56,8 @@ import { createWorkspaceScope, workspaceHref } from "./workspace-scope";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
+const WorkflowsPage = lazy(() => import("./workflows-page"));
+
 interface NavItem {
   path: string;
   labelKey: string;
@@ -66,6 +69,7 @@ const navItems: readonly NavItem[] = [
   { path: "/overview", labelKey: "nav.overview", icon: Home },
   { path: "/providers", labelKey: "nav.providers", icon: Cable },
   { path: "/actions", labelKey: "nav.actions", icon: TerminalSquare },
+  { path: "/workflows", labelKey: "nav.workflows", icon: Workflow },
   { path: "/runs", labelKey: "nav.runs", icon: Activity },
   { path: "/access", labelKey: "nav.access", icon: KeyRound },
   { path: "/resources", labelKey: "nav.docs", icon: BookOpen },
@@ -402,8 +406,13 @@ function AppShell(props: {
   const heading = headingForPath(location.pathname);
   const section = location.pathname.split("/").filter(Boolean)[0];
   const isOverviewPage = heading === "overview";
-  const isBrowserPage = section === "actions";
-  const mainClassName = [isBrowserPage ? "main main-browser" : "main", isOverviewPage ? "overview-main" : ""]
+  const isWorkflowsPage = section === "workflows";
+  const isBrowserPage = section === "actions" || isWorkflowsPage;
+  const mainClassName = [
+    isBrowserPage ? "main main-browser" : "main",
+    isOverviewPage ? "overview-main" : "",
+    isWorkflowsPage ? "main-workflows" : "",
+  ]
     .filter(Boolean)
     .join(" ");
   const visibleNavItems = navItems.filter(
@@ -414,7 +423,7 @@ function AppShell(props: {
   const CurrentNavIcon = currentNavItem.icon;
 
   return (
-    <div className="app-shell">
+    <div className="connections-shell">
       <aside className="sidebar">
         <div className="brand">
           <img className="brand-mark" src={oomolConnectLogoUrl} alt="" />
@@ -437,7 +446,9 @@ function AppShell(props: {
                 const target =
                   location.pathname === "/workspace"
                     ? `/workspace?settingsTab=${new URLSearchParams(location.search).get("settingsTab") ?? "companies"}`
-                    : "/overview";
+                    : isWorkflowsPage
+                      ? "/workflows"
+                      : "/overview";
                 navigate(workspaceHref(target, selected));
               }
             }}
@@ -530,6 +541,20 @@ function AppShell(props: {
             />
             <Route path="/actions" element={<ActionsPage data={props.data} onRefresh={props.onRefresh} />} />
             <Route path="/actions/:actionId" element={<ActionsPage data={props.data} onRefresh={props.onRefresh} />} />
+            <Route
+              path="/workflows"
+              element={
+                <Suspense
+                  fallback={
+                    <div className="workflows-placeholder" role="status">
+                      {t("workflows.loading")}
+                    </div>
+                  }
+                >
+                  <WorkflowsPage />
+                </Suspense>
+              }
+            />
             <Route
               path="/runs"
               element={
@@ -645,6 +670,7 @@ function headingForPath(pathname: string): string {
   const section = pathname.split("/").filter(Boolean)[0];
   if (section === "providers") return "providers";
   if (section === "actions") return "actions";
+  if (section === "workflows") return "workflows";
   if (section === "runs") return "runs";
   if (section === "access") return "access";
   if (section === "resources") return "resources";

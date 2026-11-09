@@ -64,6 +64,16 @@ export function assertTrustedMutation(request: Request, trustedOrigins: string[]
   }
 }
 
+export async function requireVerifiedSession(
+  auth: ConnectionsHumanAuth,
+  request: Request,
+): Promise<NonNullable<Awaited<ReturnType<ConnectionsHumanAuth["api"]["getSession"]>>>> {
+  const session = await auth.api.getSession({ headers: request.headers });
+  if (!session?.user.emailVerified)
+    throw new HttpRequestError("unauthorized", "A verified Connections session is required.", 401);
+  return session;
+}
+
 /** Principal matrix: console = cookie, runtime = oct_ key, Meetings = dedicated grant. */
 export function createPrincipalAuthMiddleware(options: PrincipalAuthOptions): MiddlewareHandler {
   return async (context, next) => {
@@ -128,9 +138,7 @@ export function createPrincipalAuthMiddleware(options: PrincipalAuthOptions): Mi
     ) {
       throw new HttpRequestError("principal_forbidden", "This endpoint requires its dedicated credential.", 401);
     }
-    const session = await options.auth.api.getSession({ headers: context.req.raw.headers });
-    if (!session?.user.emailVerified)
-      throw new HttpRequestError("unauthorized", "A verified Connections session is required.", 401);
+    const session = await requireVerifiedSession(options.auth, context.req.raw);
     assertTrustedMutation(context.req.raw, options.trustedOrigins);
     const workspaceId = context.req.header("x-workspace-id");
     if (!workspaceId) throw new HttpRequestError("workspace_required", "Select a workspace for this request.", 400);

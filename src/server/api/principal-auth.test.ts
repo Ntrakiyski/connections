@@ -1,5 +1,6 @@
 import type { AuthMail } from "../human-auth.ts";
 import type { RuntimeDatabase } from "../storage/runtime-database.ts";
+import type { WorkflowBackend } from "./workflow-routes.ts";
 import type { BetterAuthOptions } from "better-auth";
 import type { Hono } from "hono";
 
@@ -42,7 +43,7 @@ afterEach(async () => {
   for (const close of cleanups.splice(0)) await close();
 });
 
-async function createFixture(adapter: string): Promise<Fixture> {
+async function createFixture(adapter: string, workflowBackends?: WorkflowBackend[]): Promise<Fixture> {
   const directory = await mkdtemp(join(tmpdir(), "connections-human-auth-"));
   const filename = join(directory, "connect.sqlite");
   let database: RuntimeDatabase;
@@ -135,6 +136,7 @@ async function createFixture(adapter: string): Promise<Fixture> {
     publicOrigin: origin,
     secretCodec: new PlainTextSecretCodec(),
     humanAuth: auth,
+    workflowBackends,
     authMailDelivery: async (message) => {
       mail.push(message);
     },
@@ -230,6 +232,88 @@ async function seed(fixture: Fixture, userId: string): Promise<void> {
       .createScopedStores(workspaceId)
       .connectionStore.set("sentinel", "shared", sentinelCredential(`${workspaceId}-account`), userId);
   }
+}
+
+for (const adapter of ["SQLite", "PostgreSQL"]) {
+  it.skipIf(adapter === "PostgreSQL" && !process.env.CONNECTIONS_TEST_POSTGRES_URL)(
+    `${adapter} routes Open Flow requests only for the workspace's assigned Connections account`,
+    async () => {
+      const backends: WorkflowBackend[] = [];
+      const fixture = await createFixture(adapter, backends);
+      const alice = await register(fixture, "alice@example.test");
+      const bob = await register(fixture, "bob@example.test");
+      await seed(fixture, alice.userId);
+      for (const company of ["A", "B"]) {
+        await fixture.write(
+          "insert into organization_memberships(id,organization_id,user_id,role,created_at) values(?,?,?,?,?)",
+          [`${company}-${bob.userId}`, company, bob.userId, "member", new Date().toISOString()],
+        );
+        await fixture.database.membershipStore.setRole(`${company}1`, bob.userId, "member");
+      }
+      backends.push(
+        { workspaceId: "A1", userId: alice.userId, origin: "http://flow-a.test", token: `ofp_${"a".repeat(43)}` },
+        { workspaceId: "B1", userId: bob.userId, origin: "http://flow-b.test", token: `ofp_${"b".repeat(43)}` },
+      );
+      let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
+      const upstream = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const request = new Request(input, init);
+        expect(request.headers.has("cookie")).toBe(false);
+        const target = new URL(request.url);
+        const backend = backends.find((entry) => entry.origin === target.origin);
+        expect(request.headers.get("authorization")).toBe(`Bearer ${backend?.token}`);
+        expect(init?.redirect).toBe("manual");
+        if (target.pathname.endsWith("/notifications")) {
+          const stream = new ReadableStream<Uint8Array>({
+            start: (controller) => {
+              streamController = controller;
+            },
+          });
+          return new Response(stream, { headers: { "content-type": "text/event-stream" } });
+        }
+        return Response.json(
+          { flows: [{ flowId: `${backend?.workspaceId}-flow` }] },
+          { headers: { "set-cookie": "leak=1" } },
+        );
+      });
+      vi.stubGlobal("fetch", upstream);
+
+      const request = (workspace: string, cookie = "", path = "", init?: RequestInit) =>
+        fixture.app.request(`${origin}/api/workflows/${workspace}${path}`, {
+          ...init,
+          headers: { cookie, ...init?.headers },
+        });
+      expect(await (await request("A1", alice.cookie)).json()).toEqual({ enabled: true });
+      expect(await (await request("A1", bob.cookie)).json()).toEqual({ enabled: false });
+      expect((await request("A1", "", "/v1/flows")).status).toBe(401);
+      expect((await request("B1", alice.cookie, "/v1/flows")).status).toBe(403);
+      expect((await request("A1", bob.cookie, "/v1/flows")).status).toBe(403);
+      expect((await request("A1", alice.cookie, "/auth/session")).status).toBe(404);
+      expect((await request("A1", alice.cookie, "/v1/flows%2f..%2fmcp")).status).toBe(404);
+      expect((await request("A1", alice.cookie, "/v1/flows", { method: "POST" })).status).toBe(403);
+      expect(upstream).not.toHaveBeenCalled();
+
+      const result = await request("A1", alice.cookie, "/v1/flows?limit=10");
+      expect(result.status).toBe(200);
+      expect(result.headers.has("set-cookie")).toBe(false);
+      expect(result.headers.get("cache-control")).toBe("private, no-store");
+      expect(await result.json()).toEqual({ flows: [{ flowId: "A1-flow" }] });
+      expect(await (await request("B1", bob.cookie, "/v1/flows")).json()).toEqual({ flows: [{ flowId: "B1-flow" }] });
+
+      const subscription = await request("B1", bob.cookie, "/v1/flows/notifications");
+      const reader = subscription.body!.getReader();
+      const frame = new TextEncoder().encode('data: {"kind":"flows.changed"}\n\n');
+      streamController!.enqueue(frame);
+      expect(await reader.read()).toEqual({ done: false, value: frame });
+      await fixture.write("delete from organization_memberships where organization_id=? and user_id=?", [
+        "B",
+        bob.userId,
+      ]);
+      streamController!.enqueue(frame);
+      expect((await reader.read()).done).toBe(true);
+      expect((await request("B1", bob.cookie, "/v1/flows")).status).toBe(403);
+      expect(upstream).toHaveBeenCalledTimes(3);
+    },
+  );
 }
 
 for (const adapter of ["SQLite", "D1", "PostgreSQL"]) {

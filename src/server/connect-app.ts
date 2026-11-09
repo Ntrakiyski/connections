@@ -1,6 +1,7 @@
 import type { CatalogStore } from "../catalog-store.ts";
 import type { ActionPolicyService } from "../core/action-policy.ts";
 import type { IProviderLoader } from "../providers/provider-loader.ts";
+import type { WorkflowBackend } from "./api/workflow-routes.ts";
 import type { WorkspaceServerServices } from "./connect-server.ts";
 import type { ITransitFileService } from "./files/transit-file-store.ts";
 import type { AuthMailDelivery, ConnectionsHumanAuth } from "./human-auth.ts";
@@ -35,6 +36,7 @@ export interface ConnectAppOptions {
   humanAuth?: ConnectionsHumanAuth;
   authMailDelivery?: AuthMailDelivery;
   trustedAuthOrigins?: string[];
+  workflowBackends?: readonly WorkflowBackend[];
   developmentBypass?: boolean;
   actionPolicy?: ActionPolicyService;
   registerStaticRoutes?: (app: Hono) => void;
@@ -166,6 +168,7 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
       runtimeTokens: defaultServices.runtimeTokens,
       registerStaticRoutes: options.registerStaticRoutes,
       developmentBypass: options.developmentBypass,
+      workflowBackends: options.workflowBackends,
       principalAuth:
         options.humanAuth && options.runtimeDatabase.identityDirectory
           ? {

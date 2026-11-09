@@ -36,7 +36,15 @@
     "ru": "Русский",
     "fr": "Français"
   },
+  "workflows": {
+    "loading": "Loading workflows…",
+    "unavailable": "Workflows aren’t set up for your account in this workspace.",
+    "error": "Workflows are unavailable. Please try again.",
+    "retry": "Try again",
+    "dismiss": "Dismiss"
+  },
   "nav": {
+    "workflows": "Workflows",
     "overview": "Overview",
     "providers": "Providers",
     "actions": "Actions",
@@ -61,6 +69,10 @@
       "dark": "Dark"
     },
     "headings": {
+      "workflows": {
+        "title": "Workflows",
+        "subtitle": "Build and run workflows for this workspace."
+      },
       "overview": {
         "title": "Overview",
         "subtitle": "Runtime status and health."

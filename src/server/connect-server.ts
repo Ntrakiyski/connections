@@ -86,6 +86,7 @@ export interface IConnectServerOptions {
   staticRoot?: string;
   developmentBypass?: boolean;
   principalAuth?: PrincipalAuthOptions;
+  workflowBackends?: readonly WorkflowBackend[];
   meetingsOAuth?: MeetingsOAuthService;
   companyServices?: Pick<CompanyRouteOptions, "companies" | "directory" | "invitations">;
   runtimeTokenAuth?: RuntimeTokenAuthOptions;
@@ -144,6 +145,7 @@ export class ConnectServer {
     });
     app.get("/health", (context) => context.json({ ok: true }));
     if (this.options.principalAuth) {
+      registerWorkflowRoutes(app, this.options.principalAuth, this.options.workflowBackends ?? []);
       if (this.options.meetingsOAuth)
         registerMeetingsOAuthRoutes(app, {
           auth: this.options.principalAuth.auth,
@@ -1384,3 +1386,6 @@ function readSearchQuery(context: Context, defaultLimit = DEFAULT_ACTION_SEARCH_
     limit,
   };
 }
+import type { WorkflowBackend } from "./api/workflow-routes.ts";
+
+import { registerWorkflowRoutes } from "./api/workflow-routes.ts";

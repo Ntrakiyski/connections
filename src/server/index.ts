@@ -8,6 +8,7 @@ import { parsePrivateNetworkAccessFlag, setPrivateNetworkAccessAllowed } from ".
 import { ProviderLoader } from "../providers/provider-loader.ts";
 import { executableActionIds, executorModules } from "../providers/registry.generated.ts";
 import { registerStaticRoutes } from "./api/static-routes.ts";
+import { parseWorkflowBackends } from "./api/workflow-routes.ts";
 import { readDeploymentAuthSettings } from "./auth-config.ts";
 import { createAuthMailDelivery } from "./auth-mail.ts";
 import { createConnectApp } from "./connect-app.ts";
@@ -20,6 +21,10 @@ import { PostgresRuntimeDatabase } from "./storage/postgres-runtime-store.ts";
 import { SqliteRuntimeDatabase } from "./storage/sqlite-runtime-store.ts";
 
 const authSettings = readDeploymentAuthSettings(process.env);
+const workflowBackends = parseWorkflowBackends(process.env.CONNECTIONS_OPEN_FLOW_BACKENDS);
+if (workflowBackends.length > 0 && authSettings.kind !== "sessions") {
+  throw new Error("Open Flow workspaces require Connections session authentication.");
+}
 const port = Number(process.env.PORT ?? 3000);
 const hostname = process.env.HOST ?? "127.0.0.1";
 const publicOrigin =
@@ -79,6 +84,7 @@ const { app, runtimeAuthConfigured } = await createConnectApp({
         )
       : undefined,
   trustedAuthOrigins: authSettings.kind === "sessions" ? authSettings.trustedOrigins : undefined,
+  workflowBackends,
   developmentBypass: authSettings.kind === "development-bypass",
   actionPolicy,
   registerStaticRoutes: (app) => registerStaticRoutes(app, staticRoot),

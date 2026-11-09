@@ -36,7 +36,15 @@
     "ru": "Русский",
     "fr": "Français"
   },
+  "workflows": {
+    "loading": "正在加载工作流…",
+    "unavailable": "此工作区尚未为你的账号配置工作流。",
+    "error": "工作流暂不可用，请重试。",
+    "retry": "重试",
+    "dismiss": "关闭"
+  },
   "nav": {
+    "workflows": "工作流",
     "overview": "概览",
     "providers": "提供商",
     "actions": "操作",
@@ -61,6 +69,10 @@
       "dark": "深色"
     },
     "headings": {
+      "workflows": {
+        "title": "工作流",
+        "subtitle": "在此工作区中创建和运行工作流。"
+      },
       "overview": {
         "title": "概览",
         "subtitle": "查看运行时状态和健康情况。"
