@@ -44,8 +44,15 @@ const data: AppData = {
 
 describe("ActionsPage approval policy", () => {
   it("shows the approval control to workspace managers but not members", () => {
-    expect(renderActionsPage({ ...data, role: "manager" })).toContain("Require approval");
-    expect(renderActionsPage({ ...data, role: "member" })).not.toContain("Require approval");
+    const enabledData = { ...data, enabledServices: ["example"] };
+    expect(renderActionsPage({ ...enabledData, role: "manager" })).toContain("Require approval");
+    expect(renderActionsPage({ ...enabledData, role: "member" })).not.toContain("Require approval");
+  });
+
+  it("explains why a catalog action's approval cannot change before its provider is enabled", () => {
+    const markup = renderActionsPage({ ...data, enabledServices: [], role: "manager" });
+    expect(markup).toContain("Enable this provider for the workspace before changing action approval.");
+    expect(markup).not.toContain("Require approval");
   });
 });
 

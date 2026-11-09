@@ -32,6 +32,7 @@ interface ActionsPageProps {
 interface ActionDetailProps {
   action: ActionDefinition;
   providerName: string;
+  providerEnabled: boolean;
   connections: AppData["connections"];
   canManagePolicy: boolean;
   onRefresh(): void;
@@ -201,6 +202,7 @@ export function ActionsPage(props: ActionsPageProps): ReactNode {
             <ActionDetail
               action={selectedAction}
               providerName={providerNames.get(selectedAction.service) ?? selectedAction.service}
+              providerEnabled={props.data.enabledServices?.includes(selectedAction.service) ?? true}
               connections={props.data.connections.filter((connection) => connection.service === selectedAction.service)}
               canManagePolicy={props.data.role !== "member"}
               onRefresh={props.onRefresh}
@@ -268,7 +270,10 @@ function ActionDetail(props: ActionDetailProps): ReactNode {
       </div>
       <p className="detail-description">{props.action.description}</p>
       <div className="button-row action-command-row">
-        <Button disabled={!props.action.execution.locallyExecutable} onClick={() => setDebugOpen(true)}>
+        <Button
+          disabled={!props.providerEnabled || !props.action.execution.locallyExecutable}
+          onClick={() => setDebugOpen(true)}
+        >
           <Play size={16} />
           {t("actions.debugAction")}
         </Button>
@@ -281,15 +286,20 @@ function ActionDetail(props: ActionDetailProps): ReactNode {
         <Button asChild variant="outline" size="sm">
           <Link to={`/providers/${props.action.service}`}>{t("actions.provider")}</Link>
         </Button>
-        <ActionApprovalControl actionId={props.action.id} canManage={props.canManagePolicy} />
+        <ActionApprovalControl
+          key={props.action.id}
+          actionId={props.action.id}
+          canManage={props.canManagePolicy && props.providerEnabled}
+        />
       </div>
+      {!props.providerEnabled ? <p className="detail-description">{t("actions.providerDisabledHint")}</p> : null}
       <div className="panel-section">
         <h3>{t("actions.requiredScopes")}</h3>
         <TagList values={props.action.requiredScopes} empty={t("providers.noScopes")} />
       </div>
       <ParameterList schema={props.action.inputSchema} />
       <ExampleTabs action={props.action} examples={examples} />
-      {debugOpen ? (
+      {debugOpen && props.providerEnabled ? (
         <RunActionModal
           action={props.action}
           connections={props.connections}

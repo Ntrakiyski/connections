@@ -283,6 +283,7 @@
     "locallyExecutable": "Locally executable",
     "needsCredential": "Needs credential",
     "debugAction": "Debug Action",
+    "providerDisabledHint": "Enable this provider for the workspace before changing action approval.",
     "requireApproval": "Require approval",
     "approvalOn": "On",
     "approvalOff": "Off",

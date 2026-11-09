@@ -21,14 +21,14 @@ interface ActionApprovalControlProps {
 export function ActionApprovalControl(props: ActionApprovalControlProps): ReactNode {
   const requests = useWorkspaceRequests();
   const t = useTranslate();
-  const [requireApproval, setRequireApproval] = useState(true);
+  const [requireApproval, setRequireApproval] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!props.canManage) return;
     let disposed = false;
-    setRequireApproval(true);
+    setRequireApproval(null);
     setError(null);
     void apiGet<WorkspaceActionPolicy>(`/api/workspace/action-policies/${encodeURIComponent(props.actionId)}`, requests)
       .then((policy) => {
@@ -64,20 +64,23 @@ export function ActionApprovalControl(props: ActionApprovalControlProps): ReactN
 
   if (!props.canManage) return null;
 
+  const loading = requireApproval === null && error === null;
+  const label =
+    requireApproval === null
+      ? t("actions.requireApproval")
+      : `${t("actions.requireApproval")}: ${requireApproval ? t("actions.approvalOn") : t("actions.approvalOff")}`;
+
   return (
     <div className="action-approval-control">
       <Toggle
         variant="outline"
         size="sm"
-        pressed={requireApproval}
-        disabled={saving}
-        aria-label={`${t("actions.requireApproval")}: ${
-          requireApproval ? t("actions.approvalOn") : t("actions.approvalOff")
-        }`}
+        pressed={requireApproval ?? false}
+        disabled={saving || requireApproval === null}
         onPressedChange={(pressed) => void update(pressed)}
       >
-        {saving ? <Loader2 className="spin" size={15} /> : <ShieldCheck size={15} />}
-        {t("actions.requireApproval")}: {requireApproval ? t("actions.approvalOn") : t("actions.approvalOff")}
+        {loading || saving ? <Loader2 className="spin" size={15} /> : <ShieldCheck size={15} />}
+        {label}
       </Toggle>
       {error ? <InlineError message={error} /> : null}
     </div>

@@ -283,6 +283,7 @@
     "locallyExecutable": "Exécutable localement",
     "needsCredential": "Identifiant requis",
     "debugAction": "Déboguer l’action",
+    "providerDisabledHint": "Activez ce fournisseur pour cet espace de travail avant de modifier les règles d’approbation.",
     "requireApproval": "Exiger une approbation",
     "approvalOn": "Activé",
     "approvalOff": "Désactivé",
