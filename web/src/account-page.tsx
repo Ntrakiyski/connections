@@ -30,7 +30,8 @@ export function AccountPage(props: AccountPageProps): ReactNode {
       : undefined;
   const company = props.directory.companies.find((item) => item.id === companyId);
   const security = props.view === "security" || (!props.embedded && location.pathname === "/account/security");
-  const companiesHref = props.embedded && scope ? workspaceHref("/workspace?settingsTab=companies", scope.intent) : "/";
+  const companiesHref =
+    props.embedded && scope ? workspaceHref("/workspace?settingsTab=companies", scope.intent) : "/account";
   const Container = props.embedded ? "div" : "main";
   return (
     <Container className={props.embedded ? "settings-account" : "account-home"}>
@@ -47,7 +48,7 @@ export function AccountPage(props: AccountPageProps): ReactNode {
           </header>
           <nav className="button-row" aria-label="Account navigation">
             <Button variant="outline" asChild>
-              <Link to="/">Companies and workspaces</Link>
+              <Link to={companiesHref}>Companies and workspaces</Link>
             </Button>
             <Button variant="outline" asChild>
               <Link to="/account/security">Account and security</Link>

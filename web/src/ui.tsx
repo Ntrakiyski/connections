@@ -252,8 +252,11 @@ export function App(): ReactNode {
     location.pathname.startsWith("/account") ||
     location.pathname.startsWith("/companies") ||
     location.pathname.startsWith("/invitations");
-  if (accountPage || (!workspaceId && !companyId))
+  if (accountPage || (!workspaceId && !companyId)) {
+    const defaultWorkspace = !accountPage && directory.account.workspaces.find((workspace) => !workspace.archived);
+    if (defaultWorkspace) return <Navigate to={workspaceHref("/overview", defaultWorkspace)} replace />;
     return <AccountPage directory={directory} onRefresh={refreshDirectory} onLogout={logout} />;
+  }
   const selected = directory.account.workspaces.find(
     (workspace) => workspace.workspaceId === workspaceId && workspace.organizationId === companyId,
   );
@@ -264,7 +267,7 @@ export function App(): ReactNode {
           <h1>Workspace access unavailable</h1>
           <p>Your current company membership and workspace grant do not allow this workspace.</p>
           <Button asChild>
-            <Link to="/">Choose another workspace</Link>
+            <Link to="/account">Choose another workspace</Link>
           </Button>
         </div>
       </main>
@@ -318,7 +321,7 @@ function ArchivedWorkspace(props: {
         </p>
         {props.selected.role === "admin" ? <Button onClick={() => void restore()}>Restore workspace</Button> : null}
         <Button variant="outline" asChild>
-          <Link to="/">Choose another workspace</Link>
+          <Link to="/account">Choose another workspace</Link>
         </Button>
         <p role="status">{status}</p>
       </div>
@@ -372,7 +375,7 @@ function RuntimeWorkspace(props: {
           <p role="alert">{error}</p>
           <Button onClick={refresh}>Try again</Button>
           <Button variant="outline" asChild>
-            <Link to="/">Choose another workspace</Link>
+            <Link to="/account">Choose another workspace</Link>
           </Button>
         </div>
       </main>
