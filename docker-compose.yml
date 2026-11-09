@@ -41,4 +41,4 @@ volumes:
   connector-data:
   open-flow-data:
     external: true
-    name: ${OPEN_FLOW_DATA_VOLUME:?Set the existing Open Flow data volume}
+    name: ${OPEN_FLOW_DATA_VOLUME}
