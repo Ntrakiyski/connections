@@ -164,11 +164,11 @@ describe("ProvidersPage route shell", () => {
     expect(markup).not.toContain("Reset OAuth Client");
   });
 
-  it("shows provider auth method tags in the provider browser", () => {
-    const markup = renderProvidersPage(providerData, "/providers");
+  it("renders one provider link with its setup status in the catalog", () => {
+    const markup = renderProvidersPage({ ...providerData, oauthConfigs: [] }, "/providers");
 
-    expect(markup).toContain('class="provider-card-auth-tags"');
-    expect(markup).toContain("OAuth2");
+    expect(markup.match(/href="\/providers\/gmail[^"]*"/g)).toHaveLength(1);
+    expect(markup).toContain("OAuth client required");
   });
 
   it("renders a full provider detail page at /providers/:service", () => {
@@ -269,7 +269,7 @@ describe("ProvidersPage route shell", () => {
     const detailMarkup = renderProvidersPage(data, "/providers/catalog-only");
 
     expect(browserMarkup).toContain("Unavailable");
-    expect(browserMarkup).toContain("Details");
+    expect(browserMarkup).toContain('href="/providers/catalog-only"');
     expect(browserMarkup).not.toContain(">Connect<");
     expect(detailMarkup).toContain("Unavailable in this runtime");
     expect(detailMarkup).toContain(
@@ -294,13 +294,6 @@ describe("ProvidersPage route shell", () => {
     expect(markup).not.toContain("Save Connection");
   });
 
-  it("omits OAuth client warning badges in the provider browser cards", () => {
-    const markup = renderProvidersPage({ ...providerData, oauthConfigs: [] }, "/providers");
-
-    expect(markup).not.toContain("OAuth client required");
-    expect(markup).toContain("Configure OAuth Client");
-  });
-
   it("starts the provider browser with a 48 item visible limit", () => {
     const manyProviders = Array.from({ length: 50 }, (_, index) => ({
       ...noAuthProvider,
@@ -312,7 +305,7 @@ describe("ProvidersPage route shell", () => {
       "/providers",
     );
 
-    expect(markup).toContain("Showing 50 / 50");
+    expect(markup).toContain("Showing 48 / 50");
     expect(markup).toContain("Show more");
     expect(markup).toContain("Clock 47");
     expect(markup).not.toContain("Clock 48");

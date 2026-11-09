@@ -1358,29 +1358,30 @@ h3 {
   min-height: 64px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
+  color: var(--foreground);
+  text-decoration: none;
   transition: background-color 160ms ease;
 }
 
-.provider-card:hover {
+.provider-card:hover,
+.provider-card:focus-visible {
   background: color-mix(in oklab, var(--muted) 54%, transparent);
 }
 
-.provider-card-main {
-  display: flex;
-  align-items: center;
-  flex: 1;
-  min-width: 0;
-  gap: 12px;
-  border-radius: var(--radius-sm);
-  text-decoration: none;
+.provider-card:focus-visible {
+  outline-offset: -2px;
 }
 
-.provider-card-title-row {
-  display: flex;
-  align-items: center;
+.provider-card-main {
+  display: grid;
   flex: 1;
   min-width: 0;
-  gap: 8px;
+  gap: 4px;
+}
+
+.provider-card-chevron {
+  flex: none;
+  color: var(--muted-foreground);
 }
 
 .provider-card-title {
@@ -1390,19 +1391,6 @@ h3 {
   white-space: nowrap;
   font-size: 14px;
   font-weight: 560;
-}
-
-.provider-card-auth-tags {
-  display: inline-flex;
-  align-items: center;
-  flex: 0 1 auto;
-  flex-wrap: wrap;
-  min-width: 0;
-  gap: 4px;
-}
-
-.provider-card-auth-tags .badge {
-  flex: 0 0 auto;
 }
 
 .provider-status-badges {
@@ -1415,35 +1403,6 @@ h3 {
 
 .provider-status-badges .badge {
   gap: 4px;
-}
-
-.provider-card-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex: 0 0 auto;
-  gap: 5px;
-  min-width: 72px;
-  max-width: 168px;
-  border-radius: var(--radius-sm);
-  color: var(--foreground);
-  text-decoration: none;
-  font-size: 13px;
-  font-weight: 560;
-}
-
-.provider-card-action-muted {
-  color: var(--muted-foreground);
-}
-
-.provider-card:hover .provider-card-action-muted {
-  color: var(--foreground);
-}
-
-.provider-card-action span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .provider-show-more {
@@ -3069,25 +3028,6 @@ tr:last-child td {
   .provider-collection-bar {
     display: grid;
     grid-template-columns: 1fr;
-  }
-
-  .provider-card {
-    align-items: flex-start;
-  }
-
-  .provider-card-title-row {
-    display: grid;
-    gap: 6px;
-  }
-
-  .provider-status-badges {
-    flex-wrap: wrap;
-  }
-
-  .provider-card-action {
-    min-width: 0;
-    max-width: 112px;
-    padding-top: 8px;
   }
 
   .oauth-client-summary {

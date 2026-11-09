@@ -24,7 +24,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router";
 import { ActionApprovalControl } from "./action-approval-control";
 import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from "./api";
@@ -84,7 +84,7 @@ interface OAuthConfigFormProps {
   onRefresh(): void;
 }
 
-type ProviderStatusFilter = "all" | "connected" | "not_connected" | "oauth_needs_config";
+type ProviderStatusFilter = "all" | "connected" | "no_setup" | "not_connected" | "oauth_needs_config";
 
 const providerPageSize = 48;
 const oauthRefreshPollingIntervalMs = 1_000;
@@ -136,7 +136,8 @@ function ProviderBrowser(props: ProviderBrowserProps): ReactNode {
   const t = useTranslate();
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<ProviderStatusFilter>("all");
-  const resetKey = providerBrowserResetKey(query, statusFilter);
+  const deferredQuery = useDeferredValue(query);
+  const resetKey = providerBrowserResetKey(deferredQuery, statusFilter);
   const statusByService = useMemo(
     () =>
       new Map(
@@ -160,7 +161,10 @@ function ProviderBrowser(props: ProviderBrowserProps): ReactNode {
     () => sortProviders(props.data.providers, credentialConnectionsByService),
     [credentialConnectionsByService, props.data.providers],
   );
-  const searchedProviders = filterProviders(sortedProviders, query);
+  const searchedProviders = useMemo(
+    () => filterProviders(sortedProviders, deferredQuery),
+    [sortedProviders, deferredQuery],
+  );
   const visibleProviders = filterProvidersByStatus(searchedProviders, statusFilter, statusByService);
   const {
     hasMore: hasMoreProviders,
@@ -205,9 +209,9 @@ function ProviderBrowser(props: ProviderBrowserProps): ReactNode {
       <ProviderCollectionBar
         counts={statusCounts}
         filtersActive={filtersActive}
-        providerCount={visibleProviders.length}
+        providerCount={renderedProviders.length}
         selected={statusFilter}
-        totalProviderCount={props.data.providers.length}
+        totalProviderCount={visibleProviders.length}
         onReset={resetFilters}
         onSelect={setStatusFilter}
       />
@@ -357,46 +361,25 @@ function ProviderCollectionBar(props: {
 }
 
 function ProviderCard(props: ProviderCardProps): ReactNode {
-  const t = useTranslate();
+  const name = props.provider.displayName || props.provider.service;
   const to = `/providers/${encodeURIComponent(props.provider.service)}`;
-  const locallyAvailable = isProviderLocallyAvailable(props.provider);
-  const authLabels = providerAuthTypeLabels(props.provider, t);
-  const actionLabel = !locallyAvailable
-    ? t("providers.buttons.details")
-    : props.status.noSetupRequired
-      ? t("providers.buttons.details")
-      : props.status.connected
-        ? t("providers.buttons.manageConnection")
-        : props.status.oauthClientRequired
-          ? t("providers.buttons.configureOAuthClient")
-          : t("providers.buttons.connect");
 
   return (
-    <div className="provider-card" style={providerCardStyle}>
-      <Link className="provider-card-main" to={to}>
-        <ProviderIcon provider={props.provider} />
-        <span className="provider-card-title-row">
-          <span className="provider-card-title">{props.provider.displayName || props.provider.service}</span>
-          <span className="provider-card-auth-tags">
-            {authLabels.map((label) => (
-              <Badge key={label}>{label}</Badge>
-            ))}
-          </span>
-          <ProviderStatusBadges status={props.status} locallyAvailable={locallyAvailable} compact />
+    <Link className="provider-card" style={providerCardStyle} to={to}>
+      <ProviderIcon provider={props.provider} />
+      <span className="provider-card-main">
+        <span className="provider-card-title" title={name}>
+          {name}
         </span>
-      </Link>
-      <Link
-        className={
-          locallyAvailable && props.status.connected
-            ? "provider-card-action"
-            : "provider-card-action provider-card-action-muted"
-        }
-        to={to}
-      >
-        <span>{actionLabel}</span>
-        <ChevronRight size={15} />
-      </Link>
-    </div>
+        <ProviderStatusBadges
+          status={props.status}
+          locallyAvailable={isProviderLocallyAvailable(props.provider)}
+          compact
+          includeDisconnected
+        />
+      </span>
+      <ChevronRight className="provider-card-chevron" size={15} aria-hidden="true" />
+    </Link>
   );
 }
 
@@ -432,6 +415,12 @@ function ProviderStatusBadges(props: {
       <Badge key="no-setup">
         {props.compact ? <CheckCircle2 size={12} /> : null}
         {t("providers.noSetupBadge")}
+      </Badge>,
+    );
+  } else if (props.compact && props.status.oauthClientRequired) {
+    badges.push(
+      <Badge key="oauth-client" tone="warning">
+        {t("providers.oauthClientRequiredBadge")}
       </Badge>,
     );
   } else if (props.includeDisconnected) {
@@ -1358,7 +1347,9 @@ function filterProvidersByStatus(
   return providers.filter((provider) => {
     const providerStatus = statusByService.get(provider.service);
     if (status === "connected") return providerStatus?.connected === true;
-    if (status === "not_connected") return providerStatus?.connected !== true;
+    if (status === "no_setup") return providerStatus?.noSetupRequired === true;
+    if (status === "not_connected")
+      return providerStatus?.connected !== true && providerStatus?.noSetupRequired !== true;
     return providerStatus?.oauthClientRequired === true;
   });
 }
@@ -1386,6 +1377,7 @@ export function oauthConfigForProvider(configs: OAuthConfig[], service: string):
 const providerStatusOptions: Array<{ id: ProviderStatusFilter; labelKey: string }> = [
   { id: "all", labelKey: "providers.filters.all" },
   { id: "connected", labelKey: "providers.filters.connected" },
+  { id: "no_setup", labelKey: "providers.noSetupBadge" },
   { id: "not_connected", labelKey: "providers.filters.notConnected" },
   { id: "oauth_needs_config", labelKey: "providers.filters.oauthNeedsConfig" },
 ];
