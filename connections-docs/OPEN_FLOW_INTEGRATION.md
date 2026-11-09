@@ -6,19 +6,20 @@ operator-owned [Open Flow fork](https://github.com/Ntrakiyski/open-flow).
 
 ## Runtime configuration
 
-The Git-backed `connections` application runs the public Connector and the private Open Flow
-backend from `docker-compose.yml`. The Open Flow build context pins a compatible commit from the
-fork. `connector:3000` and `open-flow:3000` are Compose network addresses. Only the Connector
-has a public domain. Open Flow's `/readyz` also checks Connector reachability.
+The Git-backed `connections` application runs the public Connector, the private Fractals-dev Open Flow
+backend, and the private workspace runner pool from `docker-compose.yml`. The Open Flow build context
+pins a compatible commit from the fork. Both private services use the same Open Flow image. Only the
+Connector has a public domain.
 
 Set these runtime-only variables in Coolify:
 
-| Variable                         | Value                                                    |
-| -------------------------------- | -------------------------------------------------------- |
-| `OPEN_FLOW_CONNECTOR_TOKEN`      | Fractals-dev Connections runtime key                     |
-| `OPEN_FLOW_TOKEN`                | Private Open Flow administrator token                    |
-| `OPEN_FLOW_DATA_VOLUME`          | Name of the existing external Docker data volume         |
-| `CONNECTIONS_OPEN_FLOW_BACKENDS` | Workspace and user binding with a personal Open Flow key |
+| Variable                           | Value                                                                                     |
+| ---------------------------------- | ----------------------------------------------------------------------------------------- |
+| `OPEN_FLOW_CONNECTOR_TOKEN`        | Fractals-dev Connections runtime key                                                      |
+| `OPEN_FLOW_TOKEN`                  | Private Open Flow administrator token                                                     |
+| `OPEN_FLOW_DATA_VOLUME`            | Name of the existing external Docker data volume                                          |
+| `CONNECTIONS_OPEN_FLOW_BACKENDS`   | Workspace and user binding with a personal Open Flow key                                  |
+| `CONNECTIONS_WORKFLOW_POOL_SECRET` | Private random value of at least 32 bytes, shared only by Connections and the runner pool |
 
 Provider credentials stay in Connections. The runtime key retains its original user and workspace;
 Connections checks current membership, grants and archive state on every request.
@@ -28,7 +29,20 @@ standalone Open Flow container before mounting that volume in Compose. To roll b
 Compose Open Flow service before starting the standalone resource. Restore the quiesced backup if
 the newer image migrated the database and the prior image cannot read it.
 
-## Workflows tab pilot
+## Workflows in new workspaces
+
+Choose a company and workspace, then open **Workflows**. Connections checks the verified session and
+current workspace grant before starting an Open Flow worker. Each workspace/member pair keeps its own
+workflow catalog and run history under the `workspace-open-flow-data` volume. The private worker calls
+Connector with a credential scoped to the same workspace and member. The provider list and allowed
+actions follow their current workspace grants. No separate signup or Connector key setup is required.
+
+The pool resumes provisioned workers after restart and checks live grants every 15 seconds. The API
+and Connector action permissions change immediately with the grant. The worker shuts down when the
+grant check reports that access was removed. The pool has 48 simultaneous worker slots. Back up its
+volume with the pool stopped so each SQLite database has a single writer and a clean snapshot.
+
+## Existing dedicated backend
 
 The Connections console can embed the Open Flow Workbench so the assigned workspace user signs in
 once. Use a backend compatible with `@oomol-lab/open-flow@0.1.0-beta.85`, the Workbench version

@@ -45,7 +45,7 @@ function WorkspaceWorkbench({ scope }: { scope: WorkspaceScope }): ReactNode {
   useEffect(() => {
     const controller = new AbortController();
     const signal = AbortSignal.any([controller.signal, ...(scope.requests.signal ? [scope.requests.signal] : [])]);
-    void fetch(workflowGatewayPath(scope.intent.workspaceId), { credentials: "same-origin", signal })
+    void fetch(workflowGatewayPath(scope.intent.workspaceId), { method: "POST", credentials: "same-origin", signal })
       .then(async (response) => {
         if (response.status === 401) window.dispatchEvent(new Event("connections-session-invalidated"));
         if (!response.ok) throw new Error("Could not check workflow availability.");

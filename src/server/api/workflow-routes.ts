@@ -1,7 +1,9 @@
+import type { WorkflowPool, WorkflowScope } from "../workflow-runtime.ts";
 import type { PrincipalAuthOptions } from "./principal-auth.ts";
 import type { Hono } from "hono";
 
 import { z } from "zod";
+import { isWorkflowEditorRequest, workflowScope } from "../workflow-runtime.ts";
 import { HttpRequestError, notFound } from "./http-utils.ts";
 import { assertTrustedMutation, requireVerifiedSession, resolveWorkspaceAccess } from "./principal-auth.ts";
 
@@ -36,9 +38,11 @@ export function parseWorkflowBackends(value: string | undefined): WorkflowBacken
 }
 
 const route = "/api/workflows/:workspaceId";
-const editorApi = /^\/v1\/(?:flows|runs|tags|variables|trigger-keys)(?:\/|$)/;
-const connectorReads =
-  /^\/v1\/connector\/(?:proxy\/(?:providers|actions)|providers|actions(?:\/[^/]+)?|action-metadata(?:\/[^/]+)?|connections(?:\/[^/]+)?|leina\/bots)$/;
+interface WorkflowTarget {
+  origin: string;
+  token: string;
+  scope?: WorkflowScope;
+}
 const forwardedRequestHeaders = [
   "accept",
   "accept-language",
@@ -54,13 +58,19 @@ export function registerWorkflowRoutes(
   app: Hono,
   auth: PrincipalAuthOptions,
   backends: readonly WorkflowBackend[],
+  pool?: WorkflowPool,
 ): void {
-  const findBackend = async (request: Request, workspaceId: string): Promise<WorkflowBackend | undefined> => {
+  const findBackend = async (request: Request, workspaceId: string): Promise<WorkflowTarget | undefined> => {
     if (request.headers.has("authorization"))
       throw new HttpRequestError("principal_forbidden", "Workflows require a Connections session.", 401);
     const session = await requireVerifiedSession(auth.auth, request);
     await resolveWorkspaceAccess(auth, session.user.id, workspaceId);
-    return backends.find((backend) => backend.workspaceId === workspaceId && backend.userId === session.user.id);
+    const existing = backends.find(
+      (backend) => backend.workspaceId === workspaceId && backend.userId === session.user.id,
+    );
+    if (existing) return existing;
+    const scope = workflowScope(workspaceId, session.user.id);
+    if (pool && scope) return { origin: pool.origin, token: pool.secret, scope };
   };
 
   app.get(route, async (context) => {
@@ -68,14 +78,31 @@ export function registerWorkflowRoutes(
     return context.json({ enabled: Boolean(backend) });
   });
 
+  app.post(route, async (context) => {
+    assertTrustedMutation(context.req.raw, auth.trustedOrigins);
+    const backend = await findBackend(context.req.raw, context.req.param("workspaceId"));
+    if (!backend?.scope) return context.json({ enabled: Boolean(backend) });
+    const response = await fetch(new URL("/provision", backend.origin), {
+      method: "POST",
+      headers: backendHeaders(backend),
+      redirect: "manual",
+      signal: AbortSignal.timeout(30_000),
+    }).catch(() => undefined);
+    await response?.body?.cancel();
+    if (!response?.ok)
+      return context.json(
+        { error: { code: "workflow_backend_unavailable", message: "The workspace runner could not start." } },
+        502,
+      );
+    return context.json({ enabled: true });
+  });
+
   app.all(`${route}/*`, async (context) => {
     const workspaceId = context.req.param("workspaceId");
     const request = context.req.raw;
     const incoming = new URL(request.url);
     const path = `/${incoming.pathname.split("/").slice(4).join("/")}`;
-    if (/%(?:2f|5c|25|00)/i.test(path)) return notFound(context);
-    const readable = request.method === "GET" || request.method === "HEAD";
-    if (!editorApi.test(path) && !(readable && connectorReads.test(path))) return notFound(context);
+    if (!isWorkflowEditorRequest(path, request.method)) return notFound(context);
 
     assertTrustedMutation(request, auth.trustedOrigins);
     const backend = await findBackend(request, workspaceId);
@@ -85,8 +112,7 @@ export function registerWorkflowRoutes(
         "Workflows are unavailable for this account in this workspace.",
         403,
       );
-    const headers = copyHeaders(request.headers, forwardedRequestHeaders);
-    headers.set("authorization", `Bearer ${backend.token}`);
+    const headers = backendHeaders(backend, copyHeaders(request.headers, forwardedRequestHeaders));
     const destination = new URL(backend.origin);
     destination.pathname = path;
     destination.search = incoming.search;
@@ -120,7 +146,12 @@ export function registerWorkflowRoutes(
         new TransformStream<Uint8Array<ArrayBuffer>, Uint8Array<ArrayBuffer>>({
           async transform(chunk, controller) {
             const current = await findBackend(request, workspaceId).catch(() => undefined);
-            if (current === backend) controller.enqueue(chunk);
+            if (
+              current?.origin === backend.origin &&
+              current.token === backend.token &&
+              current.scope?.userId === backend.scope?.userId
+            )
+              controller.enqueue(chunk);
             else controller.terminate();
           },
         }),
@@ -128,6 +159,15 @@ export function registerWorkflowRoutes(
     }
     return new Response(body, { status: response.status, headers: outputHeaders });
   });
+}
+
+function backendHeaders(backend: WorkflowTarget, headers = new Headers()): Headers {
+  headers.set("authorization", `Bearer ${backend.token}`);
+  if (backend.scope) {
+    headers.set("x-connections-workspace-id", backend.scope.workspaceId);
+    headers.set("x-connections-user-id", backend.scope.userId);
+  }
+  return headers;
 }
 
 function copyHeaders(source: Headers, names: readonly string[]): Headers {

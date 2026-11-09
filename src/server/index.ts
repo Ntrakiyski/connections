@@ -19,10 +19,15 @@ import { createSecretCodec } from "./secrets/secret-codec.ts";
 import { normalizePostgresConnectionString } from "./storage/postgres-config.ts";
 import { PostgresRuntimeDatabase } from "./storage/postgres-runtime-store.ts";
 import { SqliteRuntimeDatabase } from "./storage/sqlite-runtime-store.ts";
+import { parseWorkflowPool } from "./workflow-runtime.ts";
 
 const authSettings = readDeploymentAuthSettings(process.env);
 const workflowBackends = parseWorkflowBackends(process.env.CONNECTIONS_OPEN_FLOW_BACKENDS);
-if (workflowBackends.length > 0 && authSettings.kind !== "sessions") {
+const workflowPool = parseWorkflowPool(
+  process.env.CONNECTIONS_WORKFLOW_POOL_ORIGIN,
+  process.env.CONNECTIONS_WORKFLOW_POOL_SECRET,
+);
+if ((workflowBackends.length > 0 || workflowPool) && authSettings.kind !== "sessions") {
   throw new Error("Open Flow workspaces require Connections session authentication.");
 }
 const port = Number(process.env.PORT ?? 3000);
@@ -85,6 +90,7 @@ const { app, runtimeAuthConfigured } = await createConnectApp({
       : undefined,
   trustedAuthOrigins: authSettings.kind === "sessions" ? authSettings.trustedOrigins : undefined,
   workflowBackends,
+  workflowPool,
   developmentBypass: authSettings.kind === "development-bypass",
   actionPolicy,
   registerStaticRoutes: (app) => registerStaticRoutes(app, staticRoot),

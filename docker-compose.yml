@@ -22,11 +22,14 @@ services:
       OOMOL_CONNECT_ALLOWED_PROXIES:
       OOMOL_CONNECT_BLOCKED_PROXIES:
       CONNECTIONS_OPEN_FLOW_BACKENDS:
+      CONNECTIONS_WORKFLOW_POOL_ORIGIN: http://workspace-open-flow:3000
+      CONNECTIONS_WORKFLOW_POOL_SECRET: ${CONNECTIONS_WORKFLOW_POOL_SECRET:?Set a private workflow pool secret}
 
   open-flow:
     build:
       context: https://github.com/Ntrakiyski/open-flow.git#5418108b29315872ff2d6201fdd97503b8aacd5a
       dockerfile: apps/server/Dockerfile
+    command: ["flock", "--no-fork", "/data/open-flow/.server.lock", "node", "--no-node-snapshot", "server/main.js"]
     stop_grace_period: 45s
     volumes:
       - open-flow-data:/data/open-flow
@@ -37,8 +40,23 @@ services:
       OPEN_FLOW_TOKEN: ${OPEN_FLOW_TOKEN:?Set the private Open Flow operator token}
       OPEN_FLOW_SESSION_COOKIE_SECURE: "true"
 
+  workspace-open-flow:
+    build:
+      context: .
+      dockerfile: docker/workflow-pool.Dockerfile
+      additional_contexts:
+        open-flow-image: service:open-flow
+    stop_grace_period: 45s
+    volumes:
+      - workspace-open-flow-data:/data/open-flow
+    environment:
+      OPEN_FLOW_CONNECTOR_ORIGIN: http://connector:3000
+      OPEN_FLOW_CONNECTOR_CONSOLE_ORIGIN: https://connections.fractals-solutions.com
+      CONNECTIONS_WORKFLOW_POOL_SECRET: ${CONNECTIONS_WORKFLOW_POOL_SECRET:?Set a private workflow pool secret}
+
 volumes:
   connector-data:
+  workspace-open-flow-data:
   open-flow-data:
     external: true
     name: ${OPEN_FLOW_DATA_VOLUME}

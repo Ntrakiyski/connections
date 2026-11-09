@@ -1,5 +1,6 @@
 import type { AuthMail } from "../human-auth.ts";
 import type { RuntimeDatabase } from "../storage/runtime-database.ts";
+import type { WorkflowPool } from "../workflow-runtime.ts";
 import type { WorkflowBackend } from "./workflow-routes.ts";
 import type { BetterAuthOptions } from "better-auth";
 import type { Hono } from "hono";
@@ -25,6 +26,7 @@ import { RuntimeTokenService } from "../storage/runtime-token-service.ts";
 import { SqliteRuntimeDatabase } from "../storage/sqlite-runtime-store.ts";
 import { FixtureD1Database } from "../test-fixtures/sqlite-d1.ts";
 import { sentinelCatalog, sentinelCredential, SentinelProviderLoader } from "../test-fixtures/two-company.ts";
+import { workflowConnectorToken } from "../workflow-runtime.ts";
 
 const origin = "http://localhost:3000";
 const password = "synthetic-local-password-12345";
@@ -43,7 +45,11 @@ afterEach(async () => {
   for (const close of cleanups.splice(0)) await close();
 });
 
-async function createFixture(adapter: string, workflowBackends?: WorkflowBackend[]): Promise<Fixture> {
+async function createFixture(
+  adapter: string,
+  workflowBackends?: WorkflowBackend[],
+  workflowPool?: WorkflowPool,
+): Promise<Fixture> {
   const directory = await mkdtemp(join(tmpdir(), "connections-human-auth-"));
   const filename = join(directory, "connect.sqlite");
   let database: RuntimeDatabase;
@@ -137,6 +143,7 @@ async function createFixture(adapter: string, workflowBackends?: WorkflowBackend
     secretCodec: new PlainTextSecretCodec(),
     humanAuth: auth,
     workflowBackends,
+    workflowPool,
     authMailDelivery: async (message) => {
       mail.push(message);
     },
@@ -233,6 +240,78 @@ async function seed(fixture: Fixture, userId: string): Promise<void> {
       .connectionStore.set("sentinel", "shared", sentinelCredential(`${workspaceId}-account`), userId);
   }
 }
+
+it("automatically enables Workflows in a new company workspace without reusing another scope", async () => {
+  const pool = { origin: "http://workflow-pool.test", secret: "isolated-workflow-pool-test-key-0123456789" };
+  const fixture = await createFixture("SQLite", [], pool);
+  const alice = await register(fixture, "alice@example.test");
+  const bob = await register(fixture, "bob@example.test");
+  await seed(fixture, alice.userId);
+  const created = await post(
+    fixture.app,
+    "/api/companies/A/workspaces",
+    {
+      name: "New workspace",
+      initialAdminId: alice.userId,
+    },
+    alice.cookie,
+  );
+  expect(created.status).toBe(201);
+  const { workspaceId } = (await created.json()) as { workspaceId: string };
+  expect(workspaceId).not.toBe("A1");
+  const requestedScopes: Array<{ workspaceId: string | null; userId: string | null }> = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const request = new Request(input, init);
+      expect(request.headers.get("authorization")).toBe(`Bearer ${pool.secret}`);
+      expect(request.headers.has("cookie")).toBe(false);
+      expect(new URL(request.url).origin).toBe(pool.origin);
+      requestedScopes.push({
+        workspaceId: request.headers.get("x-connections-workspace-id"),
+        userId: request.headers.get("x-connections-user-id"),
+      });
+      return new URL(request.url).pathname === "/provision"
+        ? new Response(null, { status: 204 })
+        : Response.json({ flows: [] });
+    }),
+  );
+  const workspacePath = `${origin}/api/workflows/${workspaceId}`;
+  const provision = (cookie: string, requestOrigin = origin) =>
+    fixture.app.request(workspacePath, {
+      method: "POST",
+      headers: {
+        origin: requestOrigin,
+        cookie,
+        "x-connections-workspace-id": "B1",
+        "x-connections-user-id": bob.userId,
+      },
+    });
+  expect((await provision(bob.cookie)).status).toBe(403);
+  expect((await provision(alice.cookie, "https://untrusted.test")).status).toBe(403);
+  expect(requestedScopes).toEqual([]);
+  expect(await (await provision(alice.cookie)).json()).toEqual({ enabled: true });
+  expect((await fixture.app.request(`${workspacePath}/v1/flows`, { headers: { cookie: alice.cookie } })).status).toBe(
+    200,
+  );
+  expect(requestedScopes).toEqual([
+    { workspaceId, userId: alice.userId },
+    { workspaceId, userId: alice.userId },
+  ]);
+
+  const token = workflowConnectorToken({ workspaceId, userId: alice.userId }, pool.secret);
+  const runtime = (path: string, credential = token) =>
+    fixture.app.request(`${origin}${path}`, {
+      headers: { authorization: `Bearer ${credential}` },
+    });
+  expect((await runtime("/v1/health")).status).toBe(200);
+  expect((await runtime("/v1/health?workspaceId=A1")).status).toBe(403);
+  expect((await runtime("/v1/health", token.slice(0, -1) + (token.endsWith("A") ? "B" : "A"))).status).toBe(401);
+  expect((await runtime("/mcp")).status).toBe(401);
+  await fixture.write("update workspaces set deleted_at=? where id=?", [new Date().toISOString(), workspaceId]);
+  expect((await runtime("/v1/health")).status).toBe(403);
+  expect((await provision(alice.cookie)).status).toBe(403);
+});
 
 for (const adapter of ["SQLite", "PostgreSQL"]) {
   it.skipIf(adapter === "PostgreSQL" && !process.env.CONNECTIONS_TEST_POSTGRES_URL)(

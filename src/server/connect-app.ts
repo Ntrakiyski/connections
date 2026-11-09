@@ -9,6 +9,7 @@ import type { Logger } from "./logger.ts";
 import type { ISecretCodec } from "./secrets/secret-codec-core.ts";
 import type { RuntimeDatabase } from "./storage/runtime-database.ts";
 import type { WorkspaceContext } from "./storage/runtime-token-service.ts";
+import type { WorkflowPool } from "./workflow-runtime.ts";
 import type { Hono } from "hono";
 
 import { ConnectionError, ConnectionService } from "../connection-service.ts";
@@ -37,6 +38,7 @@ export interface ConnectAppOptions {
   authMailDelivery?: AuthMailDelivery;
   trustedAuthOrigins?: string[];
   workflowBackends?: readonly WorkflowBackend[];
+  workflowPool?: WorkflowPool;
   developmentBypass?: boolean;
   actionPolicy?: ActionPolicyService;
   registerStaticRoutes?: (app: Hono) => void;
@@ -169,6 +171,7 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
       registerStaticRoutes: options.registerStaticRoutes,
       developmentBypass: options.developmentBypass,
       workflowBackends: options.workflowBackends,
+      workflowPool: options.workflowPool,
       principalAuth:
         options.humanAuth && options.runtimeDatabase.identityDirectory
           ? {
@@ -178,6 +181,7 @@ export async function createConnectApp(options: ConnectAppOptions): Promise<Conn
               workspaceStore: options.runtimeDatabase.workspaceStore,
               membershipStore: options.runtimeDatabase.membershipStore,
               runtimeTokens,
+              workflowPoolSecret: options.workflowPool?.secret,
               meetingsOAuth,
             }
           : undefined,

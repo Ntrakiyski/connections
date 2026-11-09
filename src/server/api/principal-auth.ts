@@ -5,6 +5,7 @@ import type { IWorkspaceMembershipStore, IWorkspaceStore } from "../storage/runt
 import type { RuntimeTokenService, WorkspaceContext } from "../storage/runtime-token-service.ts";
 import type { MiddlewareHandler } from "hono";
 
+import { verifyWorkflowConnectorToken, workflowScopeId } from "../workflow-runtime.ts";
 import { isConsoleShellPath } from "./console-paths.ts";
 import { HttpRequestError } from "./http-utils.ts";
 
@@ -33,6 +34,7 @@ export interface PrincipalAuthOptions {
   workspaceStore: IWorkspaceStore;
   membershipStore: IWorkspaceMembershipStore;
   runtimeTokens: RuntimeTokenService;
+  workflowPoolSecret?: string;
   trustedOrigins: string[];
   meetingsOAuth?: MeetingsOAuthService;
 }
@@ -111,13 +113,22 @@ export function createPrincipalAuthMiddleware(options: PrincipalAuthOptions): Mi
       return;
     }
     if (authorization) {
-      const match = /^Bearer (oct_[A-Za-z0-9_-]+)$/.exec(authorization);
+      const match = /^Bearer (\S+)$/.exec(authorization);
       const runtimePath = path === "/mcp" || path.startsWith("/mcp/") || path.startsWith("/v1/");
       if (!match?.[1] || !runtimePath)
         throw new HttpRequestError("principal_forbidden", "This credential cannot access this endpoint.", 401);
       if (hasSessionCookie(context.req.raw))
         throw new HttpRequestError("conflicting_credentials", "Use one principal per request.", 400);
-      const access = await options.runtimeTokens.verifyToken(match[1]);
+      const credential = match[1];
+      const workflow =
+        path.startsWith("/v1/") && options.workflowPoolSecret
+          ? verifyWorkflowConnectorToken(credential, options.workflowPoolSecret)
+          : undefined;
+      const access = workflow
+        ? { ...workflow, tokenId: "workflow_" + workflowScopeId(workflow) }
+        : /^oct_[A-Za-z0-9_-]+$/.test(credential)
+          ? await options.runtimeTokens.verifyToken(credential)
+          : undefined;
       if (!access) throw new HttpRequestError("unauthorized", "A valid runtime token is required.", 401);
       const headerWorkspace = context.req.header("x-workspace-id");
       const queryWorkspace = context.req.query("workspaceId");

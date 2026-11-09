@@ -17,7 +17,7 @@
 
 - The Resources page links to the operator-owned `Ntrakiyski/open-flow` GitHub fork of `oomol-lab/open-flow` so workflow source can be modified independently.
 - The operator's Open Flow deployment uses Connections as its custom Connector gateway through a dedicated runtime token bound to the existing Fractals-dev administrator and workspace. A manual Board read workflow verifies the integration.
-- The optional Workflows pilot embeds the Open Flow Workbench behind the Connections session. A workspace binding identifies one explicit Connections user and one private Open Flow backend with separate storage. The backend's Connector token belongs to that same user and workspace. A workspace grant alone does not allow use of another user's workflow binding.
+- Workflows is a workspace feature alongside Providers and Actions. Opening it provisions private Open Flow storage for the verified workspace member. The runner uses that same workspace and member's current Connector grants. Workflow access never crosses workspace or member boundaries. Explicit existing bindings retain their original storage.
 - Fractals-dev deploys its Open Flow backend privately inside the Git-backed Connections Compose application. Connections owns the public URL and Open Flow owns its separate persistent volume.
 
 - A workspace owns provider enablement, OAuth application configuration, and action availability.
