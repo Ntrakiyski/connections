@@ -1,29 +1,32 @@
 # Open Flow and Connections
 
-The operator-owned [Open Flow fork](https://github.com/Ntrakiyski/open-flow) is deployed at
-<https://openflow.159.69.35.245.sslip.io>. It uses the existing
-<https://connections.fractals-solutions.com> runtime and its Fractals-dev workspace.
+Open Flow powers the **Workflows** tab at
+<https://connections.fractals-solutions.com/workflows>. The Fractals-dev deployment uses the
+operator-owned [Open Flow fork](https://github.com/Ntrakiyski/open-flow).
 
 ## Runtime configuration
 
-Coolify application `open-flow` builds `apps/server/Dockerfile` from the fork's `main` branch.
-Its named data volume persists the SQLite database, workflows and run history. Auto Deploy is enabled.
-The image's native Node health check is retained; `/readyz` also verifies gateway reachability.
+The Git-backed `connections` application runs the public Connector and the private Open Flow
+backend from `docker-compose.yml`. The Open Flow build context pins a compatible commit from the
+fork. `connector:3000` and `open-flow:3000` are Compose network addresses. Only the Connector
+has a public domain. Open Flow's `/readyz` also checks Connector reachability.
 
 Set these runtime-only variables in Coolify:
 
-| Variable                             | Value                                               |
-| ------------------------------------ | --------------------------------------------------- |
-| `OPEN_FLOW_CONNECTOR_ORIGIN`         | `https://connections.fractals-solutions.com`        |
-| `OPEN_FLOW_CONNECTOR_CONSOLE_ORIGIN` | `https://connections.fractals-solutions.com`        |
-| `OPEN_FLOW_CONNECTOR_TOKEN`          | Dedicated Connections runtime key named `Open Flow` |
-| `OPEN_FLOW_TOKEN`                    | Private Open Flow administrator token               |
-| `OPEN_FLOW_PUBLIC_ORIGIN`            | `https://openflow.159.69.35.245.sslip.io`           |
-| `OPEN_FLOW_SESSION_COOKIE_SECURE`    | `true`                                              |
+| Variable                         | Value                                                    |
+| -------------------------------- | -------------------------------------------------------- |
+| `OPEN_FLOW_CONNECTOR_TOKEN`      | Fractals-dev Connections runtime key                     |
+| `OPEN_FLOW_TOKEN`                | Private Open Flow administrator token                    |
+| `OPEN_FLOW_DATA_VOLUME`          | Name of the existing external Docker data volume         |
+| `CONNECTIONS_OPEN_FLOW_BACKENDS` | Workspace and user binding with a personal Open Flow key |
 
-Open Flow's administrator login uses `OPEN_FLOW_TOKEN` from that application's Coolify environment.
 Provider credentials stay in Connections. The runtime key retains its original user and workspace;
 Connections checks current membership, grants and archive state on every request.
+
+The external Open Flow volume preserves the SQLite database, workflows, and run history. Stop the
+standalone Open Flow container before mounting that volume in Compose. To roll back, stop the
+Compose Open Flow service before starting the standalone resource. Restore the quiesced backup if
+the newer image migrated the database and the prior image cannot read it.
 
 ## Workflows tab pilot
 
