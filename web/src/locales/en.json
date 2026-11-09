@@ -44,6 +44,7 @@
     "dismiss": "Dismiss"
   },
   "nav": {
+    "connections": "Connections",
     "workflows": "Workflows",
     "overview": "Overview",
     "providers": "Providers",

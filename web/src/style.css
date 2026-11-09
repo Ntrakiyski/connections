@@ -386,12 +386,27 @@ h3 {
 }
 
 .sidebar-nav {
-  display: grid;
-  align-content: start;
+  display: flex;
+  flex-direction: column;
   min-height: 0;
-  gap: 4px;
+  gap: 14px;
   overflow-y: auto;
-  padding: 16px 12px;
+  padding: 16px 12px 12px;
+}
+
+.sidebar-nav-group {
+  display: grid;
+  gap: 4px;
+}
+
+.sidebar-nav-group[data-section="utilities"] {
+  margin-top: auto;
+}
+
+.sidebar-section-label {
+  font-size: 13px;
+  font-weight: 400;
+  line-height: inherit;
 }
 
 .nav-item,
@@ -2853,8 +2868,9 @@ tr:last-child td {
     z-index: 20;
     align-self: auto;
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr);
     grid-template-rows: auto;
+    gap: 8px 12px;
     align-items: center;
     height: auto;
     min-height: 0;
@@ -2874,25 +2890,37 @@ tr:last-child td {
   }
 
   .sidebar-nav {
-    display: flex;
+    grid-column: 1 / -1;
+    flex-direction: row;
     overflow-x: auto;
     overflow-y: visible;
-    gap: 4px;
     min-width: 0;
     padding: 0;
   }
 
-  .nav-item {
-    flex: 0 0 auto;
-    white-space: nowrap;
+  .sidebar-nav-group {
+    flex: none;
+    grid-template-rows: 1.25rem auto;
+    grid-auto-flow: column;
   }
 
-  .nav-item span {
+  .sidebar-nav-group[data-section="utilities"] {
+    margin-top: 0;
+  }
+
+  .sidebar-nav-group .sidebar-section-label {
+    padding-inline: 12px;
+  }
+
+  .nav-item {
+    grid-row: 2;
     white-space: nowrap;
   }
 
   .sidebar-footer {
     display: flex;
+    grid-column: 1 / -1;
+    flex-wrap: wrap;
     align-items: center;
     gap: 8px;
     padding: 0;
@@ -3236,10 +3264,9 @@ tr:last-child td {
 }
 @media (max-width: 960px) {
   .workspace-switcher {
-    grid-column: 1 / -1;
-    grid-row: 2;
+    justify-self: end;
     width: min(100%, 15.5rem);
-    margin: 8px 0 0;
+    margin: 0;
   }
 }
 @media (max-width: 640px) {
@@ -3247,8 +3274,7 @@ tr:last-child td {
     overflow: visible;
   }
   .workspace-switcher {
-    grid-row: auto;
-    margin: 0;
+    justify-self: start;
   }
 }
 .company-card a {

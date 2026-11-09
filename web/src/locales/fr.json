@@ -44,6 +44,7 @@
     "dismiss": "Fermer"
   },
   "nav": {
+    "connections": "Connexions",
     "workflows": "Flux de travail",
     "overview": "Vue d’ensemble",
     "providers": "Fournisseurs",

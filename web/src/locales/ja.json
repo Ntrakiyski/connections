@@ -44,6 +44,7 @@
     "dismiss": "閉じる"
   },
   "nav": {
+    "connections": "接続",
     "workflows": "ワークフロー",
     "overview": "概要",
     "providers": "プロバイダー",

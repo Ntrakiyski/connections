@@ -69,15 +69,30 @@ interface NavItem {
   roles?: readonly WorkspaceRole[];
 }
 
-const navItems: readonly NavItem[] = [
-  { path: "/overview", labelKey: "nav.overview", icon: Home },
-  { path: "/providers", labelKey: "nav.providers", icon: Cable },
-  { path: "/actions", labelKey: "nav.actions", icon: TerminalSquare },
-  { path: "/workflows", labelKey: "nav.workflows", icon: Workflow },
-  { path: "/runs", labelKey: "nav.runs", icon: Activity },
-  { path: "/access", labelKey: "nav.access", icon: KeyRound },
-  { path: "/resources", labelKey: "nav.docs", icon: BookOpen },
-  { path: "/workspace", labelKey: "nav.settings", icon: Settings },
+const navSections: readonly { id: string; labelKey?: string; items: readonly NavItem[] }[] = [
+  { id: "overview", items: [{ path: "/overview", labelKey: "nav.overview", icon: Home }] },
+  {
+    id: "connections",
+    labelKey: "nav.connections",
+    items: [
+      { path: "/providers", labelKey: "nav.providers", icon: Cable },
+      { path: "/actions", labelKey: "nav.actions", icon: TerminalSquare },
+      { path: "/runs", labelKey: "nav.runs", icon: Activity },
+    ],
+  },
+  {
+    id: "workflows",
+    labelKey: "nav.workflows",
+    items: [{ path: "/workflows", labelKey: "nav.workflows", icon: Workflow }],
+  },
+  {
+    id: "utilities",
+    items: [
+      { path: "/access", labelKey: "nav.access", icon: KeyRound },
+      { path: "/workspace", labelKey: "nav.settings", icon: Settings },
+      { path: "/resources", labelKey: "nav.docs", icon: BookOpen },
+    ],
+  },
 ];
 
 const oauthCompletionChannelName = "oomol-connect-oauth";
@@ -422,12 +437,14 @@ function AppShell(props: {
   ]
     .filter(Boolean)
     .join(" ");
-  const visibleNavItems = navItems.filter(
-    (item) => item.roles === undefined || item.roles.includes(props.data.role ?? "member"),
-  );
-  const currentNavItem =
-    visibleNavItems.find((item) => item.path.slice(1) === heading) ?? visibleNavItems[0] ?? navItems[0];
-  const CurrentNavIcon = currentNavItem.icon;
+  const visibleNavSections = navSections
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => item.roles === undefined || item.roles.includes(props.data.role ?? "member")),
+    }))
+    .filter((group) => group.items.length > 0);
+  const CurrentNavIcon =
+    visibleNavSections.flatMap((group) => group.items).find((item) => item.path === `/${section}`)?.icon ?? Home;
   const workspaces = props.directory.account.workspaces;
   const currentWorkspace = workspaces.find((workspace) => workspace.workspaceId === props.data.workspaceId);
   const currentWorkspaceLabel = currentWorkspace ? workspaceLabel(currentWorkspace) : "Select workspace";
@@ -450,7 +467,9 @@ function AppShell(props: {
         </div>
 
         <div className="workspace-switcher">
-          <span id="workspace-switcher-label">Workspace</span>
+          <span id="workspace-switcher-label" className="sidebar-section-label">
+            Workspace
+          </span>
           <Dialog modal={false}>
             <DialogTrigger asChild>
               <Button
@@ -496,17 +515,32 @@ function AppShell(props: {
         </div>
 
         <nav className="sidebar-nav" aria-label={t("shell.primaryNav")}>
-          {visibleNavItems.map((item) => {
-            const Icon = item.icon;
+          {visibleNavSections.map((group) => {
+            const labelId = group.labelKey ? `sidebar-section-${group.id}` : undefined;
             return (
-              <WorkspaceNavLink
-                key={item.path}
-                className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}
-                to={item.path}
+              <div
+                key={group.id}
+                className="sidebar-nav-group"
+                data-section={group.id}
+                role={labelId ? "group" : undefined}
+                aria-labelledby={labelId}
               >
-                <Icon size={16} />
-                <span>{t(item.labelKey)}</span>
-              </WorkspaceNavLink>
+                {group.labelKey && (
+                  <h2 id={labelId} className="sidebar-section-label">
+                    {t(group.labelKey)}
+                  </h2>
+                )}
+                {group.items.map(({ path, labelKey, icon: Icon }) => (
+                  <WorkspaceNavLink
+                    key={path}
+                    className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}
+                    to={path}
+                  >
+                    <Icon size={16} aria-hidden="true" />
+                    <span>{t(labelKey)}</span>
+                  </WorkspaceNavLink>
+                ))}
+              </div>
             );
           })}
         </nav>

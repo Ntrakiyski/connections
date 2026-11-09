@@ -44,6 +44,7 @@
     "dismiss": "关闭"
   },
   "nav": {
+    "connections": "连接",
     "workflows": "工作流",
     "overview": "概览",
     "providers": "提供商",
