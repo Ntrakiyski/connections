@@ -16,6 +16,13 @@ The existing OpenConnector runtime remains the provider-execution foundation. Pr
 
 The accepted migration in issues #2–#12 assigns human identity, sessions and company directory membership to Better Auth. Connections owns company-scoped workspace grants and resource authorization. Keep legacy Clerk paths during schema expansion until their dependent migration tickets replace them.
 
+## Connections and Open Flow
+
+- Start in [Ntrakiyski/connections](https://github.com/Ntrakiyski/connections) for console navigation, sign-in, company and workspace behavior, providers, or deployment. The embedded Workflows page lives in [`web/src/workflows-page.tsx`](web/src/workflows-page.tsx), and [`src/server/api/workflow-routes.ts`](src/server/api/workflow-routes.ts) owns its authenticated gateway.
+- Change the workflow engine or Workbench internals in [Ntrakiyski/open-flow](https://github.com/Ntrakiyski/open-flow) and follow that repo's `AGENTS.md`. For a cross-repo change, validate the Open Flow change and then update the consuming integration in Connections.
+- Bring a server change into Connections by updating the exact Open Flow Git commit in [`docker-compose.yml`](docker-compose.yml). Bring a Workbench change in through a compatible `@oomol-lab/open-flow` build pinned in [`web/package.json`](web/package.json) and [`package-lock.json`](package-lock.json). Verify the editor and server together when their shared contract changes.
+- Deploy both through the single Connections Coolify resource. Keep `connector` as the public entry and the Open Flow runners private. Preserve workspace access checks, runner scope, and existing workflow volumes. Verify an authorized workflow opens and runs in its workspace when changing the integration.
+
 ## Architecture
 
 - Keep one clear owner for each fact. Do not repeat provider metadata such as `displayName` in executors when it already belongs to `definition.ts`; pass or inject it from the caller that has the definition/catalog.

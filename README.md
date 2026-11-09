@@ -9,7 +9,7 @@
   <a href="https://github.com/Ntrakiyski"><img src="https://img.shields.io/badge/fractals-studio-FA5C2C?style=flat-square&labelColor=1E1B16" alt="Fractals Studio"></a>
 </p>
 
-Connections is a shared SaaS for workspace-scoped provider connections and MCP access. It builds on the OpenConnector provider runtime. One verified account can belong to multiple companies, and each company can own multiple workspaces with independent resource grants.
+Connections is a shared SaaS for workspace-scoped provider connections, MCP access, and workflows. It builds on the OpenConnector provider runtime and embeds Open Flow for workflow authoring and execution. One verified account can belong to multiple companies, and each company can own multiple workspaces with independent resource grants.
 
 People connect their work accounts once, then approved AI agents use those accounts through MCP or the runtime API. Provider credentials stay on the server; agents receive only safe account metadata, action schemas, and execution results.
 
@@ -33,6 +33,7 @@ The result is a single connection layer for people and AI: team-wide when author
 
 - Better Auth sign-in, email verification and password recovery; company invitations, scoped offboarding and explicit workspace grants.
 - Workspace-scoped provider enablement, OAuth client configuration, connection accounts, runtime tokens, runs, files, approval settings, and audit events.
+- A Workflows section inside each workspace with an embedded editor and private Open Flow execution.
 - Multiple clearly labelled accounts per provider, such as `personal-gmail` and `finance-gmail`.
 - MCP discovery and execution across the provider catalog, with an explicit account label required for every action.
 - Member, manager, and admin authorization enforced by the Hono API.
@@ -86,11 +87,20 @@ The MCP workflow is:
 
 The HTTP API exposes the generated OpenAPI document at `/openapi.json` and interactive reference at `/docs`. Runtime action calls use `/v1/actions/{actionId}` and also require `connectionName`.
 
+## Repositories and workflow development
+
+- [Ntrakiyski/connections](https://github.com/Ntrakiyski/connections) is the primary app repository. It owns the console, sign-in, companies, workspaces, provider actions, the workflow integration, and the production Compose configuration.
+- [Ntrakiyski/open-flow](https://github.com/Ntrakiyski/open-flow) is the workflow engine and editor source repository. Workbench components and workflow execution logic are developed there.
+
+Users sign in through Connections and open **Workflows** in a workspace. Connections checks their access and forwards requests to a private Open Flow runner. Workflow definitions and run history live in Open Flow's persistent storage. Provider actions use the workspace's Connections grants.
+
+Open Flow server changes reach Connections by updating the pinned Git commit in [`docker-compose.yml`](docker-compose.yml). Editor changes reach Connections through a compatible `@oomol-lab/open-flow` package build and updates to [`web/package.json`](web/package.json) and [`package-lock.json`](package-lock.json). An integration change can touch both repos. Verify the embedded editor and runner together before deploying a changed pin.
+
 ## Deploy with Docker and Coolify
 
-The repository Compose file builds the application from the current source, including the web console. In Coolify, select Docker Compose and deploy the repository root on `main`.
+Deploy the root of `Ntrakiyski/connections` on `main` as one Docker Compose application in Coolify. Compose builds the Connections console and API, the pinned Open Flow server, and the workspace runner pool.
 
-The service listens on port `3000`; configure Coolify's domain to route to that port. The health endpoint is `/health`.
+Route the public domain to `connector` on port `3000`. Keep the Open Flow services on the internal network and retain their persistent volumes across deploys. The public health endpoint is `/health`.
 
 Set these production environment variables in Coolify:
 
